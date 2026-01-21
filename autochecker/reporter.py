@@ -56,13 +56,28 @@ class Reporter:
         if self._llm_analysis:
             html += "<h2>🤖 Анализ от нейросети</h2>"
             html += f"<p><b>Вердикт:</b> {self._llm_analysis.get('verdict', 'нет данных')}</p>"
+            
+            # Показываем анализ по задачам, если есть
+            if self._llm_analysis.get('task_analysis'):
+                html += "<h3>Детальный анализ по задачам:</h3>"
+                for task in self._llm_analysis['task_analysis']:
+                    html += f"<div style='margin-bottom: 20px; border-left: 3px solid #ccc; padding-left: 10px;'>"
+                    html += f"<h4>Task {task.get('task_number', '?')}: {task.get('task_name', 'Неизвестная задача')}</h4>"
+                    html += f"<p><b>Результат:</b> {task.get('result', 'Не указан')}</p>"
+                    html += f"<p><b>Аргументация:</b> {task.get('argumentation', 'Нет аргументации')}</p>"
+                    if task.get('quotes'):
+                        html += f"<p><b>Цитаты:</b> {task.get('quotes')}</p>"
+                    if task.get('link'):
+                        html += f"<p><b>Ссылка:</b> <a href='{task.get('link')}' target='_blank'>{task.get('link')}</a></p>"
+                    html += "</div>"
+            
             if self._llm_analysis.get('reasons'):
-                html += "<b>Аргументация:</b><ul>"
+                html += "<h3>Общая аргументация:</h3><ul>"
                 for reason in self._llm_analysis['reasons']:
                     html += f"<li>{reason}</li>"
                 html += "</ul>"
             if self._llm_analysis.get('quotes'):
-                html += "<b>Цитаты из работы:</b><blockquote>"
+                html += "<h3>Цитаты из работы:</h3><blockquote>"
                 for quote in self._llm_analysis['quotes']:
                     html += f"<p><i>\"{quote}\"</i></p>"
                 html += "</blockquote>"
@@ -74,11 +89,15 @@ class Reporter:
         html += f"<li>❌ Провалено: {summary['failed_checks']}</li>"
         html += f"<li>⚠️ Ошибок: {summary['errored_checks']}</li>"
         html += "</ul>"
-        html += "<h3>Детали:</h3><table border='1'><tr><th>ID</th><th>Статус</th><th>Описание</th></tr>"
+        html += "<h3>Детали:</h3><table border='1'><tr><th>ID</th><th>Статус</th><th>Описание</th><th>Детали</th></tr>"
 
         for res in self._results:
             status_icon = "✅" if res['status'] == 'PASS' else "❌" if res['status'] == 'FAIL' else "⚠️"
-            html += f"<tr><td>{res['id']}</td><td>{status_icon} {res['status']}</td><td>{res.get('description', '')}</td></tr>"
+            description = res.get('description', '')
+            details = res.get('details', '')
+            # Показываем детали только если они есть и статус не PASS
+            details_cell = f"<td>{details}</td>" if details else "<td>-</td>"
+            html += f"<tr><td>{res['id']}</td><td>{status_icon} {res['status']}</td><td>{description}</td>{details_cell}</tr>"
 
         html += "</table>"
 

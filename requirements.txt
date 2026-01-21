@@ -7,3 +7,4 @@ pydantic
 requests
 pyyaml
 google-genai
+python-dotenv
