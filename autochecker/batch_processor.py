@@ -8,6 +8,7 @@ import time
 
 from .spec import load_spec
 from .github_client import GitHubClient
+from .gitlab_client import GitLabClient, create_client
 from .repo_reader import RepoReader
 from .engine import CheckEngine
 from .reporter import Reporter
@@ -21,7 +22,9 @@ def process_single_student(
     token: str,
     gemini_api_key: Optional[str],
     output_dir: str,
-    plagiarism_checker: Optional[PlagiarismChecker] = None
+    plagiarism_checker: Optional[PlagiarismChecker] = None,
+    platform: str = "github",
+    gitlab_url: str = "https://gitlab.com"
 ) -> Dict:
     """Обрабатывает одного студента. Возвращает результат или ошибку."""
     try:
@@ -34,10 +37,17 @@ def process_single_student(
             if old_path.exists():
                 old_path.unlink()
         
-        print(f"  👨‍🎓 Обработка: {student_alias}/{repo_name}")
+        platform_name = "GitLab" if platform.lower() == "gitlab" else "GitHub"
+        print(f"  👨‍🎓 Обработка: {student_alias}/{repo_name} ({platform_name})")
         
-        # Создаем клиенты
-        client = GitHubClient(token=token, repo_owner=student_alias, repo_name=repo_name)
+        # Создаем клиенты для нужной платформы
+        client = create_client(
+            platform=platform,
+            token=token,
+            repo_owner=student_alias,
+            repo_name=repo_name,
+            gitlab_url=gitlab_url
+        )
         
         # Проверяем доступность репозитория
         repo_info = client.get_repo_info()
@@ -66,7 +76,13 @@ def process_single_student(
             }
         
         # Скачиваем архив
-        reader = RepoReader(owner=student_alias, repo_name=repo_name, token=token)
+        reader = RepoReader(
+            owner=student_alias, 
+            repo_name=repo_name, 
+            token=token,
+            platform=platform,
+            gitlab_url=gitlab_url
+        )
         
         # Добавляем код студента для проверки плагиата
         plagiarism_info = None
@@ -79,11 +95,13 @@ def process_single_student(
         engine = CheckEngine(client, reader)
         results = []
         for check_spec in lab_spec.checks:
+            # Используем title, если есть, иначе description, иначе id
+            check_description = check_spec.title or check_spec.description or check_spec.id
             result = engine.run_check(
                 check_spec.id,
                 check_spec.type,
                 check_spec.params,
-                check_spec.description
+                check_description
             )
             results.append(result)
         
@@ -93,8 +111,12 @@ def process_single_student(
             try:
                 from .llm_analyzer import analyze_repo
                 llm_analysis = analyze_repo(
-                    gemini_api_key, reader, client,
-                    lab_spec=lab_spec, repo_owner=student_alias
+                    gemini_api_key, 
+                    reader, 
+                    client,
+                    lab_spec=lab_spec, 
+                    repo_owner=student_alias,
+                    check_results=results
                 )
             except Exception as e:
                 llm_analysis = {
@@ -143,9 +165,11 @@ def process_batch(
     token: str,
     gemini_api_key: Optional[str],
     output_dir: str,
-    max_workers: int = 10,
+    max_workers: int = 3,  # Уменьшено с 10 до 3 для избежания rate limit
     check_plagiarism: bool = True,
-    plagiarism_threshold: float = 0.8
+    plagiarism_threshold: float = 0.8,
+    platform: str = "github",
+    gitlab_url: str = "https://gitlab.com"
 ) -> Dict:
     """
     Обрабатывает список студентов из файла.
@@ -187,14 +211,39 @@ def process_batch(
     # Создаем папку для результатов
     Path(output_dir).mkdir(exist_ok=True, parents=True)
     
-    # Инициализируем проверку плагиата
-    plagiarism_checker = PlagiarismChecker() if check_plagiarism else None
+    # Инициализируем проверку плагиата с настройками из спецификации
+    plagiarism_checker = None
+    if check_plagiarism:
+        # Получаем настройки плагиата из спецификации (если есть)
+        include_paths = None
+        exclude_paths = None
+        include_extensions = None
+        
+        if hasattr(lab_spec, 'plagiarism') and lab_spec.plagiarism:
+            plag_config = lab_spec.plagiarism
+            if plag_config.include_paths:
+                include_paths = plag_config.include_paths
+            if plag_config.exclude_paths:
+                exclude_paths = plag_config.exclude_paths
+            if plag_config.include_extensions:
+                include_extensions = plag_config.include_extensions
+            # Используем порог из спецификации, если не переопределен в CLI
+            if plag_config.threshold and plagiarism_threshold == 0.8:  # 0.8 = дефолтное значение
+                plagiarism_threshold = plag_config.threshold
+        
+        plagiarism_checker = PlagiarismChecker(
+            include_paths=include_paths,
+            exclude_paths=exclude_paths,
+            include_extensions=include_extensions
+        )
     
     # Обрабатываем студентов (сначала без проверки плагиата)
     results = []
     start_time = time.time()
     
+    platform_name = "GitLab" if platform.lower() == "gitlab" else "GitHub"
     print(f"\n🚀 Начинаю массовую проверку {len(students)} студентов...")
+    print(f"   Платформа: {platform_name}")
     print(f"   Параллельных потоков: {max_workers}")
     if check_plagiarism:
         print(f"   Проверка плагиата: включена (порог: {plagiarism_threshold})")
@@ -209,7 +258,9 @@ def process_batch(
                 token,
                 gemini_api_key,
                 output_dir,
-                plagiarism_checker
+                plagiarism_checker,
+                platform,
+                gitlab_url
             ): student
             for student in students
         }
@@ -246,10 +297,20 @@ def process_batch(
         
         # Сохраняем отчет о плагиате
         if plagiarism_report:
+            # JSON отчёт
             plagiarism_file = Path(output_dir) / "plagiarism_report.json"
             with open(plagiarism_file, 'w', encoding='utf-8') as f:
                 json.dump(plagiarism_report, f, ensure_ascii=False, indent=2)
-            print(f"  📄 Отчет о плагиате сохранен: {plagiarism_file}")
+            print(f"  📄 JSON отчет: {plagiarism_file}")
+            
+            # Детальный HTML отчёт с содержимым файлов
+            detailed_report_path = plagiarism_checker.generate_detailed_html_report(
+                output_dir, plagiarism_threshold
+            )
+            if detailed_report_path:
+                print(f"  📊 Детальный HTML отчёт: {detailed_report_path}")
+        else:
+            print(f"  ✅ Плагиат не обнаружен (порог: {plagiarism_threshold*100:.0f}%)")
             
             # Добавляем информацию о плагиате в HTML отчеты
             for student_alias, matches in plagiarism_report.items():

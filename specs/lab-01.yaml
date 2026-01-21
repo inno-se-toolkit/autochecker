@@ -1,15 +1,189 @@
-id: lab-01-test
-repo_name: "Hello-World" # Используем репозиторий, который точно существует
+id: lab-01
+title: "Lab 01 – Products, Architecture & Roles"
+repo_name: "lab-01-market-product-and-git"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.8
+
+# Настройки проверки плагиата
+# В Lab 01 студенты пишут текст в docs/, а не код
+# Поэтому проверяем только их markdown файлы в docs/ (исключая шаблоны)
+plagiarism:
+  enabled: true
+  threshold: 0.5  # 50% схожести - если половина файлов идентична, это подозрительно
+  # Проверяем только файлы, созданные студентами
+  include_paths:
+    - "docs/architecture.md"
+    - "docs/roles-and-skills.md"
+    - "docs/reflection.md"
+    - "docs/agent-idea.md"  # Опциональное задание
+    - "docs/diagrams/*"     # Диаграммы студентов
+  # Исключаем шаблоны и файлы преподавателя
+  exclude_paths:
+    - "README.md"           # Задание от преподавателя
+    - ".github/*"           # Шаблоны GitHub
+    - "docs/ta_checklist.md"
+  # Для этой лабы расширяем список расширений (включаем markdown)
+  include_extensions:
+    - ".md"      # Markdown документы
+    - ".puml"    # PlantUML диаграммы
+
 checks:
-  - id: readme_exists
+  # --- 1. SETUP ---
+  - id: repo_visibility
+    title: "Репозиторий публичный и доступен"
+    type: repo_exists
+    required: true
+    weight: 1
+    params: {}
+
+  # --- 2. TASK 1: ARCHITECTURE (Content-based checks) ---
+  # Проверяем СОДЕРЖИМОЕ файла, а не только его наличие
+  - id: arch_file_exists
+    title: "Файл docs/architecture.md существует"
     type: file_exists
-    params: { path: "README.md" }
-    description: "Проверка наличия README.md"
-  - id: prs_exist
+    required: true
+    weight: 1
+    params: { path: "docs/architecture.md" }
+
+  - id: arch_has_required_sections
+    title: "Architecture содержит все обязательные разделы"
+    type: markdown_has_heading
+    required: true
+    weight: 4
+    params:
+      path: "docs/architecture.md"
+      headings:
+        - "Product choice"
+        - "Motivation"
+        - "Main components"
+        - "Data flow"
+        - "Deployment"
+        - "Knowledge Gaps"
+
+  - id: arch_product_choice_content
+    title: "Product choice содержит название, ссылку и описание продукта"
+    type: file_content_match
+    required: true
+    weight: 2
+    params:
+      path: "docs/architecture.md"
+      must_contain:
+        - "http"  # Должна быть ссылка на сайт продукта
+        - "Product choice"  # Раздел должен быть
+
+  - id: arch_has_diagrams
+    title: "Architecture содержит диаграммы (mermaid или plantuml)"
+    type: regex_in_file
+    required: true
+    weight: 3
+    params:
+      path: "docs/architecture.md"
+      pattern: "(```mermaid|```puml|@startuml|graph|sequenceDiagram|component|deployment)"
+      min_matches: 1
+
+  - id: arch_components_count
+    title: "Main components содержит минимум 5 компонентов"
+    type: regex_in_file
+    required: true
+    weight: 2
+    params:
+      path: "docs/architecture.md"
+      pattern: "(?i)(component|service|app|api|database|backend|frontend)"
+      min_matches: 5
+
+  # --- 3. TASK 2: ROLES (Content-based checks) ---
+  - id: roles_file_exists
+    title: "Файл docs/roles-and-skills.md существует"
+    type: file_exists
+    required: true
+    weight: 1
+    params: { path: "docs/roles-and-skills.md" }
+
+  - id: roles_has_required_sections
+    title: "Roles содержит все обязательные разделы"
+    type: markdown_has_heading
+    required: true
+    weight: 3
+    params:
+      path: "docs/roles-and-skills.md"
+      headings:
+        - "Roles for components"
+        - "Common skills across roles"
+        - "My chosen role"
+        - "Job market snapshot"
+
+  - id: roles_has_roadmap_mention
+    title: "Roles упоминает roadmap.sh"
+    type: regex_in_file
+    required: true
+    weight: 1
+    params:
+      path: "docs/roles-and-skills.md"
+      pattern: "(?i)roadmap\\.sh"
+      min_matches: 1
+
+  - id: roles_has_job_links
+    title: "Job market snapshot содержит РЕАЛЬНЫЕ ссылки на вакансии (5+ ссылок, без плейсхолдеров)"
+    type: links_in_file
+    required: true
+    weight: 3
+    params:
+      path: "docs/roles-and-skills.md"
+      link_type: "job"  # Проверяет только ссылки на hh.ru, linkedin, indeed и т.д.
+      min_count: 5
+
+  # --- 4. TASK 3: REFLECTION (Quality check) ---
+  - id: reflection_file_exists
+    title: "Файл docs/reflection.md существует"
+    type: file_exists
+    required: true
+    weight: 1
+    params: { path: "docs/reflection.md" }
+
+  - id: reflection_meaningful_length
+    title: "Reflection содержит достаточно текста (минимум 50 слов)"
+    type: file_word_count
+    required: true
+    weight: 2
+    params:
+      path: "docs/reflection.md"
+      min_words: 50
+
+  - id: reflection_has_personal_content
+    title: "Reflection содержит личные размышления (не пустой файл)"
+    type: file_content_match
+    required: true
+    weight: 2
+    params:
+      path: "docs/reflection.md"
+      must_contain:
+        - "role"  # Должно упоминать роль
+        - "skill"  # Должно упоминать навыки
+
+  # --- 5. PROCESS & GIT FLOW ---
+  - id: issues_have_planning
+    title: "Issues содержат план работы или Acceptance Criteria"
+    type: issue_body_match
+    required: true
+    weight: 3
+    params:
+      body_regex: "(?i)(acceptance criteria|plan|checklist|\\[x\\]|todo)"
+      min_count: 2
+
+  - id: prs_merged
+    title: "PR слиты в main (минимум 2 штуки)"
     type: pr_merged_count
-    params: { min_count: 1 }
-    description: "Должен быть как минимум 1 влитый Pull Request"
+    required: true
+    weight: 3
+    params:
+      min: 2
+
   - id: conventional_commits
+    title: "Коммиты следуют конвенции (feat:, docs:, fix:)"
     type: commit_message_regex
-    params: { pattern: '^(Merge|Initial)' } # Упростим regex для тестового репозитория
-    description: "Коммиты должны соответствовать стилю"
+    required: false
+    weight: 1
+    params:
+      pattern: "^(feat|fix|docs|chore|style|refactor|test): .+"

@@ -89,11 +89,15 @@ class Reporter:
         html += f"<li>❌ Провалено: {summary['failed_checks']}</li>"
         html += f"<li>⚠️ Ошибок: {summary['errored_checks']}</li>"
         html += "</ul>"
-        html += "<h3>Детали:</h3><table border='1'><tr><th>ID</th><th>Статус</th><th>Описание</th></tr>"
+        html += "<h3>Детали:</h3><table border='1'><tr><th>ID</th><th>Статус</th><th>Описание</th><th>Детали</th></tr>"
 
         for res in self._results:
             status_icon = "✅" if res['status'] == 'PASS' else "❌" if res['status'] == 'FAIL' else "⚠️"
-            html += f"<tr><td>{res['id']}</td><td>{status_icon} {res['status']}</td><td>{res.get('description', '')}</td></tr>"
+            description = res.get('description', '')
+            details = res.get('details', '')
+            # Показываем детали только если они есть и статус не PASS
+            details_cell = f"<td>{details}</td>" if details else "<td>-</td>"
+            html += f"<tr><td>{res['id']}</td><td>{status_icon} {res['status']}</td><td>{description}</td>{details_cell}</tr>"
 
         html += "</table>"
 
