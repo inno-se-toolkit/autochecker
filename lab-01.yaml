@@ -1,0 +1,326 @@
+id: lab-01
+title: "Lab 01 – Products, Architecture & Roles"
+repo_name: "lab-01-market-product-and-git"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.75
+  # by default, only required checks contribute to score unless a check explicitly opts in
+  score_required_only: true
+
+checks:
+
+  # =========================
+  # STRUCTURAL (Repo evidence)
+  # =========================
+
+  - id: repo_exists
+    title: "Repo exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    params: {}
+
+  - id: arch_md_exists
+    title: "docs/architecture.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 4
+    params: { path: "docs/architecture.md" }
+
+  - id: roles_md_exists
+    title: "docs/roles-and-skills.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 4
+    params: { path: "docs/roles-and-skills.md" }
+
+  - id: diagrams_dirs_exist
+    title: "docs/diagrams src/out directories exist"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 2
+    params:
+      patterns:
+        - "docs/diagrams/src/**"
+        - "docs/diagrams/out/**"
+
+  # -------------------------
+  # architecture.md structure
+  # -------------------------
+
+  - id: arch_sections_nonempty
+    title: "architecture.md has required sections and they are not empty"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: true
+    weight: 5
+    depends_on: [arch_md_exists]
+    params:
+      path: "docs/architecture.md"
+      headings:
+        - "Product choice"
+        - "Main components"
+        - "Data flow"
+        - "Deployment"
+        - "Knowledge Gaps"
+
+  - id: arch_embeds_svgs
+    title: "architecture.md embeds component/sequence/deployment SVG diagrams"
+    class: structural
+    runner: code
+    type: markdown_regex_all
+    is_required: true
+    weight: 4
+    depends_on: [arch_sections_nonempty]
+    params:
+      path: "docs/architecture.md"
+      rules:
+        embedded_component_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Component[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Component[^\"']*\\.svg[\"'])"
+        embedded_sequence_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Sequence[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Sequence[^\"']*\\.svg[\"'])"
+        embedded_deployment_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Deployment[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Deployment[^\"']*\\.svg[\"'])"
+
+  - id: arch_links_puml_min3
+    title: "architecture.md links to PlantUML source code (>=3 .puml links)"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [arch_sections_nonempty]
+    params:
+      path: "docs/architecture.md"
+      pattern: "(?i)\\(([^\\)]+\\.puml)\\)"
+      min_matches: 3
+
+  - id: arch_linked_files_exist
+    title: "PlantUML/SVG files referenced from architecture.md exist in repo"
+    class: structural
+    runner: code
+    type: markdown_linked_files_exist
+    is_required: true
+    weight: 5
+    depends_on: [arch_sections_nonempty]
+    params:
+      md_path: "docs/architecture.md"
+      allow_extensions: [".puml", ".svg"]
+      validate_only_relative: true
+
+  - id: arch_knowledge_gaps_min2
+    title: "Knowledge Gaps has at least 2 items"
+    class: structural
+    runner: code
+    type: markdown_section_item_count
+    is_required: true
+    weight: 3
+    depends_on: [arch_sections_nonempty]
+    params:
+      path: "docs/architecture.md"
+      heading: "Knowledge Gaps"
+      min_items: 2
+      item_kinds: ["bullet", "numbered", "nonempty_line"]
+
+  # -----------------------------
+  # roles-and-skills.md structure
+  # -----------------------------
+
+  - id: roles_sections_nonempty
+    title: "roles-and-skills.md has required sections and they are not empty"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: true
+    weight: 5
+    depends_on: [roles_md_exists]
+    params:
+      path: "docs/roles-and-skills.md"
+      headings:
+        - "Components and roles"
+        - "Roles and responsibilities"
+        - "Common skills across roles"
+        - "My chosen role"
+        - "Job market snapshot"
+        - "Personal reflection"
+
+  - id: job_postings_links_min5
+    title: "Job market snapshot contains >=5 job posting links"
+    class: structural
+    runner: code
+    type: urls_in_markdown_section_min
+    is_required: true
+    weight: 3
+    depends_on: [roles_sections_nonempty]
+    params:
+      path: "docs/roles-and-skills.md"
+      heading: "Job market snapshot"
+      min: 5
+
+  # =========================
+  # PROCESS (GitHub workflow)
+  # =========================
+
+  - id: issues_tasks_min3
+    title: "At least 3 task issues exist ([Task]...)"
+    class: process
+    runner: code
+    type: issues_count
+    is_required: true
+    weight: 4
+    params:
+      title_regex: "^\\[Task\\]"
+      state: "all"
+      min: 3
+
+  - id: prs_merged_min3
+    title: "At least 3 merged PRs to main exist"
+    class: process
+    runner: code
+    type: pr_merged_count
+    is_required: true
+    weight: 4
+    params:
+      base: "main"
+      min: 3
+
+  - id: prs_close_issues_min3
+    title: "Merged PRs close issues using 'Closes #...'(>=3 PRs)"
+    class: process
+    runner: code
+    type: pr_body_regex_count
+    is_required: true
+    weight: 4
+    depends_on: [prs_merged_min3]
+    params:
+      base: "main"
+      merged: true
+      pattern: "(?i)closes\\s+#\\d+"
+      min_prs: 3
+
+  - id: reviews_approvals_min1
+    title: "At least 1 approval exists across PR reviews"
+    class: process
+    runner: code
+    type: pr_review_approvals
+    is_required: true
+    weight: 3
+    depends_on: [prs_merged_min3]
+    params:
+      base: "main"
+      min_total_approvals: 1
+
+  - id: reviews_line_comments_min2
+    title: "At least 2 line comments exist across PR reviews"
+    class: process
+    runner: code
+    type: pr_review_line_comments
+    is_required: true
+    weight: 3
+    depends_on: [prs_merged_min3]
+    params:
+      base: "main"
+      min_total_line_comments: 2
+
+  - id: conventional_commits
+    title: "Commit messages follow Conventional Commits (soft requirement)"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: false
+    weight: 1
+    params:
+      pattern: "^(feat|fix|docs|chore|refactor|test|perf|ci|build)(\\(.+\\))?:\\s+.+"
+      min_count: 3
+
+  # =========================
+  # CONTENT (quality checks)
+  # =========================
+
+  - id: llm_arch_quality
+    title: "LLM: architecture.md content quality"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 4
+    depends_on: [arch_sections_nonempty, arch_embeds_svgs, arch_linked_files_exist]
+    params:
+      inputs:
+        - { kind: "file", path: "docs/architecture.md" }
+      rubric: |
+        Grade 0..5. Pass requires >=3.
+        Check:
+        - Product choice includes name + website + short description.
+        - At least 5 components are selected and each has a 1-2 sentence explanation.
+        - Data flow is coherent: describes a user action and which components exchange what data.
+        - Deployment is coherent: explains where main components run.
+        - Knowledge gaps are realistic and at least 2.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[{"text":"...","why":"..."}]}
+      min_score: 3
+
+  - id: llm_roles_quality
+    title: "LLM: roles-and-skills.md content quality"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 4
+    depends_on: [roles_sections_nonempty, job_postings_links_min5]
+    params:
+      inputs:
+        - { kind: "file", path: "docs/roles-and-skills.md" }
+      rubric: |
+        Grade 0..5. Pass requires >=3.
+        Check:
+        - Components and roles: roles listed for components (nested list, not just one-liners).
+        - Roles and responsibilities: at least 5 roles with concrete responsibilities.
+        - Common skills across roles: skills are tied to responsibilities (not random buzzwords).
+        - My chosen role: contains role name + skills I already have + skills I clearly lack.
+        - Job market snapshot: skills extracted from postings (not just links).
+        - Personal reflection: 5-10 sentences, personal and specific, includes AI tool reflection if used.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[{"text":"...","why":"..."}]}
+      min_score: 3
+
+  # =========================
+  # OPTIONAL TASKS (bonus)
+  # =========================
+
+  - id: optional_task_issue_exists
+    title: "Optional deep dive task evidence (at least one matching issue)"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    params:
+      title_regex: "^\\[Task\\]\\s+Deep dive:|^\\[Task\\]\\s+Skill development strategy"
+      state: "all"
+
+  - id: optional_task_pr_merged
+    title: "Optional deep dive task PR merged (at least one)"
+    class: process
+    runner: code
+    type: pr_merged_count
+    is_required: false
+    weight: 1
+    depends_on: [optional_task_issue_exists]
+    params:
+      base: "main"
+      min: 1
