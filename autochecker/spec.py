@@ -1,5 +1,5 @@
 # autochecker/spec.py
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field
 import yaml
 
@@ -7,11 +7,18 @@ class CheckSpec(BaseModel):
     """Спецификация одной проверки в YAML."""
     id: str
     type: str
+    runner: str = Field(default="code")  # "code" для автоматических проверок, "llm" для LLM-анализа
+    check_class: Optional[str] = Field(default=None, alias="class")  # structural, process, content
     params: Dict[str, Any] = Field(default_factory=dict)  # Параметры проверки (опциональные)
     description: str = Field(default="")  # Описание проверки (опциональное)
     title: str = Field(default="")  # Заголовок проверки (опциональный, для совместимости)
     required: bool = Field(default=True)  # Обязательность проверки (опциональный)
+    is_required: bool = Field(default=True)  # Обязательность проверки (новый формат)
     weight: float = Field(default=1.0)  # Вес проверки для взвешенной оценки (опциональный)
+    depends_on: List[str] = Field(default_factory=list)  # Зависимости от других проверок
+    
+    class Config:
+        populate_by_name = True  # Позволяет использовать alias "class" для check_class
 
 
 class PlagiarismConfig(BaseModel):

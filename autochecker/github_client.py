@@ -122,3 +122,11 @@ class GitHubClient:
     def get_pull_requests(self) -> List[Dict[str, Any]]:
         """Получает список всех pull requests."""
         return self._get("pulls?state=all&per_page=100") or []
+    
+    def get_pr_reviews(self, pr_number: int) -> List[Dict[str, Any]]:
+        """Получает список reviews для PR."""
+        return self._get(f"pulls/{pr_number}/reviews") or []
+    
+    def get_pr_review_comments(self, pr_number: int) -> List[Dict[str, Any]]:
+        """Получает список line comments для PR."""
+        return self._get(f"pulls/{pr_number}/comments") or []

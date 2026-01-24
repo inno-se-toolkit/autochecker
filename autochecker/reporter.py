@@ -83,21 +83,45 @@ class Reporter:
                 html += "</blockquote>"
 
 
-        html += "<h2>⚙️ Результаты автоматических проверок</h2>"
+        html += "<h2>⚙️ Результаты проверок</h2>"
         html += "<ul>"
         html += f"<li>✅ Пройдено: {summary['passed_checks']}</li>"
         html += f"<li>❌ Провалено: {summary['failed_checks']}</li>"
         html += f"<li>⚠️ Ошибок: {summary['errored_checks']}</li>"
         html += "</ul>"
-        html += "<h3>Детали:</h3><table border='1'><tr><th>ID</th><th>Статус</th><th>Описание</th><th>Детали</th></tr>"
+        html += "<h3>Детали:</h3><table border='1' style='border-collapse: collapse; width: 100%;'>"
+        html += "<tr><th>ID</th><th>Тип</th><th>Статус</th><th>Описание</th><th>Детали</th></tr>"
 
         for res in self._results:
             status_icon = "✅" if res['status'] == 'PASS' else "❌" if res['status'] == 'FAIL' else "⚠️"
             description = res.get('description', '')
             details = res.get('details', '')
-            # Показываем детали только если они есть и статус не PASS
-            details_cell = f"<td>{details}</td>" if details else "<td>-</td>"
-            html += f"<tr><td>{res['id']}</td><td>{status_icon} {res['status']}</td><td>{description}</td>{details_cell}</tr>"
+            
+            # Определяем тип проверки (LLM или Code)
+            is_llm_check = res.get('score') is not None or res.get('reasons') is not None
+            check_type = "🤖 LLM" if is_llm_check else "⚙️ Code"
+            
+            # Для LLM проверок добавляем оценку и причины
+            if is_llm_check:
+                score = res.get('score', '-')
+                min_score = res.get('min_score', '-')
+                details = f"Оценка: {score}/{5} (мин: {min_score})"
+                reasons = res.get('reasons', [])
+                if reasons:
+                    details += f"<br><small><b>Причины:</b> {'; '.join(str(r) for r in reasons[:3])}</small>"
+                quotes = res.get('quotes', [])
+                if quotes:
+                    quote_texts = []
+                    for q in quotes[:2]:
+                        if isinstance(q, dict):
+                            quote_texts.append(q.get('text', str(q))[:100])
+                        else:
+                            quote_texts.append(str(q)[:100])
+                    if quote_texts:
+                        details += f"<br><small><b>Цитаты:</b> {'; '.join(quote_texts)}</small>"
+            
+            details_cell = f"<td style='max-width: 400px; word-wrap: break-word;'>{details}</td>" if details else "<td>-</td>"
+            html += f"<tr><td>{res['id']}</td><td>{check_type}</td><td>{status_icon} {res['status']}</td><td>{description}</td>{details_cell}</tr>"
 
         html += "</table>"
 
