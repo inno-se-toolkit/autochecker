@@ -26,10 +26,10 @@ LAB_CONFIG = {
         "ready": True
     },
     "lab-02": {
-        "name": "Lab 02 – (Coming soon)",
-        "repo_suffix": "lab-02-tbd",
+        "name": "Lab 02 — Understand, Improve, and Deploy a Backend Service",
+        "repo_suffix": "lab-02-fix-and-deploy-backend",
         "spec": "specs/lab-02.yaml",
-        "ready": False
+        "ready": True
     },
     "lab-03": {
         "name": "Lab 03 – (Coming soon)",
