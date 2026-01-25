@@ -13,16 +13,19 @@ class CheckResult(Dict):
 
 class CheckEngine:
     """Движок, выполняющий проверки на основе данных."""
-    def __init__(self, client: GitHubClient, reader: RepoReader):
+    def __init__(self, client: GitHubClient, reader: RepoReader, branch: Optional[str] = None):
         self._client = client
         self._reader = reader
         self._data_cache = {}
+        self._branch = branch  # Branch to use (overrides repo default)
 
     def _get_commits(self):
         if 'commits' not in self._data_cache:
             repo_info = self._client.get_repo_info()
             if repo_info:
-                self._data_cache['commits'] = self._client.get_commits(repo_info['default_branch'])
+                # Use specified branch, or fall back to repo's default branch
+                branch = self._branch or repo_info.get('default_branch', 'main')
+                self._data_cache['commits'] = self._client.get_commits(branch)
             else:
                 self._data_cache['commits'] = []
         return self._data_cache['commits']

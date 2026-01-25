@@ -20,11 +20,12 @@ def process_single_student(
     repo_name: str,
     lab_spec,
     token: str,
-    gemini_api_key: Optional[str],
+    openrouter_api_key: Optional[str],
     output_dir: str,
     plagiarism_checker: Optional[PlagiarismChecker] = None,
     platform: str = "github",
-    gitlab_url: str = "https://gitlab.com"
+    gitlab_url: str = "https://gitlab.com",
+    branch: Optional[str] = None
 ) -> Dict:
     """Обрабатывает одного студента. Возвращает результат или ошибку."""
     try:
@@ -81,7 +82,8 @@ def process_single_student(
             repo_name=repo_name, 
             token=token,
             platform=platform,
-            gitlab_url=gitlab_url
+            gitlab_url=gitlab_url,
+            branch=branch
         )
         
         # Добавляем код студента для проверки плагиата
@@ -90,6 +92,11 @@ def process_single_student(
             plagiarism_checker.add_student_code(student_alias, reader)
             # Проверяем плагиат (но только после того, как все студенты добавлены)
             # Это будет сделано после обработки всех студентов
+        
+        # Получаем branch: параметр > spec file > repo default
+        check_branch = branch
+        if not check_branch and hasattr(lab_spec, 'discovery') and lab_spec.discovery:
+            check_branch = lab_spec.discovery.get('default_branch')
         
         # Разделяем проверки по типу runner
         code_checks = []
@@ -101,7 +108,7 @@ def process_single_student(
                 code_checks.append(check_spec)
         
         # Запускаем code проверки через engine
-        engine = CheckEngine(client, reader)
+        engine = CheckEngine(client, reader, branch=check_branch)
         results = []
         for check_spec in code_checks:
             # Используем title, если есть, иначе description, иначе id
@@ -116,14 +123,14 @@ def process_single_student(
         
         # Запускаем LLM проверки (если есть API ключ)
         llm_analysis = None
-        if gemini_api_key and llm_checks:
+        if openrouter_api_key and llm_checks:
             try:
                 from .llm_analyzer import run_llm_check
                 
                 for check_spec in llm_checks:
                     check_description = check_spec.title or check_spec.description or check_spec.id
                     llm_result = run_llm_check(
-                        gemini_api_key=gemini_api_key,
+                        openrouter_api_key=openrouter_api_key,
                         reader=reader,
                         check_id=check_spec.id,
                         check_params=check_spec.params,
@@ -195,7 +202,8 @@ def process_batch(
     check_plagiarism: bool = True,
     plagiarism_threshold: float = 0.8,
     platform: str = "github",
-    gitlab_url: str = "https://gitlab.com"
+    gitlab_url: str = "https://gitlab.com",
+    branch: Optional[str] = None
 ) -> Dict:
     """
     Обрабатывает список студентов из файла.
@@ -286,7 +294,8 @@ def process_batch(
                 output_dir,
                 plagiarism_checker,
                 platform,
-                gitlab_url
+                gitlab_url,
+                branch
             ): student
             for student in students
         }

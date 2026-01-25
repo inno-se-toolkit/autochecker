@@ -141,6 +141,7 @@ def check(
     output_dir: str = typer.Option("results", "--output", "-o", help="Папка для результатов"),
     token: str = typer.Option(None, envvar=["GITHUB_TOKEN", "GITLAB_TOKEN"], help="Access Token"),
     gemini_api_key: str = typer.Option(None, envvar="GEMINI_API_KEY", help="Gemini API Key"),
+    branch: str = typer.Option(None, "--branch", "-b", help="Ветка для проверки (по умолчанию из spec или main)"),
 ):
     """
     🎯 Проверить одного студента.
@@ -198,12 +199,13 @@ def check(
         gemini_api_key=gemini_api_key,
         output_dir=output_dir,
         platform=platform,
-        gitlab_url=gitlab_url
+        gitlab_url=gitlab_url,
+        branch=branch
     )
 
 
 def _run_single_check(student_alias, repo_name, spec_path, token, gemini_api_key, 
-                      output_dir, platform, gitlab_url):
+                      output_dir, platform, gitlab_url, branch=None):
     """Внутренняя функция для проверки одного студента."""
     try:
         if not Path(spec_path).exists():
@@ -255,8 +257,13 @@ def _run_single_check(student_alias, repo_name, spec_path, token, gemini_api_key
             gitlab_url=gitlab_url
         )
         
+        # Получаем branch: CLI override > spec file > repo default
+        check_branch = branch
+        if not check_branch and hasattr(lab_spec, 'discovery') and lab_spec.discovery:
+            check_branch = lab_spec.discovery.get('default_branch')
+        
         # Запускаем проверки
-        engine = CheckEngine(client, reader)
+        engine = CheckEngine(client, reader, branch=check_branch)
         results = []
         for check_spec in lab_spec.checks:
             check_description = check_spec.title or check_spec.description or check_spec.id
@@ -403,8 +410,13 @@ def run(
         if not reader._zip_file:
              print(f"  ❌ Не удалось скачать zip-архив репозитория. Проверка файловой системы будет невозможна.")
         
+        # Получаем branch из спецификации или используем default
+        branch = None
+        if hasattr(lab_spec, 'discovery') and lab_spec.discovery:
+            branch = lab_spec.discovery.get('default_branch')
+        
         # 3. Запускаем проверки
-        engine = CheckEngine(client, reader)
+        engine = CheckEngine(client, reader, branch=branch)
         results = []
         for check_spec in lab_spec.checks:
             # Используем title, если есть, иначе description, иначе id
@@ -545,7 +557,8 @@ def batch(
             check_plagiarism=check_plagiarism,
             plagiarism_threshold=plagiarism_threshold,
             platform=platform,
-            gitlab_url=gitlab_url
+            gitlab_url=gitlab_url,
+            branch=branch
         )
     except Exception as e:
         print(f"\n❌ Ошибка: {e}")

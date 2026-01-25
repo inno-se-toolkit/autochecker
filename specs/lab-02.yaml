@@ -1,6 +1,5 @@
 id: lab-02
 title: "Lab 02 — Understand, Improve, and Deploy a Backend Service"
-repo_name: "lab-02-fix-and-deploy-backend"
 
 discovery:
   mode: "alias_repo_name"

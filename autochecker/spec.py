@@ -41,6 +41,13 @@ class LabSpec(BaseModel):
     checks: List[CheckSpec]
     # Конфигурация плагиата для этой лабы
     plagiarism: Optional[PlagiarismConfig] = Field(default=None)
+    # Дополнительные поля из новых спецификаций (опциональные)
+    discovery: Optional[Dict[str, Any]] = Field(default=None)
+    runtime: Optional[Dict[str, Any]] = Field(default=None)
+    scoring: Optional[Dict[str, Any]] = Field(default=None)
+    
+    class Config:
+        extra = "ignore"  # Игнорируем неизвестные поля
 
 def load_spec(path: str) -> LabSpec:
     """Загружает и валидирует спецификацию из YAML файла."""
