@@ -37,39 +37,54 @@ student4
 
 ### GitHub (по умолчанию)
 ```bash
-python main.py batch \
+python3 main.py batch \
   --students students.csv \
-  --repo lab-01-market-product-and-git \
-  --spec specs/lab-01.yaml \
+  --lab lab-01 \
   --output results \
-  --workers 3 \
+  --workers 2 \
   --plagiarism
 ```
 
 ### GitLab
 ```bash
-python main.py batch \
+python3 main.py batch \
   --students students.csv \
-  --repo lab-01-market-product-and-git \
+  --lab lab-01 \
   --platform gitlab \
-  --gitlab-url https://gitlab.com \
-  --spec specs/lab-01.yaml \
+  --gitlab-url https://gitlab.astanait.edu.kz \
   --output results \
-  --workers 3 \
+  --workers 2 \
   --plagiarism
 ```
 
 ### Self-hosted GitLab
 ```bash
-python main.py batch \
+python3 main.py batch \
   --students students.csv \
-  --repo lab-01-market-product-and-git \
+  --lab lab-01 \
   --platform gitlab \
   --gitlab-url https://gitlab.mycompany.com \
-  --token $GITLAB_TOKEN \
-  --spec specs/lab-01.yaml \
-  --output results
+  --output results \
+  --workers 2
 ```
+
+### С дополнительными опциями
+```bash
+python3 main.py batch \
+  --students students.csv \
+  --lab lab-02 \
+  --platform github \
+  --output results \
+  --workers 3 \
+  --plagiarism \
+  --threshold 0.5 \
+  --branch develop
+```
+
+**Примечание:**
+- `--lab` - номер лабораторной работы (lab-01, lab-02, ...). Спецификация и имя репозитория определяются автоматически из конфигурации.
+- `--spec` опция не нужна - спецификация загружается автоматически на основе `--lab`
+- `--repo` опция не нужна - имя репозитория берется из спецификации
 
 ## Параметры
 

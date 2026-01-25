@@ -1,0 +1,331 @@
+id: lab-02
+title: "Lab 02 — Understand, Improve, and Deploy a Backend Service"
+repo_name: "lab-02-fix-and-deploy-backend"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.8
+  score_required_only: true
+
+checks:
+
+  # =====================================================
+  # STRUCTURAL — repo + required artifacts
+  # =====================================================
+
+  - id: repo_exists
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    params: {}
+
+  - id: proof_file_exists
+    title: "docs/lab-02-proof.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 4
+    params:
+      path: "docs/lab-02-proof.md"
+
+  - id: proof_file_nonempty
+    title: "docs/lab-02-proof.md is not empty"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [proof_file_exists]
+    params:
+      path: "docs/lab-02-proof.md"
+
+  # =====================================================
+  # PROOF — local run + investigation + VPS setup
+  # =====================================================
+
+  - id: proof_local_run
+    title: "Proof of local run and exploration"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    depends_on: [proof_file_nonempty]
+    params:
+      path: "docs/lab-02-proof.md"
+      rules:
+        local_status:
+          pattern: "127\\.0\\.0\\.1:8000/status"
+        items_course:
+          pattern: "/items/course"
+
+  - id: proof_bug_notes
+    title: "Bug investigation notes present"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [proof_file_nonempty]
+    params:
+      path: "docs/lab-02-proof.md"
+      pattern: "(?i)bug|unexpected|expected|actual|investigat"
+
+  - id: proof_systemd
+    title: "systemd service evidence present"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    depends_on: [proof_file_nonempty]
+    params:
+      path: "docs/lab-02-proof.md"
+      pattern: "systemctl\\s+status\\s+myapp"
+
+  - id: proof_nginx
+    title: "nginx configuration test evidence present"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [proof_file_nonempty]
+    params:
+      path: "docs/lab-02-proof.md"
+      pattern: "nginx\\s+-t"
+
+  # =====================================================
+  # PROCESS — issues, PRs, workflow
+  # =====================================================
+
+  - id: setup_issue_exists
+    title: "Setup task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    params:
+      title_regex: "^\\[Task\\]\\s+Lab 02 setup"
+
+  - id: run_issue_exists
+    title: "Run locally task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    params:
+      title_regex: "^\\[Task\\]\\s+Run the backend locally"
+
+  - id: bug_issue_exists
+    title: "Bug issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 4
+    params:
+      title_regex: "^\\[Bug\\]"
+
+  - id: bug_issue_has_structure
+    title: "Bug issue has reproduction and expected/actual sections"
+    class: process
+    runner: code
+    type: issue_body_regex_all
+    is_required: true
+    weight: 3
+    depends_on: [bug_issue_exists]
+    params:
+      rules:
+        steps:
+          pattern: "(?i)steps to reproduce"
+        expected:
+          pattern: "(?i)expected"
+        actual:
+          pattern: "(?i)actual"
+
+  - id: bugfix_pr_merged
+    title: "Bug fix PR merged and closes bug issue"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 5
+    params:
+      title_regex: "(?i)fix"
+      closes_issue: true
+
+  - id: bugfix_tests_added
+    title: "Bug fix PR modifies tests"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 4
+    depends_on: [bugfix_pr_merged]
+    params:
+      paths: ["tests/"]
+      min_files: 1
+
+  - id: outcomes_pr_merged
+    title: "Outcomes feature PR merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 5
+    params:
+      title_regex: "(?i)outcomes"
+
+  - id: outcomes_structure_present
+    title: "Outcomes implementation structure exists"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 4
+    depends_on: [outcomes_pr_merged]
+    params:
+      patterns:
+        - "src/app/models/**"
+        - "src/app/services/**"
+        - "src/app/routers/**"
+
+  - id: outcomes_tests_added
+    title: "Outcomes endpoints are tested"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 4
+    depends_on: [outcomes_pr_merged]
+    params:
+      paths: ["tests/"]
+      min_files: 2
+
+  # =====================================================
+  # EXECUTION — deployed service behavior (authoritative)
+  # =====================================================
+
+  - id: prod_status_ok
+    title: "Production /status endpoint reachable"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 6
+    params:
+      runtime: prod
+      path: "/status"
+      expect_status: 200
+
+  - id: prod_items_ok
+    title: "Production /items/course endpoint works"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 5
+    params:
+      runtime: prod
+      path: "/items/course"
+      expect_status: 200
+
+  - id: prod_outcomes_ok
+    title: "Production /outcomes endpoint works"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 6
+    params:
+      runtime: prod
+      path: "/outcomes"
+      expect_status: 200
+      expect_body_regex: "\"outcomes\""
+
+  - id: prod_outcome_by_id_404
+    title: "Production /outcomes/{id} returns 404 for missing id"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    params:
+      runtime: prod
+      path: "/outcomes/does-not-exist"
+      expect_status: 404
+
+  # =====================================================
+  # CONTENT — understanding and reasoning (lightweight)
+  # =====================================================
+
+  - id: llm_bug_understanding
+    title: "LLM: bug understanding is coherent"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 3
+    depends_on: [bug_issue_exists]
+    params:
+      inputs:
+        - { kind: "issue", role: "bug" }
+      rubric: |
+        Score 0..5.
+        Check that:
+        - The bug description matches FastAPI /items behavior.
+        - Reproduction steps are concrete.
+        - Expected vs actual behavior makes sense.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[...]}
+      min_score: 3
+
+  - id: llm_outcomes_design
+    title: "LLM: Outcomes API design is reasonable"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 3
+    depends_on: [outcomes_pr_merged]
+    params:
+      inputs:
+        - { kind: "repo_files", paths: ["src/app"] }
+      rubric: |
+        Score 0..5.
+        Check that:
+        - /outcomes and /outcomes/{id} are implemented cleanly.
+        - Nested suboutcomes lookup is handled.
+        - Code structure follows services/models/routers separation.
+        Return JSON only:
+        {"score":0-5,"reasons":[...]}
+      min_score: 3
+
+  # =====================================================
+  # OPTIONAL / STRETCH (bonus only)
+  # =====================================================
+
+  - id: stretch_task_issue_exists
+    title: "Stretch task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    params:
+      title_regex: "^\\[Task\\]\\s+Deep dive|^\\[Task\\]\\s+Add|^\\[Task\\]\\s+Skill"
