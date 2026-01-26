@@ -140,7 +140,7 @@ def check(
     gitlab_url: str = typer.Option("https://gitlab.astanait.edu.kz", "--gitlab-url", help="URL GitLab сервера"),
     output_dir: str = typer.Option("results", "--output", "-o", help="Папка для результатов"),
     token: str = typer.Option(None, envvar=["GITHUB_TOKEN", "GITLAB_TOKEN"], help="Access Token"),
-    gemini_api_key: str = typer.Option(None, envvar="GEMINI_API_KEY", help="Gemini API Key"),
+    openrouter_api_key: str = typer.Option(None, envvar="OPENROUTER_API_KEY", help="OpenRouter API Key (для Qwen)"),
     branch: str = typer.Option(None, "--branch", "-b", help="Ветка для проверки (по умолчанию из spec или main)"),
 ):
     """
@@ -167,6 +167,15 @@ def check(
     else:
         lab_config = LAB_CONFIG.get(lab, LAB_CONFIG["lab-01"])
     
+    # Проверяем, не передан ли файл вместо имени студента
+    if student and (student.endswith('.csv') or student.endswith('.txt') or student.endswith('.json')):
+        print(f"\n❌ ОШИБКА: Вы указали файл '{student}' вместо имени студента!")
+        print(f"\n💡 Для проверки одного студента используйте:")
+        print(f"   python3 main.py check -s StudentName -l lab-01 -p github")
+        print(f"\n💡 Для проверки всех студентов из файла используйте команду 'batch':")
+        print(f"   python3 main.py batch -s {student} -l lab-01 -p github")
+        raise typer.Exit(code=1)
+    
     if not student:
         platform_name = "GitLab" if platform == "gitlab" else "GitHub"
         print("\n" + "="*50)
@@ -191,12 +200,19 @@ def check(
     print(f"  Лаба:      {lab_config['name']}")
     print("="*50 + "\n")
     
+    # Получаем OpenRouter API ключ
+    openrouter_key = openrouter_api_key or os.environ.get("OPENROUTER_API_KEY")
+    
+    if not openrouter_key:
+        print("⚠️  OpenRouter API ключ не найден. LLM проверки будут пропущены.")
+        print("   Добавьте OPENROUTER_API_KEY в .env или используйте --openrouter-api-key")
+    
     _run_single_check(
         student_alias=student,
         repo_name=repo_name,
         spec_path=spec_path,
         token=token,
-        gemini_api_key=gemini_api_key,
+        openrouter_api_key=openrouter_key,
         output_dir=output_dir,
         platform=platform,
         gitlab_url=gitlab_url,
@@ -204,7 +220,7 @@ def check(
     )
 
 
-def _run_single_check(student_alias, repo_name, spec_path, token, gemini_api_key, 
+def _run_single_check(student_alias, repo_name, spec_path, token, openrouter_api_key,
                       output_dir, platform, gitlab_url, branch=None):
     """Внутренняя функция для проверки одного студента."""
     try:
@@ -254,7 +270,8 @@ def _run_single_check(student_alias, repo_name, spec_path, token, gemini_api_key
             repo_name=repo_name, 
             token=token,
             platform=platform,
-            gitlab_url=gitlab_url
+            gitlab_url=gitlab_url,
+            branch=branch
         )
         
         # Получаем branch: CLI override > spec file > repo default
@@ -262,10 +279,19 @@ def _run_single_check(student_alias, repo_name, spec_path, token, gemini_api_key
         if not check_branch and hasattr(lab_spec, 'discovery') and lab_spec.discovery:
             check_branch = lab_spec.discovery.get('default_branch')
         
-        # Запускаем проверки
+        # Разделяем проверки по типу runner
+        code_checks = []
+        llm_checks = []
+        for check_spec in lab_spec.checks:
+            if check_spec.runner == "llm":
+                llm_checks.append(check_spec)
+            else:
+                code_checks.append(check_spec)
+        
+        # Запускаем code проверки
         engine = CheckEngine(client, reader, branch=check_branch)
         results = []
-        for check_spec in lab_spec.checks:
+        for check_spec in code_checks:
             check_description = check_spec.title or check_spec.description or check_spec.id
             print(f"  ▶️  {check_description}")
             result = engine.run_check(check_spec.id, check_spec.type, check_spec.params, check_description)
@@ -273,23 +299,70 @@ def _run_single_check(student_alias, repo_name, spec_path, token, gemini_api_key
             print(f"     {status_icon} {result['status']}")
             results.append(result)
 
-        # LLM анализ
+        # LLM проверки (atomic checks - через run_llm_check)
         llm_analysis = None
-        if gemini_api_key:
+        if openrouter_api_key and llm_checks:
+            try:
+                from autochecker.llm_analyzer import run_llm_check
+                print(f"\n🤖 Запуск LLM проверок (Qwen)...")
+                
+                for check_spec in llm_checks:
+                    check_description = check_spec.title or check_spec.description or check_spec.id
+                    print(f"  ▶️  {check_description}")
+                    llm_result = run_llm_check(
+                        openrouter_api_key=openrouter_api_key,
+                        reader=reader,
+                        check_id=check_spec.id,
+                        check_params=check_spec.params,
+                        check_title=check_description
+                    )
+                    status_icon = "✅" if llm_result['status'] == 'PASS' else "❌" if llm_result['status'] == 'FAIL' else "⚠️"
+                    print(f"     {status_icon} {llm_result['status']} (score: {llm_result.get('score', 0)}/5)")
+                    results.append({
+                        'id': llm_result.get('id'),
+                        'status': llm_result.get('status', 'ERROR'),
+                        'details': llm_result.get('details', ''),
+                        'description': llm_result.get('description', check_description),
+                        'score': llm_result.get('score'),
+                        'min_score': llm_result.get('min_score'),
+                        'reasons': llm_result.get('reasons', []),
+                        'quotes': llm_result.get('quotes', [])
+                    })
+            except Exception as e:
+                # Если LLM проверки провалились, добавляем ошибку для каждой
+                for check_spec in llm_checks:
+                    results.append({
+                        'id': check_spec.id,
+                        'status': 'ERROR',
+                        'details': f"Ошибка LLM-анализа: {str(e)[:100]}",
+                        'description': check_spec.title or check_spec.description or check_spec.id
+                    })
+
+        # Comprehensive Repository Analysis (analyze_repo)
+        # This analyzes the whole repo (README, docs, code structure)
+        if openrouter_api_key:
             try:
                 from autochecker.llm_analyzer import analyze_repo
-                print("\n🤖 Запуск LLM анализа...")
-                llm_analysis = analyze_repo(
-                    gemini_api_key, reader, client,
+                print(f"\n🤖 Запуск глубокого анализа репозитория (Qwen)...")
+                analysis_result = analyze_repo(
+                    openrouter_api_key=openrouter_api_key, 
+                    reader=reader, 
+                    client=client, 
                     lab_spec=lab_spec, 
                     repo_owner=student_alias,
                     check_results=results
                 )
+                # Если llm_analysis уже содержит данные (например из atomic checks), можно их объединить
+                # Но пока просто присвоим (так как atomic checks не возвращают llm_analysis структуру для reporter)
+                llm_analysis = analysis_result
             except Exception as e:
+                print(f"⚠️ Ошибка при анализе репозитория: {e}")
                 llm_analysis = {
                     "verdict": "анализ_провален",
                     "reasons": [f"Ошибка: {str(e)[:100]}"],
                 }
+        elif not openrouter_api_key:
+            print(f"\n⏭️  Глубокий анализ репозитория пропущен (нет OpenRouter API ключа)")
 
         # Сохраняем отчет
         reporter = Reporter(
@@ -323,7 +396,7 @@ def run(
     spec_path: Path = typer.Option("specs/lab-01.yaml", "--spec", help="Путь к файлу спецификации .yaml"),
     output_dir: str = typer.Option("results", "--output", help="Папка для сохранения результатов"),
     token: str = typer.Option(None, envvar=["GITHUB_TOKEN", "GITLAB_TOKEN"], help="GitHub/GitLab Personal Access Token. Задайте через GITHUB_TOKEN или GITLAB_TOKEN в .env"),
-    gemini_api_key: str = typer.Option(None, envvar="GEMINI_API_KEY", help="Gemini API Key. Можно также задать через переменную окружения GEMINI_API_KEY"),
+    openrouter_api_key: str = typer.Option(None, envvar="OPENROUTER_API_KEY", help="OpenRouter API Key (для Qwen)"),
     platform: str = typer.Option("github", "--platform", help="Платформа: github или gitlab"),
     gitlab_url: str = typer.Option("https://gitlab.com", "--gitlab-url", help="URL GitLab сервера (для self-hosted GitLab)"),
 ):
@@ -416,7 +489,12 @@ def run(
             branch = lab_spec.discovery.get('default_branch')
         
         # 3. Запускаем проверки
-        engine = CheckEngine(client, reader, branch=branch)
+        # Определяем ветку для проверки
+        check_branch = branch
+        if not check_branch and lab_spec.discovery and lab_spec.discovery.get('default_branch'):
+            check_branch = lab_spec.discovery.get('default_branch')
+        
+        engine = CheckEngine(client, reader, branch=check_branch)
         results = []
         for check_spec in lab_spec.checks:
             # Используем title, если есть, иначе description, иначе id
@@ -425,30 +503,14 @@ def run(
             result = engine.run_check(check_spec.id, check_spec.type, check_spec.params, check_description)
             results.append(result)
 
-        # 4. Анализ с помощью LLM
+        # 4. LLM проверки (Qwen через OpenRouter)
+        # Примечание: функция run устарела, используйте команду 'check' вместо неё
         llm_analysis = None
-        if gemini_api_key:
-            try:
-                from autochecker.llm_analyzer import analyze_repo
-                print("🤖 Запуск анализа с помощью LLM...")
-                llm_analysis = analyze_repo(
-                    gemini_api_key, 
-                    reader, 
-                    client, 
-                    lab_spec=lab_spec, 
-                    repo_owner=student_alias,
-                    check_results=results
-                )
-            except ImportError:
-                print("🚨 Не найдены зависимости для LLM-анализа.")
-                print("   Пожалуйста, установите их: pip install -r requirements.txt")
-                llm_analysis = {
-                    "verdict": "анализ_пропущен",
-                    "reasons": ["Зависимости для LLM-анализа не установлены. Выполните 'pip install -r requirements.txt'"],
-                    "quotes": [],
-                }
+        if openrouter_api_key:
+            print("⚠️  Функция 'run' устарела. Используйте 'check' для поддержки Qwen.")
+            print("⏭️  LLM-анализ пропущен в устаревшей функции 'run'.")
         else:
-            print("⏭️  LLM-анализ пропущен, так как не задан GEMINI_API_KEY.")
+            print("⏭️  LLM-анализ пропущен, так как не задан OPENROUTER_API_KEY.")
 
 
         # 5. Сохраняем отчет
@@ -492,7 +554,8 @@ def batch(
     gitlab_url: str = typer.Option("https://gitlab.astanait.edu.kz", "--gitlab-url", help="URL GitLab сервера"),
     output_dir: str = typer.Option("results", "--output", "-o", help="Папка для результатов"),
     token: str = typer.Option(None, envvar=["GITHUB_TOKEN", "GITLAB_TOKEN"], help="Access Token"),
-    gemini_api_key: str = typer.Option(None, envvar="GEMINI_API_KEY", help="Gemini API Key"),
+    openrouter_api_key: str = typer.Option(None, envvar="OPENROUTER_API_KEY", help="OpenRouter API Key (для Qwen)"),
+    branch: str = typer.Option(None, "--branch", "-b", help="Ветка для проверки (по умолчанию из spec или main)"),
     max_workers: int = typer.Option(2, "--workers", "-w", help="Параллельных потоков (2-3 рекомендуется)"),
     check_plagiarism: bool = typer.Option(True, "--plagiarism/--no-plagiarism", help="Проверка плагиата"),
     plagiarism_threshold: float = typer.Option(0.5, "--threshold", help="Порог плагиата (0.0-1.0). 0.5 = 50% файлов идентичны"),
@@ -532,6 +595,12 @@ def batch(
     repo_name = lab_config["repo_suffix"]
     spec_path = lab_config["spec"]
     
+    # Получаем OpenRouter API ключ
+    openrouter_key = openrouter_api_key or os.environ.get("OPENROUTER_API_KEY")
+    if not openrouter_key:
+        print("⚠️  OpenRouter API ключ не найден. LLM проверки будут пропущены.")
+        print("   Добавьте OPENROUTER_API_KEY в .env или используйте --openrouter-api-key")
+    
     print("\n" + "="*60)
     print("📋 МАССОВАЯ ПРОВЕРКА")
     print("="*60)
@@ -539,6 +608,7 @@ def batch(
     print(f"  Лаба:       {lab_config['name']}")
     print(f"  Репо:       {repo_name}")
     print(f"  Студенты:   {students_file}")
+    print(f"  LLM:        {'✅ Qwen' if openrouter_key else '❌ не настроен'}")
     print(f"  Плагиат:    {'✅ включен' if check_plagiarism else '❌ выключен'}")
     print(f"  Потоки:     {max_workers}")
     print("="*60 + "\n")
@@ -551,7 +621,7 @@ def batch(
             repo_name=repo_name,
             spec_path=str(spec_path),
             token=token,
-            gemini_api_key=gemini_api_key,
+            openrouter_api_key=openrouter_key,
             output_dir=output_dir,
             max_workers=max_workers,
             check_plagiarism=check_plagiarism,

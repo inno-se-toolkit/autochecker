@@ -16,6 +16,7 @@ class CheckEngine:
     def __init__(self, client: GitHubClient, reader: RepoReader, branch: Optional[str] = None):
         self._client = client
         self._reader = reader
+        self._branch = branch
         self._data_cache = {}
         self._branch = branch  # Branch to use (overrides repo default)
 

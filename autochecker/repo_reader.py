@@ -13,7 +13,7 @@ class RepoReader:
     Поддерживает GitHub и GitLab.
     """
     def __init__(self, owner: str, repo_name: str, token: str, platform: str = "github", 
-                 gitlab_url: str = "https://gitlab.com"):
+                 gitlab_url: str = "https://gitlab.com", branch: Optional[str] = None):
         """
         Args:
             owner: Владелец репозитория
@@ -21,12 +21,14 @@ class RepoReader:
             token: Access token
             platform: "github" или "gitlab"
             gitlab_url: URL GitLab сервера (только для GitLab)
+            branch: Ветка для скачивания (по умолчанию: default branch)
         """
         self._owner = owner
         self._repo_name = repo_name
         self._token = token
         self._platform = platform.lower()
         self._gitlab_url = gitlab_url.rstrip('/')
+        self._branch = branch
         self._zip_file: Optional[zipfile.ZipFile] = None
         self._root_dir = ""
         self._download()
@@ -42,14 +44,19 @@ class RepoReader:
 
     def _download_github(self):
         """Скачивает архив с GitHub."""
-        zip_url = f"https://api.github.com/repos/{self._owner}/{self._repo_name}/zipball"
+        # GitHub использует codeload.github.com для zipball с указанием ветки
+        if self._branch:
+            zip_url = f"https://codeload.github.com/{self._owner}/{self._repo_name}/zip/refs/heads/{self._branch}"
+        else:
+            zip_url = f"https://api.github.com/repos/{self._owner}/{self._repo_name}/zipball"
         headers = {"Authorization": f"Bearer {self._token}"}
         try:
             response = requests.get(zip_url, headers=headers, stream=True)
             response.raise_for_status()
             self._zip_file = zipfile.ZipFile(io.BytesIO(response.content))
             self._root_dir = self._zip_file.namelist()[0]
-            print("✅ Архив успешно загружен в память.")
+            branch_info = f" (ветка: {self._branch})" if self._branch else ""
+            print(f"✅ Архив успешно загружен в память{branch_info}.")
         except requests.exceptions.RequestException as e:
             print(f"  ❌ Не удалось скачать архив: {e}")
         except zipfile.BadZipFile:
@@ -61,9 +68,12 @@ class RepoReader:
         import urllib.parse
         project_id = urllib.parse.quote(f"{self._owner}/{self._repo_name}", safe='')
         zip_url = f"{self._gitlab_url}/api/v4/projects/{project_id}/repository/archive.zip"
+        params = {}
+        if self._branch:
+            params['sha'] = self._branch
         headers = {"PRIVATE-TOKEN": self._token}
         try:
-            response = requests.get(zip_url, headers=headers, stream=True)
+            response = requests.get(zip_url, headers=headers, params=params, stream=True)
             response.raise_for_status()
             self._zip_file = zipfile.ZipFile(io.BytesIO(response.content))
             namelist = self._zip_file.namelist()
@@ -74,7 +84,8 @@ class RepoReader:
                         if '/' in item:
                             self._root_dir = item.split('/')[0] + '/'
                             break
-            print("✅ Архив успешно загружен в память.")
+            branch_info = f" (ветка: {self._branch})" if self._branch else ""
+            print(f"✅ Архив успешно загружен в память{branch_info}.")
         except requests.exceptions.RequestException as e:
             print(f"  ❌ Не удалось скачать архив: {e}")
         except zipfile.BadZipFile:

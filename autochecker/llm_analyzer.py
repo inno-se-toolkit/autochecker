@@ -8,49 +8,59 @@ from typing import Dict, List, Any, Optional
 from .repo_reader import RepoReader
 from .github_client import GitHubClient
 
-# Глобальный семафор для ограничения одновременных запросов к Gemini API
+# Глобальный семафор для ограничения одновременных запросов к LLM API
 # Максимум 1 одновременный запрос к API (строгое ограничение для избежания rate limit)
 _api_semaphore = threading.Semaphore(1)
 _last_request_time = 0
 _request_lock = threading.Lock()
-_MIN_REQUEST_INTERVAL = 1.0  # Минимальный интервал между запросами (секунды) - увеличено до 1 сек
-
-
-def _call_gemini_api(gemini_api_key: str, prompt: str) -> Dict:
+_MIN_REQUEST_INTERVAL = 2.0  # Минимальный интервал между запросами (секунды) - увеличено до 2 сек для избежания rate limit
+def _call_qwen_api(openrouter_api_key: str, prompt: str, model: str = "qwen/qwen-2.5-7b-instruct") -> Dict:
     """
-    Вызывает Gemini API с заданным промптом.
+    Вызывает Qwen через OpenRouter API с заданным промптом.
     Возвращает распарсенный JSON ответ.
+    
+    Args:
+        openrouter_api_key: API ключ для OpenRouter
+        prompt: Текст промпта
+        model: Модель Qwen (по умолчанию: qwen/qwen-2.5-7b-instruct - меньшая модель для экономии)
+    
+    Returns:
+        Dict с распарсенным JSON ответом
     """
-    # Получаем список доступных моделей
-    available_models = []
-    try:
-        list_models_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_api_key}"
-        list_response = requests.get(list_models_url, timeout=10)
-        if list_response.status_code == 200:
-            models_data = list_response.json()
-            available_models = [
-                model['name'].replace('models/', '')
-                for model in models_data.get('models', [])
-                if 'generateContent' in model.get('supportedGenerationMethods', [])
-            ]
-            preferred_models = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-exp', 
-                               'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
-            available_models = sorted(available_models, key=lambda x: (
-                preferred_models.index(x) if x in preferred_models else 999
-            ))
-    except Exception:
-        pass
+    api_url = "https://openrouter.ai/api/v1/chat/completions"
     
-    if not available_models:
-        available_models = [
-            "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-exp",
-            "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro",
-        ]
+    # Список доступных моделей Qwen (в порядке приоритета)
+    # Примечание: "free" модели на OpenRouter имеют строгие лимиты:
+    # - Дневные лимиты (обычно 2000 запросов/день)
+    # - Лимиты скорости (обычно 60 запросов/минуту)
+    # - При превышении лимитов возвращается 402 или 429
+    # 
+    # Если нужен полностью бесплатный доступ без лимитов, рассмотрите:
+    # - Локальные модели через Ollama
+    # - Google Gemini в AI Studio (бесплатный tier)
+    # - Groq (быстрые open-weight модели)
+    qwen_models = [
+        "qwen/qwen-2.5-7b-instruct",  # Меньше модель = меньше стоимость
+        "qwen/qwen-2.5-14b-instruct",
+        "qwen/qwen-2-7b-instruct",
+        "qwen/qwen-2-14b-instruct",
+        # Более крупные модели (дороже, но лучше качество)
+        "qwen/qwen-2.5-32b-instruct",
+        "qwen/qwen-2-32b-instruct",
+        "qwen/qwen-2.5-72b-instruct",
+        "qwen/qwen-2-72b-instruct",
+    ]
     
-    api_url_template = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    # Если указана конкретная модель, используем её, иначе пробуем по списку
+    if model and model not in qwen_models:
+        models_to_try = [model]  # Используем указанную модель, даже если её нет в списке
+    elif model:
+        models_to_try = [model]  # Используем указанную модель из списка
+    else:
+        models_to_try = qwen_models  # Используем список по умолчанию
     
     last_error = None
-    for idx, model_name in enumerate(available_models):
+    for idx, model_name in enumerate(models_to_try):
         with _api_semaphore:
             with _request_lock:
                 global _last_request_time
@@ -61,40 +71,68 @@ def _call_gemini_api(gemini_api_key: str, prompt: str) -> Dict:
                 _last_request_time = time.time()
             
             if idx > 0:
-                time.sleep(0.5)
+                time.sleep(1.0)  # Увеличена задержка между попытками разных моделей
             
             try:
-                api_url = api_url_template.format(model=model_name)
                 request_body = {
-                    "contents": [{"parts": [{"text": prompt}]}]
+                    "model": model_name,
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    "temperature": 0.3,  # Низкая температура для более детерминированных ответов
+                    "max_tokens": 2000
                 }
-                headers = {"Content-Type": "application/json"}
-                params = {"key": gemini_api_key}
+                
+                headers = {
+                    "Authorization": f"Bearer {openrouter_api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://github.com/autochecker",  # Опционально, для отслеживания
+                }
                 
                 max_retries = 3
-                retry_delay = 2
+                retry_delay = 5  # Увеличена начальная задержка до 5 секунд
                 response = None
                 
                 for attempt in range(max_retries):
                     try:
                         response = requests.post(
-                            api_url, json=request_body, headers=headers,
-                            params=params, timeout=60
+                            api_url,
+                            json=request_body,
+                            headers=headers,
+                            timeout=60
                         )
                         
+                        # Обработка 402 Payment Required
+                        if response.status_code == 402:
+                            error_msg = "402 Payment Required: На вашем аккаунте OpenRouter недостаточно средств или не настроена оплата."
+                            error_msg += " Проверьте баланс на https://openrouter.ai/credits"
+                            raise requests.exceptions.HTTPError(error_msg)
+                        
+                        # Обработка 429 Too Many Requests
                         if response.status_code == 429:
                             if attempt < max_retries - 1:
+                                # Экспоненциальная задержка: 5, 10, 20 секунд
                                 wait_time = retry_delay * (2 ** attempt)
+                                print(f"⚠️  Rate limit (429). Ожидание {wait_time} сек перед повтором...")
                                 time.sleep(wait_time)
                                 continue
                             else:
-                                raise requests.exceptions.HTTPError("429 Too Many Requests")
-                        else:
+                                error_msg = "429 Too Many Requests: Превышен лимит запросов к OpenRouter API."
+                                error_msg += " Подождите несколько минут или увеличьте интервал между запросами."
+                                raise requests.exceptions.HTTPError(error_msg)
+                        
+                        # Для других статусов проверяем ошибки
+                        if response.status_code >= 400:
                             response.raise_for_status()
-                            break
+                        break
                     except requests.exceptions.Timeout:
                         if attempt < max_retries - 1:
-                            time.sleep(retry_delay * (2 ** attempt))
+                            wait_time = retry_delay * (2 ** attempt)
+                            print(f"⚠️  Timeout. Ожидание {wait_time} сек перед повтором...")
+                            time.sleep(wait_time)
                             continue
                         raise
                 
@@ -103,20 +141,24 @@ def _call_gemini_api(gemini_api_key: str, prompt: str) -> Dict:
                 
                 result = response.json()
                 
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    candidate = result['candidates'][0]
-                    if 'content' in candidate and 'parts' in candidate['content']:
-                        text = candidate['content']['parts'][0]['text']
+                # Извлекаем текст из ответа OpenRouter
+                if 'choices' in result and len(result['choices']) > 0:
+                    choice = result['choices'][0]
+                    if 'message' in choice and 'content' in choice['message']:
+                        text = choice['message']['content']
                     else:
                         raise ValueError("Не удалось извлечь текст из ответа API")
                 else:
                     raise ValueError("API вернул пустой ответ")
                 
+                # Очищаем JSON от markdown разметки
                 cleaned_json = text.strip().replace("```json", "").replace("```", "").strip()
                 
+                # Парсим JSON
                 try:
                     return json.loads(cleaned_json)
                 except json.JSONDecodeError:
+                    # Пробуем извлечь JSON из текста
                     json_match = re.search(r'\{.*\}', cleaned_json, re.DOTALL)
                     if json_match:
                         return json.loads(json_match.group(0))
@@ -124,35 +166,36 @@ def _call_gemini_api(gemini_api_key: str, prompt: str) -> Dict:
                     
             except requests.exceptions.RequestException as req_error:
                 last_error = req_error
-                if model_name == available_models[-1]:
+                if model_name == models_to_try[-1]:
                     raise
                 continue
             except (json.JSONDecodeError, ValueError) as parse_error:
                 last_error = parse_error
-                if model_name == available_models[-1]:
+                if model_name == models_to_try[-1]:
                     raise
                 continue
     
     if last_error:
         raise last_error
-    raise RuntimeError("LLM call failed: все модели недоступны")
+    raise RuntimeError("Qwen API call failed: все модели недоступны")
 
 
 def run_llm_check(
-    gemini_api_key: str,
+    openrouter_api_key: str,
     reader: RepoReader,
     check_id: str,
     check_params: Dict[str, Any],
-    check_title: str = ""
+    check_title: str = "",
 ) -> Dict:
     """
     Выполняет одну LLM проверку на основе параметров из спецификации.
+    Использует Qwen через OpenRouter API.
     
     Args:
-        gemini_api_key: API ключ для Gemini
+        openrouter_api_key: API ключ для OpenRouter
         reader: RepoReader для чтения файлов репозитория
         check_id: ID проверки
-        check_params: Параметры проверки (inputs, rubric, min_score)
+        check_params: Параметры проверки (inputs, rubric, min_score, model)
         check_title: Заголовок проверки
     
     Returns:
@@ -219,8 +262,10 @@ def run_llm_check(
 ВАЖНО: Верни ТОЛЬКО JSON, без дополнительного текста!
 """
         
-        # Вызываем API
-        result = _call_gemini_api(gemini_api_key, prompt)
+        # Вызываем Qwen API
+        # По умолчанию используем меньшую модель для экономии средств
+        qwen_model = check_params.get('model', 'qwen/qwen-2.5-7b-instruct')
+        result = _call_qwen_api(openrouter_api_key, prompt, qwen_model)
         
         score = result.get('score', 0)
         reasons = result.get('reasons', [])
@@ -245,19 +290,42 @@ def run_llm_check(
             "description": check_title
         }
         
-    except Exception as e:
+    except requests.exceptions.HTTPError as http_error:
+        error_msg = str(http_error)
+        # Улучшенные сообщения для конкретных ошибок
+        if "402" in error_msg or "Payment Required" in error_msg:
+            user_msg = "402 Payment Required: На вашем аккаунте OpenRouter недостаточно средств или не настроена оплата. Проверьте баланс на https://openrouter.ai/credits"
+        elif "429" in error_msg or "Too Many Requests" in error_msg:
+            user_msg = "429 Too Many Requests: Превышен лимит запросов к OpenRouter API. Подождите несколько минут или увеличьте интервал между запросами."
+        else:
+            user_msg = error_msg[:200]
+        
         return {
             "id": check_id,
             "status": "ERROR",
             "score": 0,
-            "details": f"Ошибка LLM анализа: {str(e)[:200]}",
-            "reasons": [f"Ошибка: {str(e)[:100]}"],
-            "quotes": []
+            "min_score": min_score,
+            "details": f"Оценка: 0/5 (мин: {min_score if min_score else 'None'})\nПричины: {user_msg}",
+            "reasons": [user_msg],
+            "quotes": [],
+            "description": check_title
+        }
+    except Exception as e:
+        error_msg = str(e)[:200]
+        return {
+            "id": check_id,
+            "status": "ERROR",
+            "score": 0,
+            "min_score": min_score,
+            "details": f"Оценка: 0/5 (мин: {min_score if min_score else 'None'})\nПричины: Ошибка: {error_msg}",
+            "reasons": [f"Ошибка: {error_msg}"],
+            "quotes": [],
+            "description": check_title
         }
 
 
 def analyze_repo(
-    gemini_api_key: str, 
+    openrouter_api_key: str, 
     reader: RepoReader, 
     client: GitHubClient, 
     lab_spec=None, 
@@ -267,13 +335,12 @@ def analyze_repo(
     plagiarism_source_student=None
 ) -> Dict:
     """
-    Анализ репозитория с помощью Gemini через REST API.
-    Используем прямые HTTP-запросы вместо библиотеки для избежания проблем с кодировкой.
+    Анализ репозитория с помощью Qwen через OpenRouter API.
     
     Args:
-        check_results: Список результатов автоматических проверок (CheckResult)
-        plagiarism_score: Оценка плагиата (0.0-1.0), если проверка плагиата была выполнена
-        plagiarism_source_student: Имя студента, с которым обнаружена схожесть
+        openrouter_api_key: OpenRouter API Key для доступа к Qwen
+        reader: Reader для доступа к файлам
+        client: Client для доступа к API GitHub/GitLab
     """
 
     # 1. Собираем контент для анализа - ЧИТАЕМ СОДЕРЖИМОЕ ФАЙЛОВ, а не только проверяем наличие
@@ -588,219 +655,10 @@ def analyze_repo(
 - Используй ссылки вида: https://github.com/{owner}/{repo_name}/blob/{commit_sha}/path/to/file#L<номер_строки>
 """
 
-    # 3. Вызываем Gemini API
+    # 3. Вызываем LLM API
     try:
-        # Получаем список доступных моделей
-        available_models = []
-        try:
-            list_models_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_api_key}"
-            list_response = requests.get(list_models_url, timeout=10)
-            if list_response.status_code == 200:
-                models_data = list_response.json()
-                # Фильтруем модели, которые поддерживают generateContent
-                available_models = [
-                    model['name'].replace('models/', '')
-                    for model in models_data.get('models', [])
-                    if 'generateContent' in model.get('supportedGenerationMethods', [])
-                ]
-                # Сортируем: сначала популярные модели
-                preferred_models = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-exp', 
-                                   'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
-                available_models = sorted(available_models, key=lambda x: (
-                    preferred_models.index(x) if x in preferred_models else 999
-                ))
-                print(f"📋 Найдено доступных моделей: {len(available_models)}")
-                if available_models:
-                    print(f"   Используем: {', '.join(available_models[:5])}...")
-        except Exception as list_error:
-            print(f"⚠️  Не удалось получить список моделей: {list_error}")
-        
-        # Если не удалось получить список, используем стандартный набор
-        if not available_models:
-            available_models = [
-                "gemini-2.5-flash",
-                "gemini-2.5-pro",
-                "gemini-2.0-flash-exp",
-                "gemini-2.0-flash",
-                "gemini-1.5-flash",
-                "gemini-1.5-pro",
-                "gemini-pro",
-            ]
-        
-        # Формируем базовый URL без ключа (ключ передадим через параметры)
-        api_url_template = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
-        
-        last_error = None
-        for idx, model_name in enumerate(available_models):
-            # Ограничиваем количество одновременных запросов к API (глобально для всех потоков)
-            with _api_semaphore:
-                # Обеспечиваем минимальный интервал между запросами (глобально)
-                with _request_lock:
-                    global _last_request_time
-                    current_time = time.time()
-                    time_since_last = current_time - _last_request_time
-                    if time_since_last < _MIN_REQUEST_INTERVAL:
-                        sleep_time = _MIN_REQUEST_INTERVAL - time_since_last
-                        if sleep_time > 0:
-                            time.sleep(sleep_time)
-                    _last_request_time = time.time()
-                
-                # Небольшая задержка перед попыткой следующей модели (кроме первой)
-                if idx > 0:
-                    time.sleep(0.5)  # 500ms задержка между попытками разных моделей
-                
-                try:
-                    # Формируем URL для API (без ключа в URL)
-                    api_url = api_url_template.format(model=model_name)
-                    
-                    # Формируем тело запроса
-                    request_body = {
-                        "contents": [{
-                            "parts": [{
-                                "text": prompt
-                            }]
-                        }]
-                    }
-                    
-                    # Отправляем запрос с ключом в параметрах и правильными заголовками
-                    headers = {
-                        "Content-Type": "application/json"
-                    }
-                    
-                    # Передаем ключ через параметры запроса
-                    params = {
-                        "key": gemini_api_key
-                    }
-                    
-                    # Пытаемся отправить запрос с повторными попытками при rate limiting
-                    max_retries = 3
-                    retry_delay = 2  # Начальная задержка в секундах
-                    response = None
-                    
-                    for attempt in range(max_retries):
-                        try:
-                            response = requests.post(
-                                api_url,
-                                json=request_body,
-                                headers=headers,
-                                params=params,
-                                timeout=60  # Увеличиваем timeout до 60 секунд
-                            )
-                            
-                            # Если получили 429, ждем и повторяем
-                            if response.status_code == 429:
-                                if attempt < max_retries - 1:
-                                    wait_time = retry_delay * (2 ** attempt)  # Экспоненциальная задержка
-                                    print(f"⚠️  Rate limit (429) для модели {model_name}. Ожидание {wait_time} сек перед повтором...")
-                                    time.sleep(wait_time)
-                                    continue
-                                else:
-                                    # На последней попытке пробуем следующую модель
-                                    raise requests.exceptions.HTTPError(f"429 Too Many Requests после {max_retries} попыток")
-                            else:
-                                # Для других статусов сразу проверяем
-                                response.raise_for_status()
-                                break  # Успешно получили ответ
-                                
-                        except requests.exceptions.Timeout:
-                            if attempt < max_retries - 1:
-                                wait_time = retry_delay * (2 ** attempt)
-                                print(f"⚠️  Timeout для модели {model_name}. Ожидание {wait_time} сек перед повтором...")
-                                time.sleep(wait_time)
-                                continue
-                            else:
-                                raise
-                    
-                    # Проверяем статус ответа (если еще не проверили)
-                    if response is None:
-                        raise ValueError("Не удалось получить ответ от API после всех попыток")
-                    
-                    # Парсим JSON ответ
-                    result = response.json()
-                    
-                    # Извлекаем текст из ответа
-                    if 'candidates' in result and len(result['candidates']) > 0:
-                        candidate = result['candidates'][0]
-                        if 'content' in candidate and 'parts' in candidate['content']:
-                            text = candidate['content']['parts'][0]['text']
-                        else:
-                            raise ValueError("Не удалось извлечь текст из ответа API")
-                    else:
-                        raise ValueError("API вернул пустой ответ")
-                    
-                    # Очищаем JSON от markdown разметки
-                    cleaned_json = (
-                        text.strip()
-                        .replace("```json", "")
-                        .replace("```", "")
-                        .strip()
-                    )
-                    
-                    # Парсим JSON с обработкой ошибок экранирования
-                    try:
-                        analysis = json.loads(cleaned_json)
-                    except json.JSONDecodeError as json_error:
-                        # Пробуем исправить проблемы с экранированием в JSON
-                        if "Invalid \\escape" in str(json_error) or "Invalid escape" in str(json_error):
-                            print(f"⚠️  Попытка исправления экранирования в JSON...")
-                            # Стратегия: Извлекаем JSON объект из текста с помощью regex
-                            json_match = re.search(r'\{.*\}', cleaned_json, re.DOTALL)
-                            if json_match:
-                                json_text = json_match.group(0)
-                                try:
-                                    analysis = json.loads(json_text)
-                                except:
-                                    raise json_error
-                            else:
-                                raise json_error
-                        else:
-                            raise  # Если это не проблема с экранированием, пробрасываем дальше
-                    
-                    print(f"✅ Успешно использована модель: {model_name}")
-                    return analysis
-                    
-                except requests.exceptions.RequestException as req_error:
-                    last_error = req_error
-                    error_msg = str(req_error)
-                    
-                    # Получаем детали ошибки из ответа, если есть
-                    if hasattr(req_error, 'response') and req_error.response is not None:
-                        try:
-                            error_details = req_error.response.json()
-                            error_msg = f"{error_msg}: {error_details}"
-                            # Выводим детали ошибки для диагностики
-                            status_code = req_error.response.status_code
-                            if status_code == 404:
-                                print(f"⚠️  Модель {model_name} не найдена. Детали: {error_details}")
-                            elif status_code == 429:
-                                # Для 429 не выводим детали, так как уже обработали выше
-                                pass
-                        except:
-                            error_text = req_error.response.text[:300] if hasattr(req_error, 'response') and req_error.response else ""
-                            error_msg = f"{error_msg}: {error_text}"
-                            if hasattr(req_error, 'response') and req_error.response and req_error.response.status_code == 404:
-                                print(f"⚠️  Модель {model_name} не найдена. Ответ: {error_text}")
-                    
-                    # Пропускаем ошибки 404 и пробуем следующую модель
-                    # Для 429 тоже пробуем следующую модель (возможно, у неё другой лимит)
-                    if "404" not in error_msg and "NOT_FOUND" not in error_msg:
-                        # Не выводим сообщение для 429, так как уже обработали выше
-                        if "429" not in error_msg and "Too Many Requests" not in error_msg:
-                            print(f"⚠️  Ошибка при запросе к модели {model_name}: {error_msg[:200]}")
-                        if model_name == available_models[-1]:  # Если это последняя модель
-                            raise
-                    continue
-                except (json.JSONDecodeError, ValueError, KeyError) as parse_error:
-                    last_error = parse_error
-                    print(f"⚠️  Ошибка при парсинге ответа от модели {model_name}: {str(parse_error)[:100]}")
-                    if model_name == available_models[-1]:  # Если это последняя модель
-                        raise
-                    continue
-
-        # Если все модели не сработали, выбрасываем последнюю ошибку
-        if last_error:
-            raise last_error
-        raise RuntimeError("LLM call failed: все модели недоступны")
+        print(f"🤖 Запуск анализа через Qwen (OpenRouter)...")
+        return _call_qwen_api(openrouter_api_key, prompt)
         
     except Exception as e:
         # Безопасно обрабатываем ошибку с Unicode
@@ -809,7 +667,7 @@ def analyze_repo(
         except UnicodeEncodeError:
             error_msg = repr(e)  # Используем repr если str не работает
         
-        print(f"🚨 Ошибка при вызове Gemini API или парсинге JSON: {error_msg}")
+        print(f"🚨 Ошибка при вызове Qwen API или парсинге JSON: {error_msg}")
         return {
             "verdict": "analysis_failed",
             "reasons": [f"Произошла ошибка при анализе: {error_msg}"],

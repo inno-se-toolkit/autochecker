@@ -196,7 +196,7 @@ def process_batch(
     repo_name: str,
     spec_path: str,
     token: str,
-    gemini_api_key: Optional[str],
+    openrouter_api_key: Optional[str],
     output_dir: str,
     max_workers: int = 3,  # Уменьшено с 10 до 3 для избежания rate limit
     check_plagiarism: bool = True,
@@ -290,7 +290,7 @@ def process_batch(
                 repo_name,
                 lab_spec,
                 token,
-                gemini_api_key,
+                openrouter_api_key,
                 output_dir,
                 plagiarism_checker,
                 platform,
