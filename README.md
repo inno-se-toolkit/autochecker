@@ -5,7 +5,7 @@
 ## Возможности
 
 - ✅ **Автоматические проверки** - проверка структуры репозитория, файлов, коммитов, PR, issues
-- 🤖 **LLM анализ** - качественная оценка контента с помощью Gemini AI
+- 🤖 **LLM анализ** - качественная оценка контента с помощью Qwen AI (через OpenRouter)
 - 🔍 **Проверка плагиата** - обнаружение схожих работ между студентами
 - 📊 **Детальные отчеты** - HTML и JSON отчеты для каждого студента
 - 🚀 **Массовая обработка** - проверка сотен студентов параллельно
@@ -21,12 +21,47 @@ pip install -r requirements.txt
 
 ### Настройка
 
-Создайте файл `.env`:
-```env
-GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-GITLAB_TOKEN=glpat-xxxxxxxxxxxx
-GEMINI_API_KEY=AIzaSy...
-```
+1. **Скопируйте пример файла конфигурации:**
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Получите GitHub Personal Access Token:**
+   - Перейдите на https://github.com/settings/tokens
+   - Нажмите "Generate new token" → "Generate new token (classic)"
+   - Укажите название токена (например, "autochecker")
+   - Выберите срок действия (рекомендуется: "No expiration" или "90 days")
+   - Выберите необходимые права (scopes):
+     - ✅ `repo` (Full control of private repositories) - для доступа к приватным репозиториям
+     - ✅ `read:org` (Read org and team membership) - если проверяете репозитории организации
+   - Нажмите "Generate token"
+   - Скопируйте токен (начинается с `ghp_`) и вставьте в `.env` файл
+
+3. **Получите GitLab Personal Access Token (опционально, если используете GitLab):**
+   - Перейдите на https://gitlab.com/-/user_settings/personal_access_tokens
+   - Укажите название токена (например, "autochecker")
+   - Выберите срок действия
+   - Выберите права (scopes):
+     - ✅ `read_api` - для чтения данных через API
+     - ✅ `read_repository` - для доступа к репозиториям
+   - Нажмите "Create personal access token"
+   - Скопируйте токен (начинается с `glpat-`) и вставьте в `.env` файл
+
+4. **Получите OpenRouter API Key (для LLM проверок):**
+   - Перейдите на https://openrouter.ai/keys
+   - Зарегистрируйтесь или войдите в аккаунт
+   - Нажмите "Create Key"
+   - Скопируйте ключ (начинается с `sk-or-v1-`) и вставьте в `.env` файл
+   - Пополните баланс на https://openrouter.ai/credits (для использования платных моделей)
+
+5. **Отредактируйте `.env` файл:**
+   ```env
+   GITHUB_TOKEN=ghp_ваш_токен_здесь
+   GITLAB_TOKEN=glpat-ваш_токен_здесь
+   OPENROUTER_API_KEY=sk-or-v1-ваш_ключ_здесь
+   ```
+
+**Важно:** Файл `.env` уже добавлен в `.gitignore` и не будет закоммичен в репозиторий.
 
 ### Проверка одного студента
 
@@ -109,7 +144,7 @@ autochecker/
 - И многое другое...
 
 ### LLM проверки (`runner: llm`)
-Качественный анализ контента через Gemini AI:
+Качественный анализ контента через Qwen AI (через OpenRouter):
 - Оценка качества архитектурных документов
 - Проверка содержания и полноты
 - Анализ кода и дизайна API
@@ -156,6 +191,55 @@ checks:
 - `results/{student}/results.jsonl` - Детальные результаты в JSON
 - `results/batch_summary.html` - Сводка по всем студентам (для batch)
 - `results/plagiarism_report.json` - Отчет о плагиате (если включен)
+
+## Получение API ключей
+
+### GitHub Personal Access Token
+
+1. Перейдите на https://github.com/settings/tokens
+2. Нажмите **"Generate new token"** → **"Generate new token (classic)"**
+3. Заполните форму:
+   - **Note**: Укажите название (например, "autochecker")
+   - **Expiration**: Выберите срок действия (рекомендуется "No expiration" или "90 days")
+   - **Select scopes**: Выберите необходимые права:
+     - ✅ `repo` - Full control of private repositories (для доступа к приватным репозиториям)
+     - ✅ `read:org` - Read org and team membership (если проверяете репозитории организации)
+4. Нажмите **"Generate token"**
+5. **Скопируйте токен** (начинается с `ghp_`) - он показывается только один раз!
+6. Вставьте токен в файл `.env`:
+   ```env
+   GITHUB_TOKEN=ghp_ваш_скопированный_токен
+   ```
+
+### GitLab Personal Access Token (опционально)
+
+1. Перейдите на https://gitlab.com/-/user_settings/personal_access_tokens
+2. Заполните форму:
+   - **Token name**: Укажите название (например, "autochecker")
+   - **Expiration date**: Выберите срок действия
+   - **Select scopes**: Выберите права:
+     - ✅ `read_api` - для чтения данных через API
+     - ✅ `read_repository` - для доступа к репозиториям
+3. Нажмите **"Create personal access token"**
+4. **Скопируйте токен** (начинается с `glpat-`)
+5. Вставьте токен в файл `.env`:
+   ```env
+   GITLAB_TOKEN=glpat-ваш_скопированный_токен
+   ```
+
+### OpenRouter API Key (для LLM проверок)
+
+1. Перейдите на https://openrouter.ai/keys
+2. Зарегистрируйтесь или войдите в аккаунт
+3. Нажмите **"Create Key"**
+4. **Скопируйте ключ** (начинается с `sk-or-v1-`)
+5. Вставьте ключ в файл `.env`:
+   ```env
+   OPENROUTER_API_KEY=sk-or-v1-ваш_скопированный_ключ
+   ```
+6. Пополните баланс на https://openrouter.ai/credits (для использования платных моделей)
+
+**Примечание:** Бесплатные модели имеют строгие лимиты (2000 запросов/день, 60 запросов/минуту).
 
 ## Лицензия
 
