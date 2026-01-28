@@ -20,11 +20,12 @@ def process_single_student(
     repo_name: str,
     lab_spec,
     token: str,
-    gemini_api_key: Optional[str],
+    openrouter_api_key: Optional[str],
     output_dir: str,
     plagiarism_checker: Optional[PlagiarismChecker] = None,
     platform: str = "github",
-    gitlab_url: str = "https://gitlab.com"
+    gitlab_url: str = "https://gitlab.com",
+    branch: Optional[str] = None
 ) -> Dict:
     """Обрабатывает одного студента. Возвращает результат или ошибку."""
     try:
@@ -81,7 +82,8 @@ def process_single_student(
             repo_name=repo_name, 
             token=token,
             platform=platform,
-            gitlab_url=gitlab_url
+            gitlab_url=gitlab_url,
+            branch=branch
         )
         
         # Добавляем код студента для проверки плагиата
@@ -91,10 +93,24 @@ def process_single_student(
             # Проверяем плагиат (но только после того, как все студенты добавлены)
             # Это будет сделано после обработки всех студентов
         
-        # Запускаем проверки
-        engine = CheckEngine(client, reader)
-        results = []
+        # Получаем branch: параметр > spec file > repo default
+        check_branch = branch
+        if not check_branch and hasattr(lab_spec, 'discovery') and lab_spec.discovery:
+            check_branch = lab_spec.discovery.get('default_branch')
+        
+        # Разделяем проверки по типу runner
+        code_checks = []
+        llm_checks = []
         for check_spec in lab_spec.checks:
+            if check_spec.runner == "llm":
+                llm_checks.append(check_spec)
+            else:
+                code_checks.append(check_spec)
+        
+        # Запускаем code проверки через engine
+        engine = CheckEngine(client, reader, branch=check_branch)
+        results = []
+        for check_spec in code_checks:
             # Используем title, если есть, иначе description, иначе id
             check_description = check_spec.title or check_spec.description or check_spec.id
             result = engine.run_check(
@@ -105,25 +121,42 @@ def process_single_student(
             )
             results.append(result)
         
-        # LLM анализ (опционально, может быть медленным)
+        # Запускаем LLM проверки (если есть API ключ)
         llm_analysis = None
-        if gemini_api_key:
+        if openrouter_api_key and llm_checks:
             try:
-                from .llm_analyzer import analyze_repo
-                llm_analysis = analyze_repo(
-                    gemini_api_key, 
-                    reader, 
-                    client,
-                    lab_spec=lab_spec, 
-                    repo_owner=student_alias,
-                    check_results=results
-                )
+                from .llm_analyzer import run_llm_check
+                
+                for check_spec in llm_checks:
+                    check_description = check_spec.title or check_spec.description or check_spec.id
+                    llm_result = run_llm_check(
+                        openrouter_api_key=openrouter_api_key,
+                        reader=reader,
+                        check_id=check_spec.id,
+                        check_params=check_spec.params,
+                        check_title=check_description
+                    )
+                    # Преобразуем результат LLM в формат CheckResult
+                    results.append({
+                        'id': llm_result.get('id'),
+                        'status': llm_result.get('status', 'ERROR'),
+                        'details': llm_result.get('details', ''),
+                        'description': llm_result.get('description', check_description),
+                        'score': llm_result.get('score'),
+                        'min_score': llm_result.get('min_score'),
+                        'reasons': llm_result.get('reasons', []),
+                        'quotes': llm_result.get('quotes', [])
+                    })
+                
             except Exception as e:
-                llm_analysis = {
-                    "verdict": "анализ_провален",
-                    "reasons": [f"Ошибка LLM-анализа: {str(e)[:100]}"],
-                    "quotes": [],
-                }
+                # Если LLM проверки провалились, добавляем ошибку для каждой
+                for check_spec in llm_checks:
+                    results.append({
+                        'id': check_spec.id,
+                        'status': 'ERROR',
+                        'details': f"Ошибка LLM-анализа: {str(e)[:100]}",
+                        'description': check_spec.title or check_spec.description or check_spec.id
+                    })
         
         # Сохраняем отчет
         reporter = Reporter(
@@ -169,7 +202,8 @@ def process_batch(
     check_plagiarism: bool = True,
     plagiarism_threshold: float = 0.8,
     platform: str = "github",
-    gitlab_url: str = "https://gitlab.com"
+    gitlab_url: str = "https://gitlab.com",
+    branch: Optional[str] = None
 ) -> Dict:
     """
     Обрабатывает список студентов из файла.
@@ -260,7 +294,8 @@ def process_batch(
                 output_dir,
                 plagiarism_checker,
                 platform,
-                gitlab_url
+                gitlab_url,
+                branch
             ): student
             for student in students
         }

@@ -2,188 +2,325 @@ id: lab-01
 title: "Lab 01 – Products, Architecture & Roles"
 repo_name: "lab-01-market-product-and-git"
 
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
 scoring:
   mode: "weighted"
-  pass_threshold: 0.8
-
-# Настройки проверки плагиата
-# В Lab 01 студенты пишут текст в docs/, а не код
-# Поэтому проверяем только их markdown файлы в docs/ (исключая шаблоны)
-plagiarism:
-  enabled: true
-  threshold: 0.5  # 50% схожести - если половина файлов идентична, это подозрительно
-  # Проверяем только файлы, созданные студентами
-  include_paths:
-    - "docs/architecture.md"
-    - "docs/roles-and-skills.md"
-    - "docs/reflection.md"
-    - "docs/agent-idea.md"  # Опциональное задание
-    - "docs/diagrams/*"     # Диаграммы студентов
-  # Исключаем шаблоны и файлы преподавателя
-  exclude_paths:
-    - "README.md"           # Задание от преподавателя
-    - ".github/*"           # Шаблоны GitHub
-    - "docs/ta_checklist.md"
-  # Для этой лабы расширяем список расширений (включаем markdown)
-  include_extensions:
-    - ".md"      # Markdown документы
-    - ".puml"    # PlantUML диаграммы
+  pass_threshold: 0.75
+  # by default, only required checks contribute to score unless a check explicitly opts in
+  score_required_only: true
 
 checks:
-  # --- 1. SETUP ---
-  - id: repo_visibility
-    title: "Репозиторий публичный и доступен"
+
+  # =========================
+  # STRUCTURAL (Repo evidence)
+  # =========================
+
+  - id: repo_exists
+    title: "Repo exists and is accessible"
+    class: structural
+    runner: code
     type: repo_exists
-    required: true
-    weight: 1
+    is_required: true
+    weight: 5
     params: {}
 
-  # --- 2. TASK 1: ARCHITECTURE (Content-based checks) ---
-  # Проверяем СОДЕРЖИМОЕ файла, а не только его наличие
-  - id: arch_file_exists
-    title: "Файл docs/architecture.md существует"
+  - id: arch_md_exists
+    title: "docs/architecture.md exists"
+    class: structural
+    runner: code
     type: file_exists
-    required: true
-    weight: 1
+    is_required: true
+    weight: 4
     params: { path: "docs/architecture.md" }
 
-  - id: arch_has_required_sections
-    title: "Architecture содержит все обязательные разделы"
-    type: markdown_has_heading
-    required: true
+  - id: roles_md_exists
+    title: "docs/roles-and-skills.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
     weight: 4
+    params: { path: "docs/roles-and-skills.md" }
+
+  - id: diagrams_dirs_exist
+    title: "docs/diagrams src/out directories exist"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 2
+    params:
+      patterns:
+        - "docs/diagrams/src/**"
+        - "docs/diagrams/out/**"
+
+  # -------------------------
+  # architecture.md structure
+  # -------------------------
+
+  - id: arch_sections_nonempty
+    title: "architecture.md has required sections and they are not empty"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: true
+    weight: 5
+    depends_on: [arch_md_exists]
     params:
       path: "docs/architecture.md"
       headings:
         - "Product choice"
-        - "Motivation"
         - "Main components"
         - "Data flow"
         - "Deployment"
         - "Knowledge Gaps"
 
-  - id: arch_product_choice_content
-    title: "Product choice содержит название, ссылку и описание продукта"
-    type: file_content_match
-    required: true
-    weight: 2
+  - id: arch_embeds_svgs
+    title: "architecture.md embeds component/sequence/deployment SVG diagrams"
+    class: structural
+    runner: code
+    type: markdown_regex_all
+    is_required: true
+    weight: 4
+    depends_on: [arch_sections_nonempty]
     params:
       path: "docs/architecture.md"
-      must_contain:
-        - "http"  # Должна быть ссылка на сайт продукта
-        - "Product choice"  # Раздел должен быть
+      rules:
+        embedded_component_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Component[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Component[^\"']*\\.svg[\"'])"
+        embedded_sequence_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Sequence[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Sequence[^\"']*\\.svg[\"'])"
+        embedded_deployment_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Deployment[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Deployment[^\"']*\\.svg[\"'])"
 
-  - id: arch_has_diagrams
-    title: "Architecture содержит диаграммы (mermaid или plantuml)"
+  - id: arch_links_puml_min3
+    title: "architecture.md links to PlantUML source code (>=3 .puml links)"
+    class: structural
+    runner: code
     type: regex_in_file
-    required: true
+    is_required: true
     weight: 3
+    depends_on: [arch_sections_nonempty]
     params:
       path: "docs/architecture.md"
-      pattern: "(```mermaid|```puml|@startuml|graph|sequenceDiagram|component|deployment)"
-      min_matches: 1
+      pattern: "(?i)\\(([^\\)]+\\.puml)\\)"
+      min_matches: 3
 
-  - id: arch_components_count
-    title: "Main components содержит минимум 5 компонентов"
-    type: regex_in_file
-    required: true
-    weight: 2
+  - id: arch_linked_files_exist
+    title: "PlantUML/SVG files referenced from architecture.md exist in repo"
+    class: structural
+    runner: code
+    type: markdown_linked_files_exist
+    is_required: true
+    weight: 5
+    depends_on: [arch_sections_nonempty]
+    params:
+      md_path: "docs/architecture.md"
+      allow_extensions: [".puml", ".svg"]
+      validate_only_relative: true
+
+  - id: arch_knowledge_gaps_min2
+    title: "Knowledge Gaps has at least 2 items"
+    class: structural
+    runner: code
+    type: markdown_section_item_count
+    is_required: true
+    weight: 3
+    depends_on: [arch_sections_nonempty]
     params:
       path: "docs/architecture.md"
-      pattern: "(?i)(component|service|app|api|database|backend|frontend)"
-      min_matches: 5
+      heading: "Knowledge Gaps"
+      min_items: 2
+      item_kinds: ["bullet", "numbered", "nonempty_line"]
 
-  # --- 3. TASK 2: ROLES (Content-based checks) ---
-  - id: roles_file_exists
-    title: "Файл docs/roles-and-skills.md существует"
-    type: file_exists
-    required: true
-    weight: 1
-    params: { path: "docs/roles-and-skills.md" }
+  # -----------------------------
+  # roles-and-skills.md structure
+  # -----------------------------
 
-  - id: roles_has_required_sections
-    title: "Roles содержит все обязательные разделы"
-    type: markdown_has_heading
-    required: true
-    weight: 3
+  - id: roles_sections_nonempty
+    title: "roles-and-skills.md has required sections and they are not empty"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: true
+    weight: 5
+    depends_on: [roles_md_exists]
     params:
       path: "docs/roles-and-skills.md"
       headings:
-        - "Roles for components"
+        - "Components and roles"
+        - "Roles and responsibilities"
         - "Common skills across roles"
         - "My chosen role"
         - "Job market snapshot"
+        - "Personal reflection"
 
-  - id: roles_has_roadmap_mention
-    title: "Roles упоминает roadmap.sh"
-    type: regex_in_file
-    required: true
-    weight: 1
+  - id: job_postings_links_min5
+    title: "Job market snapshot contains >=5 job posting links"
+    class: structural
+    runner: code
+    type: urls_in_markdown_section_min
+    is_required: true
+    weight: 3
+    depends_on: [roles_sections_nonempty]
     params:
       path: "docs/roles-and-skills.md"
-      pattern: "(?i)roadmap\\.sh"
-      min_matches: 1
+      heading: "Job market snapshot"
+      min: 5
 
-  - id: roles_has_job_links
-    title: "Job market snapshot содержит РЕАЛЬНЫЕ ссылки на вакансии (5+ ссылок, без плейсхолдеров)"
-    type: links_in_file
-    required: true
-    weight: 3
+  # =========================
+  # PROCESS (GitHub workflow)
+  # =========================
+
+  - id: issues_tasks_min3
+    title: "At least 3 task issues exist ([Task]...)"
+    class: process
+    runner: code
+    type: issues_count
+    is_required: true
+    weight: 4
     params:
-      path: "docs/roles-and-skills.md"
-      link_type: "job"  # Проверяет только ссылки на hh.ru, linkedin, indeed и т.д.
-      min_count: 5
+      title_regex: "^\\[Task\\]"
+      state: "all"
+      min: 3
 
-  # --- 4. TASK 3: REFLECTION (Quality check) ---
-  - id: reflection_file_exists
-    title: "Файл docs/reflection.md существует"
-    type: file_exists
-    required: true
-    weight: 1
-    params: { path: "docs/reflection.md" }
-
-  - id: reflection_meaningful_length
-    title: "Reflection содержит достаточно текста (минимум 50 слов)"
-    type: file_word_count
-    required: true
-    weight: 2
-    params:
-      path: "docs/reflection.md"
-      min_words: 50
-
-  - id: reflection_has_personal_content
-    title: "Reflection содержит личные размышления (не пустой файл)"
-    type: file_content_match
-    required: true
-    weight: 2
-    params:
-      path: "docs/reflection.md"
-      must_contain:
-        - "role"  # Должно упоминать роль
-        - "skill"  # Должно упоминать навыки
-
-  # --- 5. PROCESS & GIT FLOW ---
-  - id: issues_have_planning
-    title: "Issues содержат план работы или Acceptance Criteria"
-    type: issue_body_match
-    required: true
-    weight: 3
-    params:
-      body_regex: "(?i)(acceptance criteria|plan|checklist|\\[x\\]|todo)"
-      min_count: 2
-
-  - id: prs_merged
-    title: "PR слиты в main (минимум 2 штуки)"
+  - id: prs_merged_min3
+    title: "At least 3 merged PRs to main exist"
+    class: process
+    runner: code
     type: pr_merged_count
-    required: true
-    weight: 3
+    is_required: true
+    weight: 4
     params:
-      min: 2
+      base: "main"
+      min: 3
+
+  - id: prs_close_issues_min3
+    title: "Merged PRs close issues using 'Closes #...'(>=3 PRs)"
+    class: process
+    runner: code
+    type: pr_body_regex_count
+    is_required: true
+    weight: 4
+    depends_on: [prs_merged_min3]
+    params:
+      base: "main"
+      merged: true
+      pattern: "(?i)closes\\s+#\\d+"
+      min_prs: 3
+
+  - id: reviews_approvals_min1
+    title: "At least 1 approval exists across PR reviews"
+    class: process
+    runner: code
+    type: pr_review_approvals
+    is_required: true
+    weight: 3
+    depends_on: [prs_merged_min3]
+    params:
+      base: "main"
+      min_total_approvals: 1
+
+  - id: reviews_line_comments_min2
+    title: "At least 2 line comments exist across PR reviews"
+    class: process
+    runner: code
+    type: pr_review_line_comments
+    is_required: true
+    weight: 3
+    depends_on: [prs_merged_min3]
+    params:
+      base: "main"
+      min_total_line_comments: 2
 
   - id: conventional_commits
-    title: "Коммиты следуют конвенции (feat:, docs:, fix:)"
+    title: "Commit messages follow Conventional Commits (soft requirement)"
+    class: process
+    runner: code
     type: commit_message_regex
-    required: false
+    is_required: false
     weight: 1
     params:
-      pattern: "^(feat|fix|docs|chore|style|refactor|test): .+"
+      pattern: "^(feat|fix|docs|chore|refactor|test|perf|ci|build)(\\(.+\\))?:\\s+.+"
+      min_count: 3
+
+  # =========================
+  # CONTENT (quality checks)
+  # =========================
+
+  - id: llm_arch_quality
+    title: "LLM: architecture.md content quality"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 4
+    depends_on: [arch_sections_nonempty, arch_embeds_svgs, arch_linked_files_exist]
+    params:
+      inputs:
+        - { kind: "file", path: "docs/architecture.md" }
+      rubric: |
+        Grade 0..5. Pass requires >=3.
+        Check:
+        - Product choice includes name + website + short description.
+        - At least 5 components are selected and each has a 1-2 sentence explanation.
+        - Data flow is coherent: describes a user action and which components exchange what data.
+        - Deployment is coherent: explains where main components run.
+        - Knowledge gaps are realistic and at least 2.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[{"text":"...","why":"..."}]}
+      min_score: 3
+
+  - id: llm_roles_quality
+    title: "LLM: roles-and-skills.md content quality"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 4
+    depends_on: [roles_sections_nonempty, job_postings_links_min5]
+    params:
+      inputs:
+        - { kind: "file", path: "docs/roles-and-skills.md" }
+      rubric: |
+        Grade 0..5. Pass requires >=3.
+        Check:
+        - Components and roles: roles listed for components (nested list, not just one-liners).
+        - Roles and responsibilities: at least 5 roles with concrete responsibilities.
+        - Common skills across roles: skills are tied to responsibilities (not random buzzwords).
+        - My chosen role: contains role name + skills I already have + skills I clearly lack.
+        - Job market snapshot: skills extracted from postings (not just links).
+        - Personal reflection: 5-10 sentences, personal and specific, includes AI tool reflection if used.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[{"text":"...","why":"..."}]}
+      min_score: 3
+
+  # =========================
+  # OPTIONAL TASKS (bonus)
+  # =========================
+
+  - id: optional_task_issue_exists
+    title: "Optional deep dive task evidence (at least one matching issue)"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    params:
+      title_regex: "^\\[Task\\]\\s+Deep dive:|^\\[Task\\]\\s+Skill development strategy"
+      state: "all"
+
+  - id: optional_task_pr_merged
+    title: "Optional deep dive task PR merged (at least one)"
+    class: process
+    runner: code
+    type: pr_merged_count
+    is_required: false
+    weight: 1
+    depends_on: [optional_task_issue_exists]
+    params:
+      base: "main"
+      min: 1

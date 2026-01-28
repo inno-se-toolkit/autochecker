@@ -4,7 +4,7 @@ import re
 import time
 import requests
 import threading
-from typing import Dict
+from typing import Dict, List, Any, Optional
 from .repo_reader import RepoReader
 from .github_client import GitHubClient
 
@@ -14,6 +14,246 @@ _api_semaphore = threading.Semaphore(1)
 _last_request_time = 0
 _request_lock = threading.Lock()
 _MIN_REQUEST_INTERVAL = 1.0  # Минимальный интервал между запросами (секунды) - увеличено до 1 сек
+
+
+def _call_gemini_api(gemini_api_key: str, prompt: str) -> Dict:
+    """
+    Вызывает Gemini API с заданным промптом.
+    Возвращает распарсенный JSON ответ.
+    """
+    # Получаем список доступных моделей
+    available_models = []
+    try:
+        list_models_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={gemini_api_key}"
+        list_response = requests.get(list_models_url, timeout=10)
+        if list_response.status_code == 200:
+            models_data = list_response.json()
+            available_models = [
+                model['name'].replace('models/', '')
+                for model in models_data.get('models', [])
+                if 'generateContent' in model.get('supportedGenerationMethods', [])
+            ]
+            preferred_models = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-exp', 
+                               'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro']
+            available_models = sorted(available_models, key=lambda x: (
+                preferred_models.index(x) if x in preferred_models else 999
+            ))
+    except Exception:
+        pass
+    
+    if not available_models:
+        available_models = [
+            "gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-exp",
+            "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro",
+        ]
+    
+    api_url_template = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    
+    last_error = None
+    for idx, model_name in enumerate(available_models):
+        with _api_semaphore:
+            with _request_lock:
+                global _last_request_time
+                current_time = time.time()
+                time_since_last = current_time - _last_request_time
+                if time_since_last < _MIN_REQUEST_INTERVAL:
+                    time.sleep(_MIN_REQUEST_INTERVAL - time_since_last)
+                _last_request_time = time.time()
+            
+            if idx > 0:
+                time.sleep(0.5)
+            
+            try:
+                api_url = api_url_template.format(model=model_name)
+                request_body = {
+                    "contents": [{"parts": [{"text": prompt}]}]
+                }
+                headers = {"Content-Type": "application/json"}
+                params = {"key": gemini_api_key}
+                
+                max_retries = 3
+                retry_delay = 2
+                response = None
+                
+                for attempt in range(max_retries):
+                    try:
+                        response = requests.post(
+                            api_url, json=request_body, headers=headers,
+                            params=params, timeout=60
+                        )
+                        
+                        if response.status_code == 429:
+                            if attempt < max_retries - 1:
+                                wait_time = retry_delay * (2 ** attempt)
+                                time.sleep(wait_time)
+                                continue
+                            else:
+                                raise requests.exceptions.HTTPError("429 Too Many Requests")
+                        else:
+                            response.raise_for_status()
+                            break
+                    except requests.exceptions.Timeout:
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay * (2 ** attempt))
+                            continue
+                        raise
+                
+                if response is None:
+                    raise ValueError("Не удалось получить ответ от API")
+                
+                result = response.json()
+                
+                if 'candidates' in result and len(result['candidates']) > 0:
+                    candidate = result['candidates'][0]
+                    if 'content' in candidate and 'parts' in candidate['content']:
+                        text = candidate['content']['parts'][0]['text']
+                    else:
+                        raise ValueError("Не удалось извлечь текст из ответа API")
+                else:
+                    raise ValueError("API вернул пустой ответ")
+                
+                cleaned_json = text.strip().replace("```json", "").replace("```", "").strip()
+                
+                try:
+                    return json.loads(cleaned_json)
+                except json.JSONDecodeError:
+                    json_match = re.search(r'\{.*\}', cleaned_json, re.DOTALL)
+                    if json_match:
+                        return json.loads(json_match.group(0))
+                    raise
+                    
+            except requests.exceptions.RequestException as req_error:
+                last_error = req_error
+                if model_name == available_models[-1]:
+                    raise
+                continue
+            except (json.JSONDecodeError, ValueError) as parse_error:
+                last_error = parse_error
+                if model_name == available_models[-1]:
+                    raise
+                continue
+    
+    if last_error:
+        raise last_error
+    raise RuntimeError("LLM call failed: все модели недоступны")
+
+
+def run_llm_check(
+    gemini_api_key: str,
+    reader: RepoReader,
+    check_id: str,
+    check_params: Dict[str, Any],
+    check_title: str = ""
+) -> Dict:
+    """
+    Выполняет одну LLM проверку на основе параметров из спецификации.
+    
+    Args:
+        gemini_api_key: API ключ для Gemini
+        reader: RepoReader для чтения файлов репозитория
+        check_id: ID проверки
+        check_params: Параметры проверки (inputs, rubric, min_score)
+        check_title: Заголовок проверки
+    
+    Returns:
+        Dict с результатами: {id, status, score, details, reasons, quotes}
+    """
+    try:
+        inputs = check_params.get('inputs', [])
+        rubric = check_params.get('rubric', '')
+        min_score = check_params.get('min_score', 3)
+        
+        # Собираем контент из inputs
+        content_parts = []
+        for input_spec in inputs:
+            kind = input_spec.get('kind', 'file')
+            if kind == 'file':
+                path = input_spec.get('path', '')
+                if path and reader.file_exists(path):
+                    file_content = reader.read_file(path)
+                    if file_content:
+                        # Ограничиваем размер файла
+                        if len(file_content) > 5000:
+                            file_content = file_content[:5000] + "\n... (truncated)"
+                        content_parts.append(f"### Содержимое файла: {path}\n```\n{file_content}\n```")
+                    else:
+                        content_parts.append(f"### Файл {path}: пустой или недоступен")
+                else:
+                    content_parts.append(f"### Файл {path}: не найден")
+        
+        if not content_parts:
+            return {
+                "id": check_id,
+                "status": "ERROR",
+                "score": 0,
+                "details": "Не удалось получить контент для анализа",
+                "reasons": ["Файлы для анализа не найдены"],
+                "quotes": []
+            }
+        
+        # Формируем промпт
+        prompt = f"""Ты — строгий AI-ассистент для проверки студенческих работ.
+
+### ЗАДАЧА
+Проверь качество следующего контента по заданному критерию (rubric).
+
+### КРИТЕРИЙ ОЦЕНКИ (Rubric)
+{rubric}
+
+### КОНТЕНТ ДЛЯ АНАЛИЗА
+{chr(10).join(content_parts)}
+
+### ИНСТРУКЦИИ
+1. Внимательно прочитай rubric и контент
+2. Оцени работу строго по критериям rubric
+3. Выстави оценку от 0 до 5
+4. Приведи конкретные аргументы и цитаты
+
+### ФОРМАТ ОТВЕТА (ТОЛЬКО JSON)
+{{
+  "score": 0-5,
+  "reasons": ["причина 1", "причина 2", ...],
+  "quotes": [{{"text": "цитата из работы", "why": "почему это важно"}}]
+}}
+
+ВАЖНО: Верни ТОЛЬКО JSON, без дополнительного текста!
+"""
+        
+        # Вызываем API
+        result = _call_gemini_api(gemini_api_key, prompt)
+        
+        score = result.get('score', 0)
+        reasons = result.get('reasons', [])
+        quotes = result.get('quotes', [])
+        
+        # Определяем статус
+        passed = score >= min_score
+        status = "PASS" if passed else "FAIL"
+        
+        details = f"Оценка: {score}/{5} (минимум: {min_score})"
+        if reasons:
+            details += f"\nПричины: {'; '.join(reasons[:3])}"
+        
+        return {
+            "id": check_id,
+            "status": status,
+            "score": score,
+            "min_score": min_score,
+            "details": details,
+            "reasons": reasons,
+            "quotes": quotes,
+            "description": check_title
+        }
+        
+    except Exception as e:
+        return {
+            "id": check_id,
+            "status": "ERROR",
+            "score": 0,
+            "details": f"Ошибка LLM анализа: {str(e)[:200]}",
+            "reasons": [f"Ошибка: {str(e)[:100]}"],
+            "quotes": []
+        }
 
 
 def analyze_repo(

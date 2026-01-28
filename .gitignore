@@ -44,3 +44,6 @@ Thumbs.db
 
 # Results
 results/
+
+# Autochecker cache
+.autochecker_cache/
