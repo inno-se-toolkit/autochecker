@@ -21,45 +21,12 @@ pip install -r requirements.txt
 
 ### Настройка
 
-1. **Скопируйте пример файла конфигурации:**
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Получите GitHub Personal Access Token:**
-   - Перейдите на https://github.com/settings/tokens
-   - Нажмите "Generate new token" → "Generate new token (classic)"
-   - Укажите название токена (например, "autochecker")
-   - Выберите срок действия (рекомендуется: "No expiration" или "90 days")
-   - Выберите необходимые права (scopes):
-     - ✅ `repo` (Full control of private repositories) - для доступа к приватным репозиториям
-     - ✅ `read:org` (Read org and team membership) - если проверяете репозитории организации
-   - Нажмите "Generate token"
-   - Скопируйте токен (начинается с `ghp_`) и вставьте в `.env` файл
-
-3. **Получите GitLab Personal Access Token (опционально, если используете GitLab):**
-   - Перейдите на https://gitlab.com/-/user_settings/personal_access_tokens
-   - Укажите название токена (например, "autochecker")
-   - Выберите срок действия
-   - Выберите права (scopes):
-     - ✅ `read_api` - для чтения данных через API
-     - ✅ `read_repository` - для доступа к репозиториям
-   - Нажмите "Create personal access token"
-   - Скопируйте токен (начинается с `glpat-`) и вставьте в `.env` файл
-
-4. **Получите Gemini API Key (для LLM проверок, опционально):**
-   - Перейдите на https://makersuite.google.com/app/apikey
-   - Создайте новый API ключ
-   - Скопируйте ключ и вставьте в `.env` файл
-
-5. **Отредактируйте `.env` файл:**
-   ```env
-   GITHUB_TOKEN=ghp_ваш_токен_здесь
-   GITLAB_TOKEN=glpat-ваш_токен_здесь
-   GEMINI_API_KEY=ваш_ключ_здесь
-   ```
-
-**Важно:** Файл `.env` уже добавлен в `.gitignore` и не будет закоммичен в репозиторий.
+Создайте файл `.env`:
+```env
+GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+GITLAB_TOKEN=glpat-xxxxxxxxxxxx
+GEMINI_API_KEY=AIzaSy...
+```
 
 ### Проверка одного студента
 
@@ -67,58 +34,19 @@ pip install -r requirements.txt
 python3 main.py check -s StudentName -l lab-01 -p github
 ```
 
-## Массовая проверка
+### Массовая проверка
 
-### Формат файла со студентами
-
-Поддерживаются три формата: CSV (рекомендуется), JSON и TXT. См. пример: [`students.csv`](students.csv)
-
-**CSV формат:**
-```csv
-student_alias
-Nurassyl28
-student2
-student3
-```
-
-**JSON формат:**
-```json
-["Nurassyl28", "student2", "student3"]
-```
-
-**TXT формат** (по одной строке):
-```
-Nurassyl28
-student2
-student3
-```
-
-### Примеры использования
-
-**GitHub:**
 ```bash
-python3 main.py batch -s students.csv -l lab-01 -p github --workers 2 --plagiarism
+python3 main.py batch -s students.csv -l lab-01 -p github
 ```
 
-**GitLab:**
-```bash
-python3 main.py batch -s students.csv -l lab-01 -p gitlab --gitlab-url https://gitlab.astanait.edu.kz --workers 2
-```
+## Документация
 
-### Настройка проверки плагиата
-
-В YAML спецификации можно указать, какие файлы проверять:
-
-```yaml
-plagiarism:
-  enabled: true
-  threshold: 0.7
-  include_paths:
-    - "docs/architecture.md"
-    - "src/*"
-  exclude_paths:
-    - "README.md"
-```
+- **[README_BATCH.md](README_BATCH.md)** - Подробная документация по массовой проверке
+  - Формат файла со студентами
+  - Параметры командной строки
+  - Настройка проверки плагиата
+  - Примеры для разных платформ
 
 ## Доступные команды
 
@@ -229,71 +157,10 @@ checks:
 - `results/batch_summary.html` - Сводка по всем студентам (для batch)
 - `results/plagiarism_report.json` - Отчет о плагиате (если включен)
 
-## Получение API ключей
-
-### GitHub Personal Access Token
-
-1. Перейдите на https://github.com/settings/tokens
-2. Нажмите **"Generate new token"** → **"Generate new token (classic)"**
-3. Заполните форму:
-   - **Note**: Укажите название (например, "autochecker")
-   - **Expiration**: Выберите срок действия (рекомендуется "No expiration" или "90 days")
-   - **Select scopes**: Выберите необходимые права:
-     - ✅ `repo` - Full control of private repositories (для доступа к приватным репозиториям)
-     - ✅ `read:org` - Read org and team membership (если проверяете репозитории организации)
-4. Нажмите **"Generate token"**
-5. **Скопируйте токен** (начинается с `ghp_`) - он показывается только один раз!
-6. Вставьте токен в файл `.env`:
-   ```env
-   GITHUB_TOKEN=ghp_ваш_скопированный_токен
-   ```
-
-### GitLab Personal Access Token (опционально)
-
-1. Перейдите на https://gitlab.com/-/user_settings/personal_access_tokens
-2. Заполните форму:
-   - **Token name**: Укажите название (например, "autochecker")
-   - **Expiration date**: Выберите срок действия
-   - **Select scopes**: Выберите права:
-     - ✅ `read_api` - для чтения данных через API
-     - ✅ `read_repository` - для доступа к репозиториям
-3. Нажмите **"Create personal access token"**
-4. **Скопируйте токен** (начинается с `glpat-`)
-5. Вставьте токен в файл `.env`:
-   ```env
-   GITLAB_TOKEN=glpat-ваш_скопированный_токен
-   ```
-
-### Gemini API Key (для LLM проверок, опционально)
-
-1. Перейдите на https://makersuite.google.com/app/apikey
-2. Создайте новый API ключ
-3. **Скопируйте ключ**
-4. Вставьте ключ в файл `.env`:
-   ```env
-   GEMINI_API_KEY=ваш_скопированный_ключ
-   ```
-
 ## Лицензия
 
-MIT License
+[Укажите лицензию]
 
-Copyright (c) 2024 Autochecker Contributors
+## Поддержка
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+[Контактная информация]

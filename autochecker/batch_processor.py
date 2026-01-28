@@ -20,7 +20,7 @@ def process_single_student(
     repo_name: str,
     lab_spec,
     token: str,
-    gemini_api_key: Optional[str],
+    openrouter_api_key: Optional[str],
     output_dir: str,
     plagiarism_checker: Optional[PlagiarismChecker] = None,
     platform: str = "github",
@@ -123,14 +123,14 @@ def process_single_student(
         
         # Запускаем LLM проверки (если есть API ключ)
         llm_analysis = None
-        if gemini_api_key and llm_checks:
+        if openrouter_api_key and llm_checks:
             try:
                 from .llm_analyzer import run_llm_check
                 
                 for check_spec in llm_checks:
                     check_description = check_spec.title or check_spec.description or check_spec.id
                     llm_result = run_llm_check(
-                        gemini_api_key=gemini_api_key,
+                        openrouter_api_key=openrouter_api_key,
                         reader=reader,
                         check_id=check_spec.id,
                         check_params=check_spec.params,
