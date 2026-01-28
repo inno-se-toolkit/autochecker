@@ -5,7 +5,7 @@
 ## Возможности
 
 - ✅ **Автоматические проверки** - проверка структуры репозитория, файлов, коммитов, PR, issues
-- 🤖 **LLM анализ** - качественная оценка контента с помощью Qwen AI (через OpenRouter)
+- 🤖 **LLM анализ** - качественная оценка контента с помощью Gemini AI
 - 🔍 **Проверка плагиата** - обнаружение схожих работ между студентами
 - 📊 **Детальные отчеты** - HTML и JSON отчеты для каждого студента
 - 🚀 **Массовая обработка** - проверка сотен студентов параллельно
@@ -47,18 +47,16 @@ pip install -r requirements.txt
    - Нажмите "Create personal access token"
    - Скопируйте токен (начинается с `glpat-`) и вставьте в `.env` файл
 
-4. **Получите OpenRouter API Key (для LLM проверок):**
-   - Перейдите на https://openrouter.ai/keys
-   - Зарегистрируйтесь или войдите в аккаунт
-   - Нажмите "Create Key"
-   - Скопируйте ключ (начинается с `sk-or-v1-`) и вставьте в `.env` файл
-   - Пополните баланс на https://openrouter.ai/credits (для использования платных моделей)
+4. **Получите Gemini API Key (для LLM проверок, опционально):**
+   - Перейдите на https://makersuite.google.com/app/apikey
+   - Создайте новый API ключ
+   - Скопируйте ключ и вставьте в `.env` файл
 
 5. **Отредактируйте `.env` файл:**
    ```env
    GITHUB_TOKEN=ghp_ваш_токен_здесь
    GITLAB_TOKEN=glpat-ваш_токен_здесь
-   OPENROUTER_API_KEY=sk-or-v1-ваш_ключ_здесь
+   GEMINI_API_KEY=ваш_ключ_здесь
    ```
 
 **Важно:** Файл `.env` уже добавлен в `.gitignore` и не будет закоммичен в репозиторий.
@@ -69,19 +67,58 @@ pip install -r requirements.txt
 python3 main.py check -s StudentName -l lab-01 -p github
 ```
 
-### Массовая проверка
+## Массовая проверка
 
-```bash
-python3 main.py batch -s students.csv -l lab-01 -p github
+### Формат файла со студентами
+
+Поддерживаются три формата: CSV (рекомендуется), JSON и TXT. См. пример: [`students.csv`](students.csv)
+
+**CSV формат:**
+```csv
+student_alias
+Nurassyl28
+student2
+student3
 ```
 
-## Документация
+**JSON формат:**
+```json
+["Nurassyl28", "student2", "student3"]
+```
 
-- **[README_BATCH.md](README_BATCH.md)** - Подробная документация по массовой проверке
-  - Формат файла со студентами
-  - Параметры командной строки
-  - Настройка проверки плагиата
-  - Примеры для разных платформ
+**TXT формат** (по одной строке):
+```
+Nurassyl28
+student2
+student3
+```
+
+### Примеры использования
+
+**GitHub:**
+```bash
+python3 main.py batch -s students.csv -l lab-01 -p github --workers 2 --plagiarism
+```
+
+**GitLab:**
+```bash
+python3 main.py batch -s students.csv -l lab-01 -p gitlab --gitlab-url https://gitlab.astanait.edu.kz --workers 2
+```
+
+### Настройка проверки плагиата
+
+В YAML спецификации можно указать, какие файлы проверять:
+
+```yaml
+plagiarism:
+  enabled: true
+  threshold: 0.7
+  include_paths:
+    - "docs/architecture.md"
+    - "src/*"
+  exclude_paths:
+    - "README.md"
+```
 
 ## Доступные команды
 
@@ -144,7 +181,7 @@ autochecker/
 - И многое другое...
 
 ### LLM проверки (`runner: llm`)
-Качественный анализ контента через Qwen AI (через OpenRouter):
+Качественный анализ контента через Gemini AI:
 - Оценка качества архитектурных документов
 - Проверка содержания и полноты
 - Анализ кода и дизайна API
@@ -227,24 +264,36 @@ checks:
    GITLAB_TOKEN=glpat-ваш_скопированный_токен
    ```
 
-### OpenRouter API Key (для LLM проверок)
+### Gemini API Key (для LLM проверок, опционально)
 
-1. Перейдите на https://openrouter.ai/keys
-2. Зарегистрируйтесь или войдите в аккаунт
-3. Нажмите **"Create Key"**
-4. **Скопируйте ключ** (начинается с `sk-or-v1-`)
-5. Вставьте ключ в файл `.env`:
+1. Перейдите на https://makersuite.google.com/app/apikey
+2. Создайте новый API ключ
+3. **Скопируйте ключ**
+4. Вставьте ключ в файл `.env`:
    ```env
-   OPENROUTER_API_KEY=sk-or-v1-ваш_скопированный_ключ
+   GEMINI_API_KEY=ваш_скопированный_ключ
    ```
-6. Пополните баланс на https://openrouter.ai/credits (для использования платных моделей)
-
-**Примечание:** Бесплатные модели имеют строгие лимиты (2000 запросов/день, 60 запросов/минуту).
 
 ## Лицензия
 
-[Укажите лицензию]
+MIT License
 
-## Поддержка
+Copyright (c) 2024 Autochecker Contributors
 
-[Контактная информация]
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
