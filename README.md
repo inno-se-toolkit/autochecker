@@ -34,19 +34,58 @@ GEMINI_API_KEY=AIzaSy...
 python3 main.py check -s StudentName -l lab-01 -p github
 ```
 
-### Массовая проверка
+## Массовая проверка
 
-```bash
-python3 main.py batch -s students.csv -l lab-01 -p github
+### Формат файла со студентами
+
+Поддерживаются три формата: CSV (рекомендуется), JSON и TXT. См. пример: [`students.csv`](students.csv)
+
+**CSV формат:**
+```csv
+student_alias
+Nurassyl28
+student2
+student3
 ```
 
-## Документация
+**JSON формат:**
+```json
+["Nurassyl28", "student2", "student3"]
+```
 
-- **[README_BATCH.md](README_BATCH.md)** - Подробная документация по массовой проверке
-  - Формат файла со студентами
-  - Параметры командной строки
-  - Настройка проверки плагиата
-  - Примеры для разных платформ
+**TXT формат** (по одной строке):
+```
+Nurassyl28
+student2
+student3
+```
+
+### Примеры использования
+
+**GitHub:**
+```bash
+python3 main.py batch -s students.csv -l lab-01 -p github --workers 2 --plagiarism
+```
+
+**GitLab:**
+```bash
+python3 main.py batch -s students.csv -l lab-01 -p gitlab --gitlab-url https://gitlab.astanait.edu.kz --workers 2
+```
+
+### Настройка проверки плагиата
+
+В YAML спецификации можно указать, какие файлы проверять:
+
+```yaml
+plagiarism:
+  enabled: true
+  threshold: 0.7
+  include_paths:
+    - "docs/architecture.md"
+    - "src/*"
+  exclude_paths:
+    - "README.md"
+```
 
 ## Доступные команды
 
@@ -159,8 +198,24 @@ checks:
 
 ## Лицензия
 
-[Укажите лицензию]
+MIT License
 
-## Поддержка
+Copyright (c) 2024 Autochecker Contributors
 
-[Контактная информация]
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
