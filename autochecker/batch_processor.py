@@ -108,7 +108,7 @@ def process_single_student(
                 code_checks.append(check_spec)
         
         # Запускаем code проверки через engine
-        engine = CheckEngine(client, reader, branch=check_branch)
+        engine = CheckEngine(client, reader, branch=check_branch, lab_spec=lab_spec)
         results = []
         for check_spec in code_checks:
             # Используем title, если есть, иначе description, иначе id
@@ -134,7 +134,8 @@ def process_single_student(
                         reader=reader,
                         check_id=check_spec.id,
                         check_params=check_spec.params,
-                        check_title=check_description
+                        check_title=check_description,
+                        client=client
                     )
                     # Преобразуем результат LLM в формат CheckResult
                     results.append({

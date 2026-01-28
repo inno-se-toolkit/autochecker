@@ -289,7 +289,7 @@ def _run_single_check(student_alias, repo_name, spec_path, token, openrouter_api
                 code_checks.append(check_spec)
         
         # Запускаем code проверки
-        engine = CheckEngine(client, reader, branch=check_branch)
+        engine = CheckEngine(client, reader, branch=check_branch, lab_spec=lab_spec)
         results = []
         for check_spec in code_checks:
             check_description = check_spec.title or check_spec.description or check_spec.id
@@ -314,7 +314,8 @@ def _run_single_check(student_alias, repo_name, spec_path, token, openrouter_api
                         reader=reader,
                         check_id=check_spec.id,
                         check_params=check_spec.params,
-                        check_title=check_description
+                        check_title=check_description,
+                        client=client
                     )
                     status_icon = "✅" if llm_result['status'] == 'PASS' else "❌" if llm_result['status'] == 'FAIL' else "⚠️"
                     print(f"     {status_icon} {llm_result['status']} (score: {llm_result.get('score', 0)}/5)")

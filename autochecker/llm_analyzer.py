@@ -186,6 +186,7 @@ def run_llm_check(
     check_id: str,
     check_params: Dict[str, Any],
     check_title: str = "",
+    client: Optional[Any] = None,
 ) -> Dict:
     """
     Выполняет одну LLM проверку на основе параметров из спецификации.
@@ -223,6 +224,45 @@ def run_llm_check(
                         content_parts.append(f"### Файл {path}: пустой или недоступен")
                 else:
                     content_parts.append(f"### Файл {path}: не найден")
+            elif kind == 'issue':
+                # Получаем issue по role или title_regex
+                role = input_spec.get('role', '')
+                title_regex = input_spec.get('title_regex', '')
+                
+                if not client:
+                    content_parts.append(f"### Issue ({role or title_regex}): клиент не доступен")
+                    continue
+                
+                # Получаем список issues
+                issues = client.get_issues() if hasattr(client, 'get_issues') else []
+                
+                matching_issue = None
+                if role == 'bug':
+                    # Ищем issue с [Bug] в заголовке
+                    for issue in issues:
+                        if re.search(r'^\[Bug\]', issue.get('title', ''), re.IGNORECASE):
+                            matching_issue = issue
+                            break
+                elif title_regex:
+                    # Ищем по title_regex
+                    for issue in issues:
+                        if re.search(title_regex, issue.get('title', ''), re.IGNORECASE):
+                            matching_issue = issue
+                            break
+                else:
+                    # Берем первую issue если role не указан
+                    if issues:
+                        matching_issue = issues[0]
+                
+                if matching_issue:
+                    issue_title = matching_issue.get('title', 'N/A')
+                    issue_body = matching_issue.get('body', '') or ''
+                    # Ограничиваем размер
+                    if len(issue_body) > 5000:
+                        issue_body = issue_body[:5000] + "\n... (truncated)"
+                    content_parts.append(f"### Issue: {issue_title}\n\n{issue_body}")
+                else:
+                    content_parts.append(f"### Issue ({role or title_regex}): не найдена")
         
         if not content_parts:
             return {

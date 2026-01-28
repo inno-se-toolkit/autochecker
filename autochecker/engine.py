@@ -13,10 +13,11 @@ class CheckResult(Dict):
 
 class CheckEngine:
     """Движок, выполняющий проверки на основе данных."""
-    def __init__(self, client: GitHubClient, reader: RepoReader, branch: Optional[str] = None):
+    def __init__(self, client: GitHubClient, reader: RepoReader, branch: Optional[str] = None, lab_spec: Optional[Any] = None):
         self._client = client
         self._reader = reader
         self._branch = branch
+        self._lab_spec = lab_spec
         self._data_cache = {}
         self._branch = branch  # Branch to use (overrides repo default)
 
@@ -626,6 +627,162 @@ class CheckEngine:
         
         return passed, details
 
+    def check_file_nonempty(self, path: str) -> bool:
+        """Проверяет, что файл существует и не пустой."""
+        if not self._reader.file_exists(path):
+            return False
+        content = self._reader.read_file(path)
+        return bool(content and content.strip())
+
+    def check_issue_body_regex_all(self, title_regex: str, rules: Dict[str, Dict[str, str]]) -> Tuple[bool, str]:
+        """Проверяет, что issue с указанным title_regex содержит все указанные regex паттерны в теле."""
+        issues = self._get_issues()
+        matching_issue = None
+        
+        # Находим issue по title_regex
+        for issue in issues:
+            if re.search(title_regex, issue.get('title', ''), re.IGNORECASE):
+                matching_issue = issue
+                break
+        
+        if not matching_issue:
+            return False, f"Issue с паттерном '{title_regex}' не найдена"
+        
+        body = matching_issue.get('body', '') or ''
+        missing_patterns = []
+        
+        # Проверяем все правила
+        for rule_name, rule_config in rules.items():
+            pattern = rule_config.get('pattern', '')
+            if pattern and not re.search(pattern, body, re.IGNORECASE):
+                missing_patterns.append(f"{rule_name}: '{pattern}'")
+        
+        if missing_patterns:
+            return False, f"Не найдены паттерны в теле issue: {', '.join(missing_patterns)}"
+        
+        return True, "Все паттерны найдены в теле issue"
+
+    def check_pr_merged_exists(self, title_regex: str = None, closes_issue: bool = False) -> Tuple[bool, str]:
+        """Проверяет, что существует merged PR с указанными параметрами."""
+        prs = self._get_prs()
+        matching_prs = []
+        
+        for pr in prs:
+            # Проверяем, что PR merged
+            if not pr.get('merged_at'):
+                continue
+            
+            # Проверяем title_regex если указан
+            if title_regex:
+                if not re.search(title_regex, pr.get('title', ''), re.IGNORECASE):
+                    continue
+            
+            # Проверяем closes_issue если требуется
+            if closes_issue:
+                body = pr.get('body', '') or ''
+                if not re.search(r'(?i)(closes|fixes|resolves)\s+#\d+', body):
+                    continue
+            
+            matching_prs.append(pr)
+        
+        if matching_prs:
+            pr_titles = [pr.get('title', 'N/A')[:50] for pr in matching_prs[:3]]
+            return True, f"Найдено merged PR: {', '.join(pr_titles)}"
+        
+        criteria = []
+        if title_regex:
+            criteria.append(f"title_regex='{title_regex}'")
+        if closes_issue:
+            criteria.append("closes_issue=True")
+        
+        return False, f"Merged PR не найден (критерии: {', '.join(criteria) if criteria else 'merged'})"
+
+    def check_pr_touches_paths(self, title_regex: str = None, paths: List[str] = None, min_files: int = 1) -> Tuple[bool, str]:
+        """Проверяет, что PR изменяет файлы по указанным путям."""
+        prs = self._get_prs()
+        matching_pr = None
+        
+        # Находим PR по title_regex если указан
+        if title_regex:
+            for pr in prs:
+                if re.search(title_regex, pr.get('title', ''), re.IGNORECASE):
+                    matching_pr = pr
+                    break
+        else:
+            # Берем последний merged PR
+            merged_prs = [pr for pr in prs if pr.get('merged_at')]
+            if merged_prs:
+                matching_pr = merged_prs[0]
+        
+        if not matching_pr:
+            return False, "PR не найден"
+        
+        pr_number = matching_pr.get('number')
+        if not pr_number:
+            return False, "Не удалось получить номер PR"
+        
+        # Получаем список измененных файлов из PR
+        pr_files = []
+        try:
+            pr_files_data = self._client._get(f"pulls/{pr_number}/files")
+            if pr_files_data:
+                pr_files = [f.get('filename', '') for f in pr_files_data]
+        except Exception as e:
+            return False, f"Не удалось получить список файлов из PR: {str(e)}"
+        
+        if not pr_files:
+            return False, "PR не содержит измененных файлов"
+        
+        # Проверяем соответствие путям
+        matched_files = []
+        for file_path in pr_files:
+            for pattern in paths:
+                if fnmatch.fnmatch(file_path, pattern) or file_path.startswith(pattern.rstrip('*').rstrip('/')):
+                    matched_files.append(file_path)
+                    break
+        
+        passed = len(matched_files) >= min_files
+        details = f"Найдено файлов по путям: {len(matched_files)}/{min_files}"
+        if matched_files:
+            details += f" ({', '.join(matched_files[:5])})"
+        
+        return passed, details
+
+    def check_http_check(self, base_url: str, path: str, expect_status: int = 200, 
+                        expect_body_regex: str = None, timeout: int = 10) -> Tuple[bool, str]:
+        """Проверяет HTTP endpoint."""
+        import requests
+        
+        # Формируем полный URL
+        if base_url.endswith('/') and path.startswith('/'):
+            url = base_url.rstrip('/') + path
+        elif not base_url.endswith('/') and not path.startswith('/'):
+            url = base_url + '/' + path
+        else:
+            url = base_url + path
+        
+        try:
+            response = requests.get(url, timeout=timeout)
+            
+            # Проверяем статус
+            if response.status_code != expect_status:
+                return False, f"Ожидался статус {expect_status}, получен {response.status_code}"
+            
+            # Проверяем body_regex если указан
+            if expect_body_regex:
+                body = response.text
+                if not re.search(expect_body_regex, body, re.IGNORECASE):
+                    return False, f"Тело ответа не соответствует паттерну '{expect_body_regex}'"
+            
+            return True, f"Endpoint доступен, статус {response.status_code}"
+            
+        except requests.exceptions.Timeout:
+            return False, f"Timeout при запросе к {url}"
+        except requests.exceptions.ConnectionError:
+            return False, f"Ошибка подключения к {url}"
+        except Exception as e:
+            return False, f"Ошибка при запросе: {str(e)}"
+
     def run_check(self, check_id: str, check_type: str, params: Dict[str, Any], description: str = "") -> CheckResult:
         """Запускает одну проверку по ее типу."""
         status = "FAIL"
@@ -756,6 +913,69 @@ class CheckEngine:
                 if result['result']: 
                     status = "PASS"
                 details = result.get('details', '')
+            
+            elif check_type == "file_nonempty":
+                path = params.get('path', '')
+                if self.check_file_nonempty(path): 
+                    status = "PASS"
+                else:
+                    details = f"Файл {path} пустой или не существует"
+            
+            elif check_type == "issue_body_regex_all":
+                title_regex = params.get('title_regex', '')
+                rules = params.get('rules', {})
+                passed, details = self.check_issue_body_regex_all(title_regex, rules)
+                if passed: status = "PASS"
+            
+            elif check_type == "pr_merged_exists":
+                title_regex = params.get('title_regex')
+                closes_issue = params.get('closes_issue', False)
+                passed, details = self.check_pr_merged_exists(title_regex, closes_issue)
+                if passed: status = "PASS"
+            
+            elif check_type == "pr_touches_paths":
+                title_regex = params.get('title_regex')
+                paths = params.get('paths', [])
+                min_files = params.get('min_files', 1)
+                passed, details = self.check_pr_touches_paths(title_regex, paths, min_files)
+                if passed: status = "PASS"
+            
+            elif check_type == "http_check":
+                # Получаем base_url из runtime.prod или params
+                runtime = params.get('runtime', 'prod')
+                base_url_template = params.get('base_url')
+                
+                # Если base_url не указан напрямую, пытаемся получить из lab_spec
+                if not base_url_template and self._lab_spec:
+                    if hasattr(self._lab_spec, 'runtime') and self._lab_spec.runtime:
+                        if hasattr(self._lab_spec.runtime, runtime) and getattr(self._lab_spec.runtime, runtime):
+                            runtime_config = getattr(self._lab_spec.runtime, runtime)
+                            if isinstance(runtime_config, dict):
+                                base_url_template = runtime_config.get('base_url')
+                            elif hasattr(runtime_config, 'base_url'):
+                                base_url_template = runtime_config.base_url
+                
+                # Если все еще не нашли, используем переменную окружения или дефолт
+                if not base_url_template:
+                    import os
+                    server_ip = os.environ.get('SERVER_IP', 'localhost')
+                    base_url_template = f"http://{server_ip}"
+                
+                # Заменяем {server_ip} если есть
+                if '{server_ip}' in base_url_template:
+                    import os
+                    server_ip = os.environ.get('SERVER_IP', 'localhost')
+                    base_url = base_url_template.replace('{server_ip}', server_ip)
+                else:
+                    base_url = base_url_template
+                
+                path = params.get('path', '/')
+                expect_status = params.get('expect_status', 200)
+                expect_body_regex = params.get('expect_body_regex')
+                timeout = params.get('timeout', 10)
+                
+                passed, details = self.check_http_check(base_url, path, expect_status, expect_body_regex, timeout)
+                if passed: status = "PASS"
             
             elif check_type == "llm_judge":
                 # LLM проверки обрабатываются отдельно, не через engine
