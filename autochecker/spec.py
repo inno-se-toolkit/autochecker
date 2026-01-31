@@ -36,7 +36,7 @@ class PlagiarismConfig(BaseModel):
 class LabSpec(BaseModel):
     """Спецификация лабораторной работы (YAML файл)."""
     id: str
-    repo_name: str
+    repo_name: Optional[str] = Field(default=None)
     title: Optional[str] = Field(default="")  # Название лабы (опционально)
     checks: List[CheckSpec]
     # Конфигурация плагиата для этой лабы

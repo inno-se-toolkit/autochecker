@@ -19,18 +19,23 @@ class GitHubClient:
     Клиент для взаимодействия с GitHub REST API.
     Реализует кэширование ответов API на диск.
     """
-    def __init__(self, token: str, repo_owner: str, repo_name: str):
+    def __init__(self, token: str, repo_owner: str, repo_name: str, use_cache: bool = True):
         self._owner = repo_owner
         self._repo_name = repo_name
+        self._use_cache = use_cache
         self._headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github.v3+json"
         }
         self._base_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
-        print(f"🚀 Инициализирован GitHubClient для репозитория: {repo_owner}/{repo_name}")
+        cache_status = "✅ ВКЛ" if use_cache else "❌ ВЫКЛ"
+        print(f"🚀 Инициализирован GitHubClient для репозитория: {repo_owner}/{repo_name} (Кэш: {cache_status})")
 
     def _get_cached(self, endpoint: str) -> Optional[Any]:
         """Пытается получить ответ из кэша."""
+        if not self._use_cache:
+            return None
+            
         cache_key = hashlib.md5(f"{self._base_url}/{endpoint}".encode()).hexdigest()
         cache_file = CACHE_DIR / cache_key
         if cache_file.exists():
@@ -42,18 +47,24 @@ class GitHubClient:
 
     def _set_cache(self, endpoint: str, data: Any):
         """Сохраняет ответ в кэш."""
+        if not self._use_cache:
+            return
+
         cache_key = hashlib.md5(f"{self._base_url}/{endpoint}".encode()).hexdigest()
         cache_file = CACHE_DIR / cache_key
         with open(cache_file, "w") as f:
             json.dump(data, f)
 
-    def _get(self, endpoint: str, use_cache: bool = True) -> Optional[Any]:
+    def _get(self, endpoint: str, use_cache: Optional[bool] = None) -> Optional[Any]:
         """Выполняет GET-запрос с поддержкой кэширования."""
+        # Если use_cache не передан явно, используем настройку экземпляра
+        should_cache = self._use_cache if use_cache is None else use_cache
+        
         full_endpoint_url = self._base_url
         if endpoint:
             full_endpoint_url += f"/{endpoint}"
 
-        if use_cache:
+        if should_cache:
             cached_data = self._get_cached(full_endpoint_url)
             if cached_data:
                 return cached_data
@@ -76,7 +87,7 @@ class GitHubClient:
             response = requests.get(full_endpoint_url, headers=safe_headers)
             response.raise_for_status()
             data = response.json()
-            if use_cache:
+            if should_cache:
                 self._set_cache(full_endpoint_url, data)
             return data
         except requests.exceptions.HTTPError as e:

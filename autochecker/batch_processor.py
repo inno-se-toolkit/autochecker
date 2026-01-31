@@ -25,7 +25,8 @@ def process_single_student(
     plagiarism_checker: Optional[PlagiarismChecker] = None,
     platform: str = "github",
     gitlab_url: str = "https://gitlab.com",
-    branch: Optional[str] = None
+    branch: Optional[str] = None,
+    no_cache: bool = False
 ) -> Dict:
     """Обрабатывает одного студента. Возвращает результат или ошибку."""
     try:
@@ -47,7 +48,8 @@ def process_single_student(
             token=token,
             repo_owner=student_alias,
             repo_name=repo_name,
-            gitlab_url=gitlab_url
+            gitlab_url=gitlab_url,
+            use_cache=not no_cache
         )
         
         # Проверяем доступность репозитория
@@ -204,7 +206,8 @@ def process_batch(
     plagiarism_threshold: float = 0.8,
     platform: str = "github",
     gitlab_url: str = "https://gitlab.com",
-    branch: Optional[str] = None
+    branch: Optional[str] = None,
+    no_cache: bool = False
 ) -> Dict:
     """
     Обрабатывает список студентов из файла.
@@ -296,7 +299,8 @@ def process_batch(
                 plagiarism_checker,
                 platform,
                 gitlab_url,
-                branch
+                branch,
+                no_cache
             ): student
             for student in students
         }

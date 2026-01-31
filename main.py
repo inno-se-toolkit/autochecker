@@ -142,6 +142,7 @@ def check(
     token: str = typer.Option(None, envvar=["GITHUB_TOKEN", "GITLAB_TOKEN"], help="Access Token"),
     openrouter_api_key: str = typer.Option(None, envvar="OPENROUTER_API_KEY", help="OpenRouter API Key (для Qwen)"),
     branch: str = typer.Option(None, "--branch", "-b", help="Ветка для проверки (по умолчанию из spec или main)"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Отключить использование кэша"),
 ):
     """
     🎯 Проверить одного студента.
@@ -216,12 +217,13 @@ def check(
         output_dir=output_dir,
         platform=platform,
         gitlab_url=gitlab_url,
-        branch=branch
+        branch=branch,
+        no_cache=no_cache
     )
 
 
 def _run_single_check(student_alias, repo_name, spec_path, token, openrouter_api_key,
-                      output_dir, platform, gitlab_url, branch=None):
+                      output_dir, platform, gitlab_url, branch=None, no_cache=False):
     """Внутренняя функция для проверки одного студента."""
     try:
         if not Path(spec_path).exists():
@@ -241,13 +243,16 @@ def _run_single_check(student_alias, repo_name, spec_path, token, openrouter_api
             if old_path.exists():
                 old_path.unlink()
 
-        # Создаем клиент
+        # Создаем клиенты для нужной платформы (кэш теперь поддерживается в create_client)
+        # Если no_cache=True, то use_cache=False
+        from autochecker.batch_processor import create_client
         client = create_client(
             platform=platform,
             token=token,
             repo_owner=student_alias,
             repo_name=repo_name,
-            gitlab_url=gitlab_url
+            gitlab_url=gitlab_url,
+            use_cache=not no_cache
         )
 
         # Проверяем доступность
@@ -560,6 +565,7 @@ def batch(
     max_workers: int = typer.Option(2, "--workers", "-w", help="Параллельных потоков (2-3 рекомендуется)"),
     check_plagiarism: bool = typer.Option(True, "--plagiarism/--no-plagiarism", help="Проверка плагиата"),
     plagiarism_threshold: float = typer.Option(0.5, "--threshold", help="Порог плагиата (0.0-1.0). 0.5 = 50% файлов идентичны"),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Отключить использование кэша"),
 ):
     """
     📋 Массовая проверка студентов (до 300+ студентов).
@@ -629,7 +635,8 @@ def batch(
             plagiarism_threshold=plagiarism_threshold,
             platform=platform,
             gitlab_url=gitlab_url,
-            branch=branch
+            branch=branch,
+            no_cache=no_cache
         )
     except Exception as e:
         print(f"\n❌ Ошибка: {e}")

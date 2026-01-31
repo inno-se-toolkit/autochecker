@@ -28,17 +28,19 @@ class GitLabClient:
     Поддерживает как gitlab.com, так и self-hosted GitLab.
     """
     
-    def __init__(self, token: str, repo_owner: str, repo_name: str, gitlab_url: str = "https://gitlab.com"):
+    def __init__(self, token: str, repo_owner: str, repo_name: str, gitlab_url: str = "https://gitlab.com", use_cache: bool = True):
         """
         Args:
             token: GitLab Personal Access Token (PAT) или Project Access Token
             repo_owner: Владелец проекта (username или group)
             repo_name: Имя проекта
             gitlab_url: URL GitLab сервера (по умолчанию gitlab.com)
+            use_cache: Использовать ли кэширование запросов
         """
         self._owner = repo_owner
         self._repo_name = repo_name
         self._gitlab_url = gitlab_url.rstrip('/')
+        self._use_cache = use_cache
         
         # GitLab использует project_id в формате "owner%2Frepo_name" (URL-encoded)
         self._project_path = f"{repo_owner}/{repo_name}"
@@ -49,10 +51,14 @@ class GitLabClient:
             "Accept": "application/json"
         }
         self._base_url = f"{self._gitlab_url}/api/v4/projects/{self._project_id}"
-        print(f"🚀 Инициализирован GitLabClient для проекта: {self._project_path}")
+        cache_status = "✅ ВКЛ" if use_cache else "❌ ВЫКЛ"
+        print(f"🚀 Инициализирован GitLabClient для проекта: {self._project_path} (Кэш: {cache_status})")
 
     def _get_cached(self, endpoint: str) -> Optional[Any]:
         """Пытается получить ответ из кэша."""
+        if not self._use_cache:
+            return None
+            
         cache_key = hashlib.md5(f"gitlab_{self._base_url}/{endpoint}".encode()).hexdigest()
         cache_file = CACHE_DIR / cache_key
         if cache_file.exists():
@@ -64,12 +70,15 @@ class GitLabClient:
 
     def _set_cache(self, endpoint: str, data: Any):
         """Сохраняет ответ в кэш."""
+        if not self._use_cache:
+            return
+
         cache_key = hashlib.md5(f"gitlab_{self._base_url}/{endpoint}".encode()).hexdigest()
         cache_file = CACHE_DIR / cache_key
         with open(cache_file, "w") as f:
             json.dump(data, f)
 
-    def _get(self, endpoint: str, use_cache: bool = True, params: Dict = None) -> Optional[Any]:
+    def _get(self, endpoint: str, use_cache: Optional[bool] = None, params: Dict = None) -> Optional[Any]:
         """Выполняет GET-запрос с поддержкой кэширования."""
         full_endpoint_url = self._base_url
         if endpoint:
@@ -80,7 +89,10 @@ class GitLabClient:
         if params:
             cache_key_url += "?" + "&".join(f"{k}={v}" for k, v in sorted(params.items()))
 
-        if use_cache:
+        # Если use_cache не передан явно, используем настройку экземпляра
+        should_cache = self._use_cache if use_cache is None else use_cache
+
+        if should_cache:
             cached_data = self._get_cached(cache_key_url)
             if cached_data:
                 return cached_data
@@ -89,7 +101,7 @@ class GitLabClient:
             response = requests.get(full_endpoint_url, headers=self._headers, params=params)
             response.raise_for_status()
             data = response.json()
-            if use_cache:
+            if should_cache:
                 self._set_cache(cache_key_url, data)
             return data
         except requests.exceptions.HTTPError as e:
@@ -307,7 +319,7 @@ class GitLabClient:
 
 
 def create_client(platform: str, token: str, repo_owner: str, repo_name: str, 
-                  gitlab_url: str = "https://gitlab.com"):
+                  gitlab_url: str = "https://gitlab.com", use_cache: bool = True):
     """
     Фабричный метод для создания клиента нужной платформы.
     
@@ -317,12 +329,13 @@ def create_client(platform: str, token: str, repo_owner: str, repo_name: str,
         repo_owner: Владелец репозитория
         repo_name: Имя репозитория
         gitlab_url: URL GitLab сервера (только для GitLab)
+        use_cache: Использовать ли кэширование
     
     Returns:
         GitHubClient или GitLabClient
     """
     if platform.lower() == "gitlab":
-        return GitLabClient(token, repo_owner, repo_name, gitlab_url)
+        return GitLabClient(token, repo_owner, repo_name, gitlab_url, use_cache=use_cache)
     else:
         from .github_client import GitHubClient
-        return GitHubClient(token, repo_owner, repo_name)
+        return GitHubClient(token, repo_owner, repo_name, use_cache=use_cache)
