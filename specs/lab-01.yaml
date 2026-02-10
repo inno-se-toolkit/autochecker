@@ -1,0 +1,837 @@
+id: lab-01
+title: "Lab 01 – Product architecture, tech roles, & your skills"
+repo_name: "lab-01-market-product-and-git"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.75
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-0
+    title: "Task 0: Practice the Git workflow"
+    prerequisite: setup
+  - id: task-1
+    title: "Task 1: Product & architecture description"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Roles and skills mapping"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Tech skills and the market"
+    prerequisite: setup
+  - id: optional-1
+    title: "Optional: Resolve a merge conflict"
+    prerequisite: setup
+  - id: optional-2
+    title: "Optional: Add a CI check"
+    prerequisite: setup
+  - id: optional-3
+    title: "Optional: Create a release"
+    prerequisite: setup
+  - id: optional-4
+    title: "Optional: Plan skill development"
+    prerequisite: setup
+
+checks:
+
+  # ==============================
+  # SETUP
+  # ==============================
+
+  - id: setup_repo_exists
+    task: setup
+    title: "Repo exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: setup_repo_is_fork
+    task: setup
+    title: "Repo is a fork of the lab repo"
+    class: structural
+    runner: code
+    type: repo_is_fork
+    is_required: true
+    weight: 3
+    hint: >
+      Your repo should be a fork of the original lab repo, not a new repo.
+      Go to the original lab repo and click "Fork" to create your own copy.
+    params: {}
+
+  - id: setup_repo_has_issues
+    task: setup
+    title: "Issues are enabled in the repo"
+    class: structural
+    runner: code
+    type: repo_has_issues
+    is_required: true
+    weight: 3
+    hint: >
+      Enable Issues in your repo: Settings -> General -> Features -> check "Issues".
+    params: {}
+
+  # ==============================
+  # TASK 0: Practice Git workflow
+  # ==============================
+
+  - id: t0_issue_exists
+    task: task-0
+    title: "Issue '[Task] Add my name to contributors' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Add my name to contributors.
+      Use the Lab Task issue form in your repo.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Add my name to contributors"
+      state: "all"
+
+  - id: t0_contributors_exists
+    task: task-0
+    title: "CONTRIBUTORS.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 3
+    hint: >
+      The file CONTRIBUTORS.md should exist in the root of your repo.
+      It is part of the template — make sure you haven't deleted it.
+    params: { path: "CONTRIBUTORS.md" }
+
+  - id: t0_contributors_has_username
+    task: task-0
+    title: "CONTRIBUTORS.md contains a @username entry"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [t0_contributors_exists]
+    hint: >
+      Add your GitHub username to CONTRIBUTORS.md below the comment.
+      Format: - @your-username
+    params:
+      path: "CONTRIBUTORS.md"
+      pattern: "^\\s*-\\s*@\\w+"
+      min_matches: 1
+
+  - id: t0_issue_closed
+    task: task-0
+    title: "Issue '[Task] Add my name to contributors' is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    depends_on: [t0_issue_exists]
+    hint: >
+      Close the issue after merging the PR.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Add my name to contributors"
+      state: "closed"
+
+  - id: t0_pr_merged
+    task: task-0
+    title: "A merged PR closes the contributors issue"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [t0_issue_exists]
+    hint: >
+      Create a PR with 'Closes #<issue-number>' in the description and merge it.
+      IMPORTANT: the PR must be in YOUR FORK, not in the original repo.
+      If you opened the PR to the original repo by mistake, close it and
+      create a new one targeting your own fork's main branch.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Add my name to contributors"
+      merged: true
+
+
+  # ==============================
+  # TASK 1: Product & architecture
+  # ==============================
+
+  - id: t1_issue_exists
+    task: task-1
+    title: "Issue '[Task] Product & architecture description' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Product & architecture description.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Product.*architecture"
+      state: "all"
+
+  - id: t1_arch_md_exists
+    task: task-1
+    title: "docs/architecture.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 4
+    hint: >
+      Create the file docs/architecture.md in your repo.
+      See Task 1, Step 4 in the lab instructions.
+    params: { path: "docs/architecture.md" }
+
+  - id: t1_diagrams_dirs_exist
+    task: task-1
+    title: "docs/diagrams src/out directories exist"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Your repo should have diagram files in docs/diagrams/src/ and docs/diagrams/out/.
+      These directories come with the template for the three products (Yandex Go, Telegram, Wildberries).
+    params:
+      patterns:
+        - "docs/diagrams/src/**"
+        - "docs/diagrams/out/**"
+
+  - id: t1_arch_sections_nonempty
+    task: task-1
+    title: "architecture.md has required sections and they are not empty"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: true
+    weight: 5
+    depends_on: [t1_arch_md_exists]
+    hint: >
+      Your docs/architecture.md must have these sections with content:
+      Product Choice, Main components, Data flow, Deployment, Assumptions, Open questions.
+      Check the exact heading names — they are case-sensitive.
+    params:
+      path: "docs/architecture.md"
+      headings:
+        - "Product Choice"
+        - "Main components"
+        - "Data flow"
+        - "Deployment"
+        - "Assumptions"
+        - "Open questions"
+
+  - id: t1_arch_embeds_svgs
+    task: task-1
+    title: "architecture.md embeds component/sequence/deployment SVG diagrams"
+    class: structural
+    runner: code
+    type: markdown_regex_all
+    is_required: true
+    weight: 4
+    depends_on: [t1_arch_sections_nonempty]
+    hint: >
+      Embed SVG diagrams in architecture.md using Markdown image syntax.
+      You need Component Diagram.svg, Sequence Diagram.svg, and Deployment Diagram.svg.
+      Example: ![Telegram Component Diagram](./diagrams/out/telegram/component-diagram/Component Diagram.svg)
+    params:
+      path: "docs/architecture.md"
+      rules:
+        embedded_component_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Component[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Component[^\"']*\\.svg[\"'])"
+        embedded_sequence_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Sequence[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Sequence[^\"']*\\.svg[\"'])"
+        embedded_deployment_svg:
+          pattern: "(?is)(!\\[[^\\]]*\\]\\([^\\)]+Deployment[^\\)]*\\.svg\\)|<img[^>]+src=[\"'][^\"']+Deployment[^\"']*\\.svg[\"'])"
+
+  - id: t1_arch_links_puml_min3
+    task: task-1
+    title: "architecture.md links to PlantUML source code (>=3 .puml links)"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [t1_arch_sections_nonempty]
+    hint: >
+      Link to the PlantUML source files (.puml) in your architecture.md.
+      You need at least 3 links — one for each diagram (component, sequence, deployment).
+    params:
+      path: "docs/architecture.md"
+      pattern: "(?i)\\(([^\\)]+\\.puml)\\)"
+      min_matches: 3
+
+  - id: t1_arch_linked_files_exist
+    task: task-1
+    title: "PlantUML/SVG files referenced from architecture.md exist in repo"
+    class: structural
+    runner: code
+    type: markdown_linked_files_exist
+    is_required: true
+    weight: 5
+    depends_on: [t1_arch_sections_nonempty]
+    hint: >
+      Some files linked from architecture.md don't exist in your repo.
+      Check that all .puml and .svg file paths are correct and the files are committed.
+    params:
+      md_path: "docs/architecture.md"
+      allow_extensions: [".puml", ".svg"]
+      validate_only_relative: true
+
+  - id: t1_arch_assumptions_min2
+    task: task-1
+    title: "Assumptions section has at least 2 items"
+    class: structural
+    runner: code
+    type: markdown_section_item_count
+    is_required: true
+    weight: 3
+    depends_on: [t1_arch_sections_nonempty]
+    hint: >
+      Add at least 2 assumptions to the "## Assumptions" section in architecture.md.
+      These are things you assumed about the product's architecture.
+    params:
+      path: "docs/architecture.md"
+      heading: "Assumptions"
+      min_items: 2
+      item_kinds: ["bullet", "numbered", "nonempty_line"]
+
+  - id: t1_arch_open_questions_min2
+    task: task-1
+    title: "Open questions section has at least 2 items"
+    class: structural
+    runner: code
+    type: markdown_section_item_count
+    is_required: true
+    weight: 3
+    depends_on: [t1_arch_sections_nonempty]
+    hint: >
+      Add at least 2 open questions to the "## Open questions" section in architecture.md.
+      These are questions you couldn't answer from public information.
+    params:
+      path: "docs/architecture.md"
+      heading: "Open questions"
+      min_items: 2
+      item_kinds: ["bullet", "numbered", "nonempty_line"]
+
+  - id: t1_llm_arch_quality
+    task: task-1
+    title: "LLM: architecture.md content quality"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 4
+    depends_on: [t1_arch_sections_nonempty, t1_arch_embeds_svgs, t1_arch_linked_files_exist]
+    hint: >
+      The content of your architecture.md needs improvement.
+      See the LLM feedback below for specific suggestions.
+    params:
+      inputs:
+        - { kind: "file", path: "docs/architecture.md" }
+      rubric: |
+        Grade 0..5. Pass requires >=3.
+        Check:
+        - Product Choice includes name + website + short description.
+        - At least 5 components are selected and each has a 1-2 sentence explanation.
+        - Data flow is coherent: describes a user action and which components exchange what data.
+        - Deployment is coherent: explains where main components run.
+        - Assumptions are realistic and at least 2.
+        - Open questions are thoughtful and at least 2.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[{"text":"...","why":"..."}]}
+      min_score: 3
+
+  - id: t1_issue_closed
+    task: task-1
+    title: "Issue '[Task] Product & architecture description' is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    depends_on: [t1_issue_exists]
+    hint: >
+      Close the issue after merging the PR.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Product.*architecture"
+      state: "closed"
+
+  - id: t1_pr_merged
+    task: task-1
+    title: "A merged PR closes the architecture issue"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [t1_issue_exists]
+    hint: >
+      Create a PR with 'Closes #<issue-number>' in the description and merge it.
+      IMPORTANT: the PR must be in YOUR FORK, not in the original repo.
+      If you opened the PR to the original repo by mistake, close it and
+      create a new one targeting your own fork's main branch.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Product.*architecture"
+      merged: true
+
+  - id: t1_pr_approved
+    task: task-1
+    title: "PR for architecture task has an approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 1
+    depends_on: [t1_pr_merged]
+    hint: >
+      Ask your partner to review and approve your PR before merging.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Product.*architecture"
+      min_approvals: 1
+
+  - id: t1_pr_reviewed
+    task: task-1
+    title: "PR for architecture task has review comments"
+    class: process
+    runner: code
+    type: issue_pr_review_comments
+    is_required: true
+    weight: 1
+    depends_on: [t1_pr_merged]
+    hint: >
+      Your partner should leave at least 1 review comment on your PR.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Product.*architecture"
+      min_comments: 1
+
+  # ==============================
+  # TASK 2: Roles and skills
+  # ==============================
+
+  - id: t2_issue_exists
+    task: task-2
+    title: "Issue '[Task] Roles and skills mapping' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Roles and skills mapping.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Roles and skills mapping"
+      state: "all"
+
+  - id: t2_roles_md_exists
+    task: task-2
+    title: "docs/roles-and-skills.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 4
+    hint: >
+      Create the file docs/roles-and-skills.md in your repo.
+    params: { path: "docs/roles-and-skills.md" }
+
+  - id: t2_roles_sections_nonempty
+    task: task-2
+    title: "roles-and-skills.md has Task 2 sections"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: true
+    weight: 5
+    depends_on: [t2_roles_md_exists]
+    hint: >
+      Your docs/roles-and-skills.md must have these sections with content:
+      Components and roles, Roles and responsibilities, Common skills across roles.
+    params:
+      path: "docs/roles-and-skills.md"
+      headings:
+        - "Components and roles"
+        - "Roles and responsibilities"
+        - "Common skills across roles"
+
+  - id: t2_llm_roles_quality
+    task: task-2
+    title: "LLM: roles and skills content quality"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 4
+    depends_on: [t2_roles_sections_nonempty]
+    hint: >
+      The content of your roles and skills sections needs improvement.
+      See the LLM feedback below for specific suggestions.
+    params:
+      inputs:
+        - { kind: "file", path: "docs/roles-and-skills.md" }
+      rubric: |
+        Grade 0..5. Pass requires >=3.
+        Focus ONLY on these sections: Components and roles, Roles and responsibilities, Common skills across roles.
+        Check:
+        - Components and roles: roles listed for components (nested list, not just one-liners). At least 5 components.
+        - Roles and responsibilities: at least 5 roles with concrete responsibilities.
+        - Common skills across roles: skills are tied to responsibilities (not random buzzwords).
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[{"text":"...","why":"..."}]}
+      min_score: 3
+
+  - id: t2_issue_closed
+    task: task-2
+    title: "Issue '[Task] Roles and skills mapping' is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    depends_on: [t2_issue_exists]
+    hint: >
+      Close the issue after merging the PR.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Roles and skills mapping"
+      state: "closed"
+
+  - id: t2_pr_merged
+    task: task-2
+    title: "A merged PR closes the roles issue"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [t2_issue_exists]
+    hint: >
+      Create a PR with 'Closes #<issue-number>' in the description and merge it.
+      IMPORTANT: the PR must be in YOUR FORK, not in the original repo.
+      If you opened the PR to the original repo by mistake, close it and
+      create a new one targeting your own fork's main branch.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Roles and skills mapping"
+      merged: true
+
+  - id: t2_pr_approved
+    task: task-2
+    title: "PR for roles task has an approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 1
+    depends_on: [t2_pr_merged]
+    hint: >
+      Ask your partner to review and approve your PR before merging.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Roles and skills mapping"
+      min_approvals: 1
+
+  - id: t2_pr_reviewed
+    task: task-2
+    title: "PR for roles task has review comments"
+    class: process
+    runner: code
+    type: issue_pr_review_comments
+    is_required: true
+    weight: 1
+    depends_on: [t2_pr_merged]
+    hint: >
+      Your partner should leave at least 1 review comment on your PR.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Roles and skills mapping"
+      min_comments: 1
+
+  # ==============================
+  # TASK 3: Tech skills & market
+  # ==============================
+
+  - id: t3_issue_exists
+    task: task-3
+    title: "Issue '[Task] Tech skills assessment and market analysis' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Tech skills assessment and market analysis.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Tech skills assessment and market analysis"
+      state: "all"
+
+  - id: t3_roles_sections_nonempty
+    task: task-3
+    title: "roles-and-skills.md has Task 3 sections"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: true
+    weight: 5
+    depends_on: [t2_roles_md_exists]
+    hint: >
+      Your docs/roles-and-skills.md must have these sections with content:
+      My chosen role, Job market snapshot, Personal reflection.
+    params:
+      path: "docs/roles-and-skills.md"
+      headings:
+        - "My chosen role"
+        - "Job market snapshot"
+        - "Personal reflection"
+
+  - id: t3_job_postings_links_min5
+    task: task-3
+    title: "Job market snapshot contains >=5 job posting links"
+    class: structural
+    runner: code
+    type: urls_in_markdown_section_min
+    is_required: true
+    weight: 3
+    depends_on: [t3_roles_sections_nonempty]
+    hint: >
+      Add at least 5 job posting links to the "Job market snapshot" section.
+      Find 5-7 job postings on hh.ru or a similar job site and include links.
+    params:
+      path: "docs/roles-and-skills.md"
+      heading: "Job market snapshot"
+      min: 5
+
+  - id: t3_llm_skills_quality
+    task: task-3
+    title: "LLM: tech skills and market content quality"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 4
+    depends_on: [t3_roles_sections_nonempty]
+    hint: >
+      The content of your skills/market sections needs improvement.
+      See the LLM feedback below for specific suggestions.
+    params:
+      inputs:
+        - { kind: "file", path: "docs/roles-and-skills.md" }
+      rubric: |
+        Grade 0..5. Pass requires >=3.
+        Focus ONLY on these sections: My chosen role, Job market snapshot, Personal reflection.
+        Check:
+        - My chosen role: contains role name + skills I already have + skills I clearly lack.
+        - Job market snapshot: skills extracted from postings (not just links). Common and unique skills identified.
+        - Personal reflection: 5-10 sentences, personal and specific. Not written by AI.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[{"text":"...","why":"..."}]}
+      min_score: 3
+
+  - id: t3_issue_closed
+    task: task-3
+    title: "Issue '[Task] Tech skills assessment and market analysis' is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    depends_on: [t3_issue_exists]
+    hint: >
+      Close the issue after merging the PR.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Tech skills assessment and market analysis"
+      state: "closed"
+
+  - id: t3_pr_merged
+    task: task-3
+    title: "A merged PR closes the tech skills issue"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [t3_issue_exists]
+    hint: >
+      Create a PR with 'Closes #<issue-number>' in the description and merge it.
+      IMPORTANT: the PR must be in YOUR FORK, not in the original repo.
+      If you opened the PR to the original repo by mistake, close it and
+      create a new one targeting your own fork's main branch.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Tech skills assessment and market analysis"
+      merged: true
+
+  - id: t3_pr_approved
+    task: task-3
+    title: "PR for tech skills task has an approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 1
+    depends_on: [t3_pr_merged]
+    hint: >
+      Ask your partner to review and approve your PR before merging.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Tech skills assessment and market analysis"
+      min_approvals: 1
+
+  - id: t3_pr_reviewed
+    task: task-3
+    title: "PR for tech skills task has review comments"
+    class: process
+    runner: code
+    type: issue_pr_review_comments
+    is_required: true
+    weight: 1
+    depends_on: [t3_pr_merged]
+    hint: >
+      Your partner should leave at least 1 review comment on your PR.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Tech skills assessment and market analysis"
+      min_comments: 1
+
+  # ==============================
+  # OPTIONAL 1: Merge conflict
+  # ==============================
+
+  - id: opt1_issue_exists
+    task: optional-1
+    title: "Issue '[Task] Resolve a merge conflict' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Resolve a merge conflict.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Resolve a merge conflict"
+      state: "all"
+
+  - id: opt1_issue_closed
+    task: optional-1
+    title: "Merge conflict issue is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    depends_on: [opt1_issue_exists]
+    hint: >
+      Close the issue after completing the merge conflict resolution task.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Resolve a merge conflict"
+      state: "closed"
+
+  # ==============================
+  # OPTIONAL 2: CI check
+  # ==============================
+
+  - id: opt2_issue_exists
+    task: optional-2
+    title: "Issue '[Task] Add a CI check' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Add a CI check.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Add a CI check"
+      state: "all"
+
+  - id: opt2_workflow_file_exists
+    task: optional-2
+    title: ".github/workflows/ contains a workflow file"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub Actions workflow file at .github/workflows/ci.yml.
+      See the GitHub Actions quickstart documentation.
+    params:
+      patterns:
+        - ".github/workflows/*.yml"
+        - ".github/workflows/*.yaml"
+
+  # ==============================
+  # OPTIONAL 3: Release
+  # ==============================
+
+  - id: opt3_issue_exists
+    task: optional-3
+    title: "Issue '[Task] Create a release' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Create a release.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Create a release"
+      state: "all"
+
+  # ==============================
+  # OPTIONAL 4: Skill development
+  # ==============================
+
+  - id: opt4_issue_exists
+    task: optional-4
+    title: "Issue '[Task] Plan skill development' exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the exact title: [Task] Plan skill development.
+    params:
+      title_regex: "(?i)^\\[Task\\]\\s+Plan skill development"
+      state: "all"
+
+  - id: opt4_skill_plan_exists
+    task: optional-4
+    title: "docs/skill-development-plan.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create the file docs/skill-development-plan.md in your repo.
+    params: { path: "docs/skill-development-plan.md" }
+
+  - id: opt4_skill_plan_sections
+    task: optional-4
+    title: "skill-development-plan.md has required sections"
+    class: structural
+    runner: code
+    type: markdown_sections_nonempty
+    is_required: false
+    weight: 1
+    depends_on: [opt4_skill_plan_exists]
+    hint: >
+      Your docs/skill-development-plan.md must have these sections:
+      About the skill, Goals, Planning, Tracking.
+    params:
+      path: "docs/skill-development-plan.md"
+      headings:
+        - "About the skill"
+        - "Goals"
+        - "Planning"
+        - "Tracking"

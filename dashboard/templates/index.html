@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autochecker Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1a1a1a; }
+
+        .header { background: #1a1a2e; color: #fff; padding: 1.25rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        .header-actions { display: flex; gap: 0.75rem; align-items: center; }
+        .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; text-decoration: none; border: none; cursor: pointer; transition: background 0.15s; }
+        .btn-export { background: #16a34a; color: #fff; }
+        .btn-export:hover { background: #15803d; }
+
+        .stats-bar { display: flex; gap: 1.5rem; padding: 1rem 2rem; background: #fff; border-bottom: 1px solid #e5e7eb; }
+        .stat { display: flex; flex-direction: column; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
+        .stat-label { font-size: 0.8rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+
+        .tabs { display: flex; gap: 0.25rem; padding: 0.75rem 2rem 0; background: #fff; }
+        .tab { padding: 0.5rem 1.25rem; border-radius: 6px 6px 0 0; font-size: 0.85rem; font-weight: 500; text-decoration: none; color: #6b7280; background: transparent; border: 1px solid transparent; border-bottom: none; transition: all 0.15s; }
+        .tab:hover { color: #1a1a2e; background: #f9fafb; }
+        .tab.active { color: #1a1a2e; background: #f0f2f5; border-color: #e5e7eb; font-weight: 600; }
+
+        .container { padding: 1.25rem 2rem 2rem; }
+
+        .table-wrapper { overflow-x: auto; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        table { border-collapse: collapse; width: 100%; background: #fff; font-size: 0.875rem; }
+        th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #f3f4f6; white-space: nowrap; }
+        th { background: #f9fafb; color: #374151; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; position: sticky; top: 0; cursor: pointer; user-select: none; }
+        th:hover { background: #f3f4f6; }
+        th .sort-arrow { font-size: 0.65rem; margin-left: 0.25rem; color: #9ca3af; }
+        th .sort-arrow.active { color: #1a1a2e; }
+        tbody tr:hover { background: #f9fafb; }
+        .col-github { min-width: 140px; }
+        .col-email { min-width: 180px; }
+        .col-last-sub { min-width: 130px; }
+        .ts { color: #6b7280; font-size: 0.8rem; }
+
+        /* Task column header */
+        .task-header { display: flex; flex-direction: column; gap: 0.15rem; }
+        .task-title { font-size: 0.7rem; text-transform: none; letter-spacing: normal; font-weight: 400; color: #6b7280; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .pass-rate { font-size: 0.7rem; color: #9ca3af; font-weight: 400; text-transform: none; letter-spacing: normal; }
+
+        a { color: #2563eb; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Score cells */
+        .cell { padding: 0.35rem 0.5rem; border-radius: 4px; text-align: center; font-weight: 600; font-size: 0.8rem; }
+        .cell-pass { background: #dcfce7; color: #166534; }
+        .cell-partial { background: #fef9c3; color: #854d0e; }
+        .cell-none { background: #f3f4f6; color: #9ca3af; font-weight: 400; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Autochecker Dashboard</h1>
+        <div class="header-actions">
+            <a class="btn btn-export" href="/export/csv{% if active_lab %}?lab={{ active_lab }}{% endif %}">Export CSV</a>
+        </div>
+    </div>
+
+    <div class="stats-bar">
+        <div class="stat">
+            <span class="stat-value">{{ students | length }}</span>
+            <span class="stat-label">Students</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ completed_count }}</span>
+            <span class="stat-label">Completed all tasks</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ completion_pct }}%</span>
+            <span class="stat-label">Completion rate</span>
+        </div>
+    </div>
+
+    {% if labs | length > 1 %}
+    <div class="tabs">
+        {% for l in labs %}
+        <a class="tab {% if l == active_lab %}active{% endif %}" href="/?lab={{ l }}">{{ l }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="container">
+        <div class="table-wrapper">
+            <table id="dashboard-table">
+                <thead>
+                    <tr>
+                        <th class="col-github" data-col="0">GitHub <span class="sort-arrow active">&#9650;</span></th>
+                        <th class="col-email" data-col="1">Email <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-last-sub" data-col="2">Last Submission <span class="sort-arrow">&#9650;</span></th>
+                        {% for t in tasks %}
+                        <th data-col="{{ loop.index0 + 3 }}">
+                            <div class="task-header">
+                                <span>{{ t.task_id }}</span>
+                                <span class="task-title" title="{{ t.title }}">{{ t.title }}</span>
+                                {% set key = t.lab_id ~ ":" ~ t.task_id %}
+                                <span class="pass-rate">{{ task_stats[key].pass_rate }}% pass</span>
+                            </div>
+                            <span class="sort-arrow">&#9650;</span>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr>
+                        <td><a href="/student/{{ s.github_alias }}">{{ s.github_alias }}</a></td>
+                        <td>{{ s.email }}</td>
+                        <td class="ts">{{ s.last_submission or "—" }}</td>
+                        {% for t in tasks %}
+                        {% set key = t.lab_id ~ ":" ~ t.task_id %}
+                        {% set entry = scores.get(s.tg_id, {}).get(key) %}
+                        {% if entry %}
+                            <td><span class="cell cell-{{ entry.status }}">{{ entry.score }}</span></td>
+                        {% else %}
+                            <td><span class="cell cell-none">&mdash;</span></td>
+                        {% endif %}
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const table = document.getElementById('dashboard-table');
+        const headers = table.querySelectorAll('th');
+        let currentCol = 0;
+        let ascending = true;
+
+        function sortValue(td, col) {
+            if (col <= 2) return td.textContent.trim().toLowerCase() || 'zzz';
+            // For score columns: extract pass/partial/none from cell class
+            const cell = td.querySelector('.cell');
+            if (!cell) return 'zzz';
+            if (cell.classList.contains('cell-pass')) return 'a';
+            if (cell.classList.contains('cell-partial')) return 'b';
+            return 'c';
+        }
+
+        headers.forEach(function(th) {
+            th.addEventListener('click', function() {
+                const col = parseInt(th.dataset.col);
+                if (col === currentCol) {
+                    ascending = !ascending;
+                } else {
+                    currentCol = col;
+                    ascending = true;
+                }
+
+                // Update arrows
+                headers.forEach(function(h) {
+                    const arrow = h.querySelector('.sort-arrow');
+                    if (arrow) {
+                        arrow.classList.remove('active');
+                        arrow.innerHTML = '&#9650;';
+                    }
+                });
+                const arrow = th.querySelector('.sort-arrow');
+                if (arrow) {
+                    arrow.classList.add('active');
+                    arrow.innerHTML = ascending ? '&#9650;' : '&#9660;';
+                }
+
+                const tbody = table.querySelector('tbody');
+                const rows = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function(a, b) {
+                    const va = sortValue(a.children[col], col);
+                    const vb = sortValue(b.children[col], col);
+                    if (va < vb) return ascending ? -1 : 1;
+                    if (va > vb) return ascending ? 1 : -1;
+                    return 0;
+                });
+                rows.forEach(function(row) { tbody.appendChild(row); });
+            });
+        });
+    })();
+    </script>
+</body>
+</html>

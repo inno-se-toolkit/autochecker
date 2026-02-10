@@ -1,0 +1,437 @@
+id: lab-02
+title: "Lab 02 — Understand, Improve, and Deploy a Backend Service"
+repo_name: "lab-02-fix-and-deploy-backend"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.8
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Proof document"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Bug report & fix"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Outcomes feature"
+    prerequisite: setup
+  - id: task-4
+    title: "Task 4: Deployment"
+    prerequisite: setup
+  - id: optional-1
+    title: "Optional: Stretch tasks"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  # =====================================================
+  # TASK 1: Proof document
+  # =====================================================
+
+  - id: proof_file_exists
+    task: task-1
+    title: "docs/lab-02-proof.md exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 4
+    hint: >
+      Create the file docs/lab-02-proof.md in your repo.
+      This file should contain screenshots and evidence of your work.
+    params:
+      path: "docs/lab-02-proof.md"
+
+  - id: proof_file_nonempty
+    task: task-1
+    title: "docs/lab-02-proof.md is not empty"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [proof_file_exists]
+    hint: >
+      Your docs/lab-02-proof.md file is empty. Add screenshots and evidence
+      of your local run, bug investigation, and deployment.
+    params:
+      path: "docs/lab-02-proof.md"
+
+  - id: proof_local_run
+    task: task-1
+    title: "Proof of local run and exploration"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    depends_on: [proof_file_nonempty]
+    hint: >
+      Your proof document must show evidence of running the service locally.
+      Include screenshots showing 127.0.0.1:8000/status and /items/course endpoints.
+    params:
+      path: "docs/lab-02-proof.md"
+      rules:
+        local_status:
+          pattern: "127\\.0\\.0\\.1:8000/status"
+        items_course:
+          pattern: "/items/course"
+
+  - id: proof_bug_notes
+    task: task-1
+    title: "Bug investigation notes present"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [proof_file_nonempty]
+    hint: >
+      Add bug investigation notes to your proof document.
+      Describe what you found: the bug, expected vs actual behavior.
+    params:
+      path: "docs/lab-02-proof.md"
+      pattern: "(?i)bug|unexpected|expected|actual|investigat"
+
+  - id: proof_systemd
+    task: task-1
+    title: "systemd service evidence present"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    depends_on: [proof_file_nonempty]
+    hint: >
+      Include evidence of running 'systemctl status myapp' on your VPS
+      in the proof document.
+    params:
+      path: "docs/lab-02-proof.md"
+      pattern: "systemctl\\s+status\\s+myapp"
+
+  - id: proof_nginx
+    task: task-1
+    title: "nginx configuration test evidence present"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [proof_file_nonempty]
+    hint: >
+      Include evidence of running 'nginx -t' on your VPS in the proof document.
+    params:
+      path: "docs/lab-02-proof.md"
+      pattern: "nginx\\s+-t"
+
+  # =====================================================
+  # TASK 2: Bug report & fix
+  # =====================================================
+
+  - id: setup_issue_exists
+    task: task-2
+    title: "Setup task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title starting with: [Task] Lab 02 setup.
+    params:
+      title_regex: "^\\[Task\\]\\s+Lab 02 setup"
+
+  - id: run_issue_exists
+    task: task-2
+    title: "Run locally task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title starting with: [Task] Run the backend locally.
+    params:
+      title_regex: "^\\[Task\\]\\s+Run the backend locally"
+
+  - id: bug_issue_exists
+    task: task-2
+    title: "Bug issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 4
+    hint: >
+      Create a GitHub issue with the title starting with: [Bug].
+      Example: [Bug] Unexpected behavior in /items endpoint.
+    params:
+      title_regex: "^\\[Bug\\]"
+
+  - id: bug_issue_has_structure
+    task: task-2
+    title: "Bug issue has reproduction and expected/actual sections"
+    class: process
+    runner: code
+    type: issue_body_regex_all
+    is_required: true
+    weight: 3
+    depends_on: [bug_issue_exists]
+    hint: >
+      Your bug issue must include: Steps to reproduce, Expected behavior,
+      and Actual behavior sections.
+    params:
+      rules:
+        steps:
+          pattern: "(?i)steps to reproduce"
+        expected:
+          pattern: "(?i)expected"
+        actual:
+          pattern: "(?i)actual"
+
+  - id: bugfix_pr_merged
+    task: task-2
+    title: "Bug fix PR merged and closes bug issue"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Create a PR that fixes the bug with 'Closes #<bug-issue>' in the description
+      and merge it. The PR title should contain 'fix'.
+    params:
+      title_regex: "(?i)fix"
+      closes_issue: true
+
+  - id: bugfix_tests_added
+    task: task-2
+    title: "Bug fix PR modifies tests"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 4
+    depends_on: [bugfix_pr_merged]
+    hint: >
+      Your bug fix PR should include test changes in the tests/ directory
+      to verify the bug is fixed.
+    params:
+      paths: ["tests/"]
+      min_files: 1
+
+  - id: llm_bug_understanding
+    task: task-2
+    title: "LLM: bug understanding is coherent"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 3
+    depends_on: [bug_issue_exists]
+    hint: >
+      The content of your bug report needs improvement.
+      See the LLM feedback below for specific suggestions.
+    params:
+      inputs:
+        - { kind: "issue", role: "bug" }
+      rubric: |
+        Score 0..5.
+        Check that:
+        - The bug description matches FastAPI /items behavior.
+        - Reproduction steps are concrete.
+        - Expected vs actual behavior makes sense.
+        Return JSON only:
+        {"score":0-5,"reasons":[...],"quotes":[...]}
+      min_score: 3
+
+  # =====================================================
+  # TASK 3: Outcomes feature
+  # =====================================================
+
+  - id: outcomes_pr_merged
+    task: task-3
+    title: "Outcomes feature PR merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Create a PR that implements the Outcomes API (/outcomes endpoint)
+      and merge it. The PR title should contain 'outcomes'.
+    params:
+      title_regex: "(?i)outcomes"
+
+  - id: outcomes_structure_present
+    task: task-3
+    title: "Outcomes implementation structure exists"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 4
+    depends_on: [outcomes_pr_merged]
+    hint: >
+      Your Outcomes implementation should follow the models/services/routers pattern.
+      Ensure files exist in src/app/models/, src/app/services/, and src/app/routers/.
+    params:
+      patterns:
+        - "src/app/models/**"
+        - "src/app/services/**"
+        - "src/app/routers/**"
+
+  - id: outcomes_tests_added
+    task: task-3
+    title: "Outcomes endpoints are tested"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 4
+    depends_on: [outcomes_pr_merged]
+    hint: >
+      Your Outcomes PR should include at least 2 test files in the tests/ directory.
+    params:
+      paths: ["tests/"]
+      min_files: 2
+
+  - id: llm_outcomes_design
+    task: task-3
+    title: "LLM: Outcomes API design is reasonable"
+    class: content
+    runner: llm
+    type: llm_judge
+    is_required: true
+    weight: 3
+    depends_on: [outcomes_pr_merged]
+    hint: >
+      The design of your Outcomes API needs improvement.
+      See the LLM feedback below for specific suggestions.
+    params:
+      inputs:
+        - { kind: "repo_files", paths: ["src/app"] }
+      rubric: |
+        Score 0..5.
+        Check that:
+        - /outcomes and /outcomes/{id} are implemented cleanly.
+        - Nested suboutcomes lookup is handled.
+        - Code structure follows services/models/routers separation.
+        Return JSON only:
+        {"score":0-5,"reasons":[...]}
+      min_score: 3
+
+  # =====================================================
+  # TASK 4: Deployment
+  # =====================================================
+
+  - id: prod_status_ok
+    task: task-4
+    title: "Production /status endpoint reachable"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 6
+    hint: >
+      Your deployed service at http://SERVER_IP/status must return HTTP 200.
+      Make sure Docker Compose is running and nginx is configured correctly.
+    params:
+      runtime: prod
+      path: "/status"
+      expect_status: 200
+
+  - id: prod_items_ok
+    task: task-4
+    title: "Production /items/course endpoint works"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 5
+    hint: >
+      Your deployed service at http://SERVER_IP/items/course must return HTTP 200.
+    params:
+      runtime: prod
+      path: "/items/course"
+      expect_status: 200
+
+  - id: prod_outcomes_ok
+    task: task-4
+    title: "Production /outcomes endpoint works"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 6
+    hint: >
+      Your deployed service at http://SERVER_IP/outcomes must return HTTP 200
+      and the response must contain "outcomes" in the JSON body.
+    params:
+      runtime: prod
+      path: "/outcomes"
+      expect_status: 200
+      expect_body_regex: "\"outcomes\""
+
+  - id: prod_outcome_by_id_404
+    task: task-4
+    title: "Production /outcomes/{id} returns 404 for missing id"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    hint: >
+      Your /outcomes/{id} endpoint should return HTTP 404 when the outcome
+      does not exist.
+    params:
+      runtime: prod
+      path: "/outcomes/does-not-exist"
+      expect_status: 404
+
+  # =====================================================
+  # OPTIONAL: Stretch tasks
+  # =====================================================
+
+  - id: stretch_task_issue_exists
+    task: optional-1
+    title: "Stretch task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue for your stretch task. Title should start with
+      [Task] Deep dive, [Task] Add, or [Task] Skill.
+    params:
+      title_regex: "^\\[Task\\]\\s+Deep dive|^\\[Task\\]\\s+Add|^\\[Task\\]\\s+Skill"

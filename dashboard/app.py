@@ -1,0 +1,387 @@
+"""Web dashboard for viewing students and check results."""
+
+import csv
+import hashlib
+import hmac
+import io
+import json
+import os
+from datetime import date
+from pathlib import Path
+from typing import Optional
+
+import aiosqlite
+import yaml
+from fastapi import FastAPI, Form, Query, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+
+_BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = os.getenv("DB_PATH", str(_BASE_DIR / "bot.db"))
+SPECS_DIR = _BASE_DIR / "specs"
+ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "lab-01").split(",") if l.strip()]
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
+
+COOKIE_NAME = "dash_auth"
+
+app = FastAPI(title="Autochecker Dashboard")
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def _sign_cookie(password: str) -> str:
+    """Create HMAC-SHA256 signature for the auth cookie."""
+    return hmac.new(password.encode(), b"authenticated", hashlib.sha256).hexdigest()
+
+
+def _verify_cookie(cookie_value: str) -> bool:
+    """Check that the auth cookie matches the expected signature."""
+    if not DASHBOARD_PASSWORD:
+        return True
+    expected = _sign_cookie(DASHBOARD_PASSWORD)
+    return hmac.compare_digest(cookie_value, expected)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Redirect unauthenticated requests to /login."""
+    if not DASHBOARD_PASSWORD:
+        return await call_next(request)
+
+    if request.url.path in ("/login", "/login/"):
+        return await call_next(request)
+
+    cookie = request.cookies.get(COOKIE_NAME, "")
+    if not _verify_cookie(cookie):
+        return RedirectResponse("/login", status_code=302)
+
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Login routes
+# ---------------------------------------------------------------------------
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: Optional[str] = Query(default=None)):
+    """Render the login form."""
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": error,
+    })
+
+
+@app.post("/login")
+async def login_submit(password: str = Form(...)):
+    """Verify password, set auth cookie, redirect to dashboard."""
+    if not hmac.compare_digest(password, DASHBOARD_PASSWORD):
+        return RedirectResponse("/login?error=wrong", status_code=302)
+
+    response = RedirectResponse("/", status_code=302)
+    response.set_cookie(
+        COOKIE_NAME,
+        _sign_cookie(DASHBOARD_PASSWORD),
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,  # 30 days
+    )
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def load_task_metadata() -> list[dict]:
+    """Load task id+title from spec files for active labs."""
+    tasks: list[dict] = []
+    for lab_id in ACTIVE_LABS:
+        spec_path = SPECS_DIR / f"{lab_id}.yaml"
+        if not spec_path.exists():
+            continue
+        with open(spec_path, "r", encoding="utf-8") as f:
+            spec = yaml.safe_load(f)
+        for t in spec.get("tasks", []):
+            tasks.append({
+                "lab_id": lab_id,
+                "task_id": t["id"],
+                "title": t["title"],
+            })
+    return tasks
+
+
+def _cell_status(passed: Optional[int], failed: Optional[int], total: Optional[int]) -> str:
+    """Return 'pass', 'partial', or 'none'."""
+    if total is None or total == 0:
+        return "none"
+    if failed == 0:
+        return "pass"
+    return "partial"
+
+
+async def _fetch_best_scores(db: aiosqlite.Connection) -> dict[int, dict[str, dict]]:
+    """Best result per student per task (highest passed count, lowest failed).
+
+    Returns {tg_id: {"lab:task": {"score": str, "passed": int, "failed": int, "total": int, "status": str}}}
+    """
+    scores: dict[int, dict[str, dict]] = {}
+    async with db.execute("""
+        SELECT tg_id, lab_id, task_id, score, passed, failed, total
+        FROM results
+        ORDER BY tg_id, lab_id, task_id
+    """) as cur:
+        async for row in cur:
+            key = f"{row['lab_id']}:{row['task_id']}"
+            entry = {
+                "score": row["score"] or "—",
+                "passed": row["passed"],
+                "failed": row["failed"],
+                "total": row["total"],
+            }
+            entry["status"] = _cell_status(entry["passed"], entry["failed"], entry["total"])
+            prev = scores.setdefault(row["tg_id"], {}).get(key)
+            if prev is None:
+                scores[row["tg_id"]][key] = entry
+            else:
+                # Better = fewer failures; tie-break by more passes
+                prev_f = prev["failed"] if prev["failed"] is not None else 999
+                cur_f = entry["failed"] if entry["failed"] is not None else 999
+                prev_p = prev["passed"] if prev["passed"] is not None else 0
+                cur_p = entry["passed"] if entry["passed"] is not None else 0
+                if (cur_f, -cur_p) < (prev_f, -prev_p):
+                    scores[row["tg_id"]][key] = entry
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request, lab: Optional[str] = Query(default=None)):
+    """Main page: students x tasks grid with color coding and stats."""
+    task_meta = load_task_metadata()
+    labs = sorted({t["lab_id"] for t in task_meta})
+    active_lab = lab if lab in labs else (labs[0] if labs else None)
+
+    # Filter tasks by selected lab
+    tasks = [t for t in task_meta if t["lab_id"] == active_lab] if active_lab else task_meta
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        students = []
+        async with db.execute(
+            "SELECT tg_id, email, github_alias, tg_username FROM users ORDER BY github_alias"
+        ) as cur:
+            async for row in cur:
+                students.append(dict(row))
+
+        scores = await _fetch_best_scores(db)
+
+        # Latest submission timestamp per student
+        last_submission: dict[int, str] = {}
+        async with db.execute(
+            "SELECT tg_id, MAX(timestamp) AS last_ts FROM results GROUP BY tg_id"
+        ) as cur:
+            async for row in cur:
+                last_submission[row["tg_id"]] = row["last_ts"] or ""
+
+    # Attach last_submission to each student dict
+    for s in students:
+        ts = last_submission.get(s["tg_id"], "")
+        s["last_submission"] = ts[:16].replace("T", " ") if ts else ""
+
+    # Compute per-task pass rates
+    task_stats = {}
+    for t in tasks:
+        key = f"{t['lab_id']}:{t['task_id']}"
+        passed_count = sum(
+            1 for s in students
+            if scores.get(s["tg_id"], {}).get(key, {}).get("status") == "pass"
+        )
+        attempted_count = sum(
+            1 for s in students
+            if scores.get(s["tg_id"], {}).get(key, {}).get("status") in ("pass", "partial")
+        )
+        task_stats[key] = {
+            "passed": passed_count,
+            "attempted": attempted_count,
+            "pass_rate": round(passed_count / len(students) * 100) if students else 0,
+        }
+
+    # Overall completion: student completed lab = passed all tasks in that lab
+    if students and tasks:
+        task_keys = [f"{t['lab_id']}:{t['task_id']}" for t in tasks]
+        completed = sum(
+            1 for s in students
+            if all(
+                scores.get(s["tg_id"], {}).get(k, {}).get("status") == "pass"
+                for k in task_keys
+            )
+        )
+        completion_pct = round(completed / len(students) * 100)
+    else:
+        completed = 0
+        completion_pct = 0
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "students": students,
+        "tasks": tasks,
+        "scores": scores,
+        "task_stats": task_stats,
+        "labs": labs,
+        "active_lab": active_lab,
+        "completion_pct": completion_pct,
+        "completed_count": completed,
+    })
+
+
+@app.get("/student/{github_alias}", response_class=HTMLResponse)
+async def student_detail(
+    request: Request,
+    github_alias: str,
+    error: Optional[str] = Query(default=None),
+):
+    """Detail page: full check history for a student."""
+    task_meta = load_task_metadata()
+    title_map = {f"{t['lab_id']}:{t['task_id']}": t["title"] for t in task_meta}
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id, email, github_alias, tg_username FROM users WHERE github_alias = ?",
+            (github_alias,)
+        ) as cur:
+            student_row = await cur.fetchone()
+
+        if not student_row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+
+        student = dict(student_row)
+
+        results = []
+        async with db.execute(
+            """SELECT lab_id, task_id, score, passed, failed, total, details, timestamp
+               FROM results WHERE tg_id = ? ORDER BY timestamp DESC""",
+            (student["tg_id"],)
+        ) as cur:
+            async for row in cur:
+                r = dict(row)
+                key = f"{r['lab_id']}:{r['task_id']}"
+                r["title"] = title_map.get(key, r["task_id"])
+                r["status"] = _cell_status(r["passed"], r["failed"], r["total"])
+                # Parse per-check details JSON
+                r["checks"] = []
+                if r.get("details"):
+                    try:
+                        r["checks"] = json.loads(r["details"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                results.append(r)
+
+    return templates.TemplateResponse("student.html", {
+        "request": request,
+        "student": student,
+        "results": results,
+        "error": error,
+    })
+
+
+@app.post("/student/{github_alias}/edit")
+async def student_edit(
+    github_alias: str,
+    email: str = Form(...),
+    new_github_alias: str = Form(..., alias="github_alias"),
+    tg_username: str = Form(""),
+):
+    """Update student info. Redirects back to student page."""
+    email = email.strip()
+    new_github_alias = new_github_alias.strip()
+    tg_username = tg_username.strip()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Find the student by current alias
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        # Check uniqueness — email and github_alias must not belong to another student
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE (email = ? OR github_alias = ?) AND tg_id != ?",
+            (email, new_github_alias, tg_id),
+        ) as cur:
+            conflict = await cur.fetchone()
+        if conflict:
+            return RedirectResponse(
+                f"/student/{github_alias}?error=conflict", status_code=302
+            )
+
+        await db.execute(
+            "UPDATE users SET email = ?, github_alias = ?, tg_username = ? WHERE tg_id = ?",
+            (email, new_github_alias, tg_username, tg_id),
+        )
+        await db.commit()
+
+    return RedirectResponse(f"/student/{new_github_alias}", status_code=302)
+
+
+@app.get("/export/csv")
+async def export_csv(lab: Optional[str] = Query(default=None)):
+    """Download CSV with best scores per student per task."""
+    task_meta = load_task_metadata()
+    labs = sorted({t["lab_id"] for t in task_meta})
+    active_lab = lab if lab in labs else (labs[0] if labs else None)
+    tasks = [t for t in task_meta if t["lab_id"] == active_lab] if active_lab else task_meta
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        students = []
+        async with db.execute(
+            "SELECT tg_id, email, github_alias FROM users ORDER BY github_alias"
+        ) as cur:
+            async for row in cur:
+                students.append(dict(row))
+
+        scores = await _fetch_best_scores(db)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    header = ["github_alias", "email"]
+    for t in tasks:
+        header.append(t["task_id"])
+    writer.writerow(header)
+
+    # Rows
+    for s in students:
+        row = [s["github_alias"], s["email"]]
+        for t in tasks:
+            key = f"{t['lab_id']}:{t['task_id']}"
+            entry = scores.get(s["tg_id"], {}).get(key)
+            if entry:
+                row.append(entry["score"])
+            else:
+                row.append("")
+        writer.writerow(row)
+
+    output.seek(0)
+    filename = f"autochecker-{active_lab or 'all'}-{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ student.github_alias }} — Autochecker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1a1a1a; }
+
+        .header { background: #1a1a2e; color: #fff; padding: 1.25rem 2rem; }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+
+        .container { padding: 1.25rem 2rem 2rem; max-width: 1200px; }
+
+        .back { display: inline-block; margin-bottom: 1rem; color: #2563eb; text-decoration: none; font-size: 0.875rem; }
+        .back:hover { text-decoration: underline; }
+
+        .student-info { background: #fff; border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; gap: 2rem; flex-wrap: wrap; }
+        .info-item { display: flex; flex-direction: column; gap: 0.15rem; }
+        .info-label { font-size: 0.75rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+        .info-value { font-size: 0.95rem; font-weight: 500; }
+        .info-value a { color: #2563eb; text-decoration: none; }
+        .info-value a:hover { text-decoration: underline; }
+
+        .table-wrapper { overflow-x: auto; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        table { border-collapse: collapse; width: 100%; background: #fff; font-size: 0.875rem; }
+        th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #f3f4f6; }
+        th { background: #f9fafb; color: #374151; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+
+        tr.row-pass { background: #f0fdf4; }
+        tr.row-pass:hover { background: #dcfce7; }
+        tr.row-partial { background: #fffbeb; }
+        tr.row-partial:hover { background: #fef9c3; }
+        tr.row-none:hover { background: #f9fafb; }
+
+        .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
+        .badge-pass { background: #dcfce7; color: #166534; }
+        .badge-partial { background: #fef9c3; color: #854d0e; }
+        .badge-none { background: #f3f4f6; color: #9ca3af; }
+
+        .ts { color: #6b7280; font-size: 0.8rem; }
+        .empty { color: #999; text-align: center; padding: 2rem; }
+
+        /* Expandable details */
+        .result-row { cursor: pointer; }
+        .result-row td:first-child::before { content: "\25B6"; font-size: 0.6rem; margin-right: 0.4rem; color: #9ca3af; display: inline-block; transition: transform 0.15s; }
+        .result-row.open td:first-child::before { transform: rotate(90deg); }
+        .result-row.no-details { cursor: default; }
+        .result-row.no-details td:first-child::before { content: ""; margin-right: 0; }
+
+        .details-row { display: none; }
+        .details-row.open { display: table-row; }
+        .details-cell { padding: 0 !important; }
+        .checks-list { padding: 0.5rem 1rem 0.75rem 2rem; }
+        .check-item { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.25rem 0; font-size: 0.82rem; border-bottom: 1px solid #f9fafb; }
+        .check-item:last-child { border-bottom: none; }
+        .check-icon { flex-shrink: 0; width: 1.1rem; text-align: center; }
+        .check-desc { flex: 1; color: #374151; }
+        .check-detail { color: #6b7280; font-size: 0.78rem; margin-left: 1.6rem; padding-bottom: 0.15rem; }
+        .check-hint { color: #9ca3af; font-size: 0.75rem; font-style: italic; margin-left: 1.6rem; padding-bottom: 0.15rem; }
+
+        /* Edit form */
+        .edit-toggle { padding: 0.35rem 0.75rem; border-radius: 6px; font-size: 0.8rem; font-weight: 500; border: 1px solid #d1d5db; background: #fff; cursor: pointer; color: #374151; transition: all 0.15s; }
+        .edit-toggle:hover { background: #f9fafb; border-color: #9ca3af; }
+        .edit-form { display: none; background: #fff; border-radius: 8px; padding: 1.25rem; margin-bottom: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        .edit-form.open { display: block; }
+        .edit-form .field { margin-bottom: 0.75rem; }
+        .edit-form label { display: block; font-size: 0.75rem; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.25rem; }
+        .edit-form input { width: 100%; max-width: 360px; padding: 0.5rem 0.65rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.875rem; outline: none; }
+        .edit-form input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+        .edit-actions { display: flex; gap: 0.5rem; margin-top: 1rem; }
+        .btn-save { padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; border: none; cursor: pointer; background: #1a1a2e; color: #fff; }
+        .btn-save:hover { background: #2d2d4e; }
+        .btn-cancel { padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; border: 1px solid #d1d5db; background: #fff; cursor: pointer; color: #374151; }
+        .btn-cancel:hover { background: #f9fafb; }
+        .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.6rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Student Detail</h1>
+    </div>
+
+    <div class="container">
+        <a class="back" href="/">&larr; Back to dashboard</a>
+
+        {% if error == "conflict" %}
+        <div class="error-banner">Email or GitHub alias already belongs to another student. No changes were made.</div>
+        {% endif %}
+
+        <div class="student-info">
+            <div class="info-item">
+                <span class="info-label">GitHub</span>
+                <span class="info-value"><a href="https://github.com/{{ student.github_alias }}" target="_blank">{{ student.github_alias }}</a></span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Email</span>
+                <span class="info-value">{{ student.email }}</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">Telegram</span>
+                <span class="info-value">{{ student.tg_username or "\u2014" }}</span>
+            </div>
+            <div class="info-item" style="justify-content: center;">
+                <button class="edit-toggle" id="edit-btn">Edit</button>
+            </div>
+        </div>
+
+        <form class="edit-form" id="edit-form" method="post" action="/student/{{ student.github_alias }}/edit">
+            <div class="field">
+                <label for="ef-github">GitHub alias</label>
+                <input type="text" id="ef-github" name="github_alias" value="{{ student.github_alias }}" required>
+            </div>
+            <div class="field">
+                <label for="ef-email">Email</label>
+                <input type="email" id="ef-email" name="email" value="{{ student.email }}" required>
+            </div>
+            <div class="field">
+                <label for="ef-tg">Telegram username</label>
+                <input type="text" id="ef-tg" name="tg_username" value="{{ student.tg_username or '' }}">
+            </div>
+            <div class="edit-actions">
+                <button type="submit" class="btn-save">Save</button>
+                <button type="button" class="btn-cancel" id="edit-cancel">Cancel</button>
+            </div>
+        </form>
+
+        {% if results %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Timestamp</th>
+                        <th>Lab</th>
+                        <th>Task</th>
+                        <th>Score</th>
+                        <th>Passed</th>
+                        <th>Failed</th>
+                        <th>Total</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in results %}
+                    <tr class="row-{{ r.status }} result-row {% if not r.checks %}no-details{% endif %}" data-idx="{{ loop.index0 }}">
+                        <td class="ts">{{ r.timestamp[:16] | replace("T", " ") if r.timestamp else "\u2014" }}</td>
+                        <td>{{ r.lab_id }}</td>
+                        <td title="{{ r.title }}">{{ r.title }}</td>
+                        <td>{{ r.score or "\u2014" }}</td>
+                        <td>{{ r.passed if r.passed is not none else "\u2014" }}</td>
+                        <td>{{ r.failed if r.failed is not none else "\u2014" }}</td>
+                        <td>{{ r.total if r.total is not none else "\u2014" }}</td>
+                        <td>
+                            {% if r.status == "pass" %}
+                                <span class="badge badge-pass">PASSED</span>
+                            {% elif r.status == "partial" %}
+                                <span class="badge badge-partial">PARTIAL</span>
+                            {% else %}
+                                <span class="badge badge-none">&mdash;</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if r.checks %}
+                    <tr class="details-row" data-idx="{{ loop.index0 }}">
+                        <td colspan="8" class="details-cell">
+                            <div class="checks-list">
+                                {% for c in r.checks %}
+                                <div>
+                                    <div class="check-item">
+                                        <span class="check-icon">{% if c.status == 'PASS' %}&#9989;{% elif c.status == 'FAIL' %}&#10060;{% else %}&#9888;{% endif %}</span>
+                                        <span class="check-desc">{{ c.description or c.id }}</span>
+                                    </div>
+                                    {% if c.status != 'PASS' and c.details %}
+                                    <div class="check-detail">{{ c.details }}</div>
+                                    {% endif %}
+                                    {% if c.status != 'PASS' and c.hint %}
+                                    <div class="check-hint">{{ c.hint }}</div>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty">No check results yet.</p>
+        {% endif %}
+    </div>
+
+    <script>
+    // Edit form toggle
+    var editBtn = document.getElementById('edit-btn');
+    var editForm = document.getElementById('edit-form');
+    var editCancel = document.getElementById('edit-cancel');
+    if (editBtn && editForm) {
+        editBtn.addEventListener('click', function() { editForm.classList.toggle('open'); });
+        editCancel.addEventListener('click', function() { editForm.classList.remove('open'); });
+    }
+
+    // Expandable check details
+    document.querySelectorAll('.result-row:not(.no-details)').forEach(function(row) {
+        row.addEventListener('click', function() {
+            var idx = this.dataset.idx;
+            var details = document.querySelector('.details-row[data-idx="' + idx + '"]');
+            if (details) {
+                this.classList.toggle('open');
+                details.classList.toggle('open');
+            }
+        });
+    });
+    </script>
+</body>
+</html>
