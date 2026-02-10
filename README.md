@@ -42,14 +42,6 @@ python main_bot.py
 uvicorn dashboard.app:app --host 0.0.0.0 --port 8000
 ```
 
-## Docker
-
-```bash
-cd deploy
-cp .env.example .env   # fill in tokens
-docker compose up -d --build
-```
-
 ## Project Structure
 
 ```
@@ -70,7 +62,7 @@ autochecker/                    # repo root
 ├── bot/                        # Telegram bot
 │   ├── config.py               # bot configuration
 │   ├── database.py             # SQLite with migrations
-│   ├── runner.py               # autochecker integration
+│   ├── runner.py               # autochecker integration (direct import)
 │   ├── keyboards.py            # inline keyboards
 │   ├── middlewares.py          # auth middleware
 │   └── handlers/               # message/callback handlers
@@ -81,9 +73,10 @@ autochecker/                    # repo root
 ├── deploy/                     # Docker deployment
 │   ├── Dockerfile
 │   ├── docker-compose.yml
-│   └── update.sh
+│   └── update.sh               # pull, verify, rebuild, restart
 ├── main.py                     # CLI entry point
 ├── main_bot.py                 # bot entry point
+├── verify.py                   # pre-deploy verification (27 checks)
 ├── requirements.txt
 ├── .env.example
 ├── students.csv
@@ -106,6 +99,64 @@ All config is via environment variables (`.env` file):
 | `ACTIVE_LABS` | Comma-separated active lab IDs | `lab-01` |
 | `MAX_ATTEMPTS_PER_TASK` | Max check attempts per student per task | `3` |
 | `DASHBOARD_PASSWORD` | Dashboard auth password (empty = no auth) | — |
+
+## Architecture
+
+The bot imports `check_student()` from the `autochecker` package directly (no subprocess). This gives real Python exceptions, shared config, and eliminates disk I/O for result passing.
+
+```
+bot/runner.py  →  autochecker.check_student()  →  engine + LLM  →  StudentCheckResult
+    ↓
+bot/handlers/check.py reads result files + saves to SQLite
+```
+
+## Production Deployment
+
+**Server:** `nurios@188.245.43.68`
+**Repo on server:** `~/autochecker`
+**Containers:** `autochecker-bot`, `autochecker-dashboard` (port 8082)
+
+### Deploy a new version
+
+```bash
+ssh nurios@188.245.43.68
+cd ~/autochecker
+bash deploy/update.sh
+```
+
+The script:
+1. `git pull`
+2. Runs `verify.py` inside a container (27 checks must pass)
+3. Rebuilds and restarts bot + dashboard containers
+
+### Docker volumes
+
+| Volume | Mount | Contents |
+|---|---|---|
+| `deploy_bot-data` | `/app/data/` | `bot.db` (SQLite — users, attempts, results) |
+| `deploy_autochecker-results` | `/app/results/` | Per-student report files |
+
+### Check logs
+
+```bash
+docker logs autochecker-bot --tail 50
+docker logs autochecker-dashboard --tail 50
+```
+
+### Back up the database
+
+```bash
+docker cp autochecker-bot:/app/data/bot.db ./bot.db.backup
+```
+
+### Pre-deploy verification
+
+Run locally or inside a container:
+```bash
+python verify.py
+```
+
+This checks file structure, imports, path resolution, CLI commands, spec loading, no stale references, and deploy file correctness. All 27 checks must pass.
 
 ## License
 

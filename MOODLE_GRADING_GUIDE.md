@@ -135,16 +135,16 @@ Students in the grades CSV who have no submission folder should get grade 0 and 
 ~/Downloads/[S26]SofEngToo Grades-*.csv              # grades + emails
 ~/Downloads/[S26]SofEngToo-Lab submission-*/          # submission folders
 
-# Autochecker
-autochecker/main.py                                   # CLI entry point
-autochecker/specs/lab-01.yaml                         # lab spec
-autochecker/results/{github_username}/results.jsonl   # per-student results
-autochecker/results/{github_username}/summary.html    # per-student HTML report
-autochecker/results/batch_summary.html                # batch overview
-autochecker/students.csv                              # input for batch command
+# Autochecker (monorepo root)
+main.py                                   # CLI entry point
+specs/lab-01.yaml                         # lab spec
+results/{github_username}/results.jsonl   # per-student results
+results/{github_username}/summary.html    # per-student HTML report
+results/batch_summary.html                # batch overview
+students.csv                              # input for batch command
 
 # Output
-~/Downloads/lab01-final-grades.csv                    # final CSV for upload
+~/Downloads/lab01-final-grades.csv        # final CSV for upload
 ```
 
 ## Environment Setup
@@ -153,7 +153,7 @@ autochecker/students.csv                              # input for batch command
 # Activate the Python environment
 source $(pyenv root)/versions/env313/bin/activate
 
-# Required env vars (in autochecker/.env)
+# Required env vars (in .env at repo root)
 GITHUB_TOKEN=ghp_...          # GitHub PAT for API access
 OPENROUTER_API_KEY=sk-or-...  # for LLM checks (optional but recommended)
 LLM_MODEL=google/gemini-2.5-flash-lite
