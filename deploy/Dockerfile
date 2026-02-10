@@ -1,8 +1,12 @@
 FROM python:3.13-slim
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
-# Install dependencies
+# Install dependencies (cached layer)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -12,5 +16,4 @@ COPY . .
 # Create directories for persistent data
 RUN mkdir -p /app/results /app/data
 
-# Default command: run the Telegram bot
-CMD ["python", "main_bot.py"]
+CMD ["python3", "main_bot.py"]
