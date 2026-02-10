@@ -29,3 +29,13 @@ async def cmd_start(message: Message, db_user: User, state: FSMContext) -> None:
         "Choose a lab:",
         reply_markup=get_labs_keyboard(),
     )
+
+
+@router.message(IsRegistered())
+async def catch_all_registered(message: Message, db_user: User, state: FSMContext) -> None:
+    """Catch any unrecognized message from a registered user — show labs menu."""
+    await state.clear()
+    await message.answer(
+        "Choose a lab:",
+        reply_markup=get_labs_keyboard(),
+    )
