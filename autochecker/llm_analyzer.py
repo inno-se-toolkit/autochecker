@@ -129,7 +129,13 @@ def _call_llm_api(openrouter_api_key: str, prompt: str, model: str = None) -> Di
                 
                 # Clean JSON from markdown markup
                 cleaned_json = text.strip().replace("```json", "").replace("```", "").strip()
-                
+
+                # Fix invalid JSON escape sequences from LLM output.
+                # LLMs often echo regex patterns (e.g. \s, \[, \d) which are
+                # not valid JSON escapes. Replace lone backslashes that aren't
+                # followed by a valid JSON escape char with double backslashes.
+                cleaned_json = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', cleaned_json)
+
                 # Parse JSON
                 try:
                     return json.loads(cleaned_json)
