@@ -825,45 +825,66 @@ class CheckEngine:
 
     def _http_check_via_relay(self, url: str, expect_status: int,
                               expect_body_regex: str, timeout: int) -> Tuple[bool, str]:
-        """Route HTTP check through the relay worker for internal IPs."""
+        """Route HTTP check through the relay worker for internal IPs.
+
+        Retries once on transient failures (worker timeout / not connected)
+        to handle WebSocket reconnection after idle periods.
+        """
         import os
+        import time
         import requests
 
         relay_url = os.environ.get('RELAY_URL', 'http://dashboard:8000/relay/check')
         relay_token = os.environ.get('RELAY_TOKEN', '')
 
-        try:
-            resp = requests.post(
-                relay_url,
-                json={"url": url, "timeout": timeout},
-                headers={"Authorization": f"Bearer {relay_token}"},
-                timeout=timeout + 20,
-            )
-            if resp.status_code == 503:
-                return False, "Relay worker not connected (university VM offline)"
-            if resp.status_code != 200:
-                return False, f"Relay error: {resp.text}"
+        last_error = ""
+        for attempt in range(2):
+            try:
+                resp = requests.post(
+                    relay_url,
+                    json={"url": url, "timeout": timeout},
+                    headers={"Authorization": f"Bearer {relay_token}"},
+                    timeout=timeout + 20,
+                )
+                if resp.status_code in (503, 504) and attempt == 0:
+                    last_error = resp.text
+                    time.sleep(6)  # wait for worker to reconnect
+                    continue
+                if resp.status_code == 503:
+                    return False, "Relay worker not connected (university VM offline)"
+                if resp.status_code != 200:
+                    return False, f"Relay error: {resp.text}"
 
-            data = resp.json()
-            if data.get("error"):
-                return False, f"Relay check failed: {data['error']}"
+                data = resp.json()
+                if data.get("error"):
+                    if attempt == 0:
+                        last_error = data["error"]
+                        time.sleep(6)
+                        continue
+                    return False, f"Relay check failed: {data['error']}"
 
-            status_code = data.get("status_code", 0)
-            body = data.get("body", "")
+                status_code = data.get("status_code", 0)
+                body = data.get("body", "")
 
-            if status_code != expect_status:
-                return False, f"Expected status {expect_status}, got {status_code}"
+                if status_code != expect_status:
+                    return False, f"Expected status {expect_status}, got {status_code}"
 
-            if expect_body_regex:
-                if not re.search(expect_body_regex, body, re.IGNORECASE):
-                    return False, f"Response body does not match pattern '{expect_body_regex}'"
+                if expect_body_regex:
+                    if not re.search(expect_body_regex, body, re.IGNORECASE):
+                        return False, f"Response body does not match pattern '{expect_body_regex}'"
 
-            return True, f"Endpoint accessible (via relay), status {status_code}"
+                return True, f"Endpoint accessible (via relay), status {status_code}"
 
-        except requests.exceptions.Timeout:
-            return False, f"Relay timeout checking {url}"
-        except Exception as e:
-            return False, f"Relay error: {str(e)}"
+            except requests.exceptions.Timeout:
+                if attempt == 0:
+                    last_error = f"Relay timeout checking {url}"
+                    time.sleep(6)
+                    continue
+                return False, f"Relay timeout checking {url}"
+            except Exception as e:
+                return False, f"Relay error: {str(e)}"
+
+        return False, f"Relay failed after retry: {last_error}"
 
     def check_http_check(self, base_url: str, path: str, expect_status: int = 200,
                         expect_body_regex: str = None, timeout: int = 10) -> Tuple[bool, str]:
