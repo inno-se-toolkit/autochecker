@@ -36,6 +36,9 @@ tasks:
   - id: optional-2
     title: "Optional 2: Make your VM a proxy"
     prerequisite: setup
+  - id: optional-3
+    title: "Optional 3: Implement the post-order traversal"
+    prerequisite: setup
 
 checks:
 
@@ -340,3 +343,36 @@ checks:
     params:
       title_regex: "\\[Task\\].*[Pp]roxy"
       state: "all"
+
+  # =====================================================
+  # OPTIONAL 3: Implement the post-order traversal
+  # =====================================================
+
+  - id: postorder_issue_exists
+    task: optional-3
+    title: "Post-order traversal task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Implement the post-order traversal.
+    params:
+      title_regex: "\\[Task\\].*post.?order"
+      state: "all"
+
+  - id: postorder_pr_merged
+    task: optional-3
+    title: "Post-order traversal PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [postorder_issue_exists]
+    hint: >
+      Create and merge a PR that implements the post-order traversal.
+    params:
+      title_regex: "(?i)post.?order"
