@@ -40,14 +40,14 @@ async def main() -> None:
     dp.callback_query.outer_middleware(AuthMiddleware())
 
     # Register routers — order matters:
-    # start.router catches /start for registered users first (clears stale FSM),
-    # then register.router handles unregistered users,
-    # then labs.router handles lab selection callbacks,
-    # then check.router handles task checking.
-    dp.include_router(start.router)
+    # check.router first so FSM states (e.g., waiting_for_server_ip) are
+    # handled before the catch-all in start.router.
+    # register.router handles unregistered users (FSM states),
+    # start.router catches /start and unrecognized messages last.
+    dp.include_router(check.router)
     dp.include_router(register.router)
     dp.include_router(labs.router)
-    dp.include_router(check.router)
+    dp.include_router(start.router)
 
     # Start polling
     logger.info("Starting bot...")

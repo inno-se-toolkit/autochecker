@@ -6,6 +6,10 @@ discovery:
   mode: "alias_repo_name"
   default_branch: "main"
 
+runtime:
+  prod:
+    base_url: "http://{server_ip}:42002"
+
 scoring:
   mode: "weighted"
   pass_threshold: 0.8
@@ -342,6 +346,56 @@ checks:
       title_regex: "\\[Task\\]\\s+Deploy the web server to the VM"
       comment_pattern: "\"status\".*\"ok\""
       state: "closed"
+
+  - id: prod_status_ok
+    task: task-4
+    title: "Deployed /status endpoint returns 200"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 6
+    hint: >
+      Your deployed service at http://<vm-ip>:42002/status must return HTTP 200.
+      Make sure Docker Compose is running on the VM.
+    params:
+      runtime: prod
+      path: "/status"
+      expect_status: 200
+
+  - id: prod_status_body
+    task: task-4
+    title: "Deployed /status returns correct JSON"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 4
+    depends_on: [prod_status_ok]
+    hint: >
+      The /status endpoint must return JSON with "status" and "service" fields.
+    params:
+      runtime: prod
+      path: "/status"
+      expect_status: 200
+      expect_body_regex: "\"status\".*\"ok\""
+
+  - id: prod_items_ok
+    task: task-4
+    title: "Deployed /items/courses endpoint returns 200"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 5
+    depends_on: [prod_status_ok]
+    hint: >
+      Your deployed service at http://<vm-ip>:42002/items/courses must return HTTP 200.
+      This verifies the application is fully functional.
+    params:
+      runtime: prod
+      path: "/items/courses"
+      expect_status: 200
 
   # =====================================================
   # OPTIONAL 1: Implement the /outcomes endpoint
