@@ -132,9 +132,13 @@ def _call_llm_api(openrouter_api_key: str, prompt: str, model: str = None) -> Di
 
                 # Fix invalid JSON escape sequences from LLM output.
                 # LLMs often echo regex patterns (e.g. \s, \[, \d) which are
-                # not valid JSON escapes. Replace lone backslashes that aren't
-                # followed by a valid JSON escape char with double backslashes.
-                cleaned_json = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', cleaned_json)
+                # not valid JSON escapes. The regex below matches either a valid
+                # \\ pair (kept as-is) or a lone \ before an invalid char (doubled).
+                def _fix_escape(m):
+                    if m.group(0) == '\\\\':
+                        return '\\\\'
+                    return '\\\\' + m.group(0)[1:]
+                cleaned_json = re.sub(r'\\\\|\\(?!["\\/bfnrtu])', _fix_escape, cleaned_json)
 
                 # Parse JSON
                 try:
