@@ -63,11 +63,11 @@ class CheckEngine:
         commits = self._get_commits()
         if not commits:
             return False
-        # Check that ALL commits match the pattern
+        # Check that ANY commit matches the pattern
         for commit in commits:
-            if not re.match(pattern, commit['commit']['message']):
-                return False
-        return True
+            if re.search(pattern, commit['commit']['message']):
+                return True
+        return False
 
     def check_issues_count(self, title_regex: str, min_count: int) -> bool:
         issues = self._get_issues()
