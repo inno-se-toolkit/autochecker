@@ -23,8 +23,8 @@ LAB_CONFIG = {
         "ready": True,
     },
     "lab-02": {
-        "name": "Lab 02 — Understand, Improve, and Deploy a Backend Service",
-        "repo_suffix": "lab-02-fix-and-deploy-backend",
+        "name": "Lab 02 — Run, Fix, and Deploy a Backend Service",
+        "repo_suffix": "se-toolkit-lab-2",
         "spec": "specs/lab-02.yaml",
         "ready": True,
     },
