@@ -92,17 +92,34 @@ checks:
 
   - id: task1_issue_exists
     task: task-1
-    title: "Task issue exists"
+    title: "Task issue exists and is closed"
     class: process
     runner: code
     type: issue_exists
     is_required: true
-    weight: 5
+    weight: 3
     hint: >
       Create a GitHub issue with the title: [Task] Run the web server.
       Close it with a comment containing the JSON response of /status.
     params:
       title_regex: "\\[Task\\]\\s+Run the web server$"
+      state: "closed"
+
+  - id: task1_issue_has_status_comment
+    task: task-1
+    title: "Issue has /status JSON response in a comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: true
+    weight: 2
+    depends_on: [task1_issue_exists]
+    hint: >
+      Close the issue with a comment that contains the JSON response
+      from the /status endpoint (e.g., "status": "ok").
+    params:
+      title_regex: "\\[Task\\]\\s+Run the web server$"
+      comment_pattern: "\"status\".*\"ok\""
       state: "closed"
 
   # =====================================================
@@ -172,6 +189,7 @@ checks:
     hint: >
       Create a PR that fixes the bug with 'Closes #<bug-issue-number>'
       in the description and merge it. The PR title should contain 'fix'.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
     params:
       title_regex: "(?i)fix"
       closes_issue: true
@@ -261,12 +279,12 @@ checks:
 
   - id: task3_issue_exists
     task: task-3
-    title: "Task issue exists"
+    title: "Task issue exists and is closed"
     class: process
     runner: code
     type: issue_exists
     is_required: true
-    weight: 5
+    weight: 3
     hint: >
       Create a GitHub issue with the title:
       [Task] Run the web server using Docker Compose.
@@ -275,24 +293,58 @@ checks:
       title_regex: "\\[Task\\]\\s+Run the web server using Docker Compose"
       state: "closed"
 
+  - id: task3_issue_has_status_comment
+    task: task-3
+    title: "Issue has /status JSON response in a comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Close the issue with a comment that contains the JSON response
+      from the /status endpoint (e.g., "status": "ok").
+    params:
+      title_regex: "\\[Task\\]\\s+Run the web server using Docker Compose"
+      comment_pattern: "\"status\".*\"ok\""
+      state: "closed"
+
   # =====================================================
   # TASK 4: Deploy the web server to the VM
   # =====================================================
 
   - id: task4_issue_exists
     task: task-4
-    title: "Task issue exists"
+    title: "Task issue exists and is closed"
     class: process
     runner: code
     type: issue_exists
     is_required: true
-    weight: 3
+    weight: 2
     hint: >
       Create a GitHub issue with the title:
       [Task] Deploy the web server to the VM.
       Close it with a comment containing the JSON response of /status.
     params:
       title_regex: "\\[Task\\]\\s+Deploy the web server to the VM"
+      state: "closed"
+
+  - id: task4_issue_has_status_comment
+    task: task-4
+    title: "Issue has /status JSON response in a comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: true
+    weight: 1
+    depends_on: [task4_issue_exists]
+    hint: >
+      Close the issue with a comment that contains the JSON response
+      from the /status endpoint (e.g., "status": "ok").
+    params:
+      title_regex: "\\[Task\\]\\s+Deploy the web server to the VM"
+      comment_pattern: "\"status\".*\"ok\""
       state: "closed"
 
   - id: prod_status_ok
@@ -373,8 +425,27 @@ checks:
     depends_on: [outcomes_issue_exists]
     hint: >
       Create and merge a PR that implements the /outcomes endpoint.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
     params:
       title_regex: "(?i)outcomes"
+
+  - id: outcomes_tests_pass
+    task: optional-1
+    title: "Tests pass with /outcomes endpoint"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: false
+    weight: 3
+    depends_on: [outcomes_pr_merged]
+    hint: >
+      All tests must pass after implementing the /outcomes endpoint.
+      Run `uv run poe test` locally to verify.
+    params:
+      commands:
+        - "uv sync"
+        - "uv run poe test"
+      timeout: 120
 
   # =====================================================
   # OPTIONAL 2: Make your VM a proxy
@@ -393,6 +464,21 @@ checks:
     params:
       title_regex: "\\[Task\\].*[Pp]roxy"
       state: "all"
+
+  - id: proxy_pr_merged
+    task: optional-2
+    title: "Proxy feature PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [proxy_issue_exists]
+    hint: >
+      Create and merge a PR for the proxy configuration.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)proxy"
 
   # =====================================================
   # OPTIONAL 3: Implement the post-order traversal
@@ -424,8 +510,25 @@ checks:
     depends_on: [postorder_issue_exists]
     hint: >
       Create and merge a PR that implements the post-order traversal.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
     params:
       title_regex: "(?i)post.?order"
+
+  - id: postorder_code_implemented
+    task: optional-3
+    title: "PostOrder case is implemented (not just pass)"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: false
+    weight: 2
+    depends_on: [postorder_pr_merged]
+    hint: >
+      The PostOrder() case in get_item_by_id_dfs_iterative must have
+      actual traversal logic, not just "pass" or "TODO".
+    params:
+      path: "src/app/services/item_service.py"
+      pattern: "PostOrder\\(\\)[\\s\\S]*?counter\\s*\\+=\\s*1"
 
   - id: postorder_tests_pass
     task: optional-3

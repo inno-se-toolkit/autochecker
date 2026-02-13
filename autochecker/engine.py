@@ -675,6 +675,29 @@ class CheckEngine:
         
         return True, "All patterns found in issue body"
 
+    def check_issue_comment_regex(self, title_regex: str, comment_pattern: str, state: str = "closed") -> Tuple[bool, str]:
+        """Checks that an issue has a comment matching a regex pattern."""
+        issues = self._get_issues()
+
+        for issue in issues:
+            if state != "all" and issue.get('state') != state:
+                continue
+            if not re.search(title_regex, issue.get('title', ''), re.IGNORECASE):
+                continue
+
+            # Found the issue, now check comments
+            issue_number = issue.get('number')
+            comments = self._client.get_issue_comments(issue_number)
+
+            for comment in comments:
+                body = comment.get('body', '') or ''
+                if re.search(comment_pattern, body, re.IGNORECASE | re.DOTALL):
+                    return True, f"Found matching comment on issue #{issue_number}"
+
+            return False, f"Issue #{issue_number} exists but no comment matches pattern '{comment_pattern}'"
+
+        return False, f"Issue matching '{title_regex}' (state={state}) not found"
+
     def check_pr_merged_exists(self, title_regex: str = None, closes_issue: bool = False) -> Tuple[bool, str]:
         """Checks that a merged PR exists with the specified parameters."""
         prs = self._get_prs()
@@ -702,13 +725,43 @@ class CheckEngine:
             pr_titles = [pr.get('title', 'N/A')[:50] for pr in matching_prs[:3]]
             return True, f"Found merged PR: {', '.join(pr_titles)}"
         
+        # Check if student accidentally PRed to the upstream (parent) repo
+        upstream_hint = ""
+        try:
+            repo_info = self._client.get_repo_info()
+            parent = repo_info.get('parent', {}) if repo_info else {}
+            if parent:
+                parent_name = parent.get('full_name', '')
+                student_name = self._client._owner
+                # Check upstream for PRs from this student
+                import requests as req
+                headers = dict(self._client._headers) if hasattr(self._client, '_headers') else {}
+                resp = req.get(
+                    f"https://api.github.com/repos/{parent_name}/pulls?state=all&per_page=30",
+                    headers=headers, timeout=10
+                )
+                if resp.status_code == 200:
+                    upstream_prs = resp.json()
+                    student_prs = [p for p in upstream_prs
+                                   if p.get('user', {}).get('login', '').lower() == student_name.lower()]
+                    if student_prs:
+                        upstream_hint = (
+                            f" NOTE: Found {len(student_prs)} PR(s) from you in the upstream repo "
+                            f"({parent_name}). PRs must target YOUR fork's main branch, not the original repo."
+                        )
+        except Exception:
+            pass
+
         criteria = []
         if title_regex:
             criteria.append(f"title_regex='{title_regex}'")
         if closes_issue:
             criteria.append("closes_issue=True")
-        
-        return False, f"Merged PR not found (criteria: {', '.join(criteria) if criteria else 'merged'})"
+
+        msg = f"Merged PR not found (criteria: {', '.join(criteria) if criteria else 'merged'})"
+        if upstream_hint:
+            msg += upstream_hint
+        return False, msg
 
     def check_pr_touches_paths(self, title_regex: str = None, paths: List[str] = None, min_files: int = 1) -> Tuple[bool, str]:
         """Checks that the PR modifies files at the specified paths."""
@@ -1082,7 +1135,14 @@ class CheckEngine:
                 rules = params.get('rules', {})
                 passed, details = self.check_issue_body_regex_all(title_regex, rules)
                 if passed: status = "PASS"
-            
+
+            elif check_type == "issue_comment_regex":
+                title_regex = params.get('title_regex', '')
+                comment_pattern = params.get('comment_pattern', '')
+                state = params.get('state', 'closed')
+                passed, details = self.check_issue_comment_regex(title_regex, comment_pattern, state)
+                if passed: status = "PASS"
+
             elif check_type == "pr_merged_exists":
                 title_regex = params.get('title_regex')
                 closes_issue = params.get('closes_issue', False)
