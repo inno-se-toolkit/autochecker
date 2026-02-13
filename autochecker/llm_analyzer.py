@@ -59,7 +59,7 @@ def _call_llm_api(openrouter_api_key: str, prompt: str, model: str = None) -> Di
                         }
                     ],
                     "temperature": 0.3,  # Low temperature for more deterministic responses
-                    "max_tokens": 2000
+                    "max_tokens": 4000
                 }
                 
                 headers = {
@@ -140,14 +140,23 @@ def _call_llm_api(openrouter_api_key: str, prompt: str, model: str = None) -> Di
                     return '\\\\' + m.group(0)[1:]
                 cleaned_json = re.sub(r'\\\\|\\(?!["\\/bfnrtu])', _fix_escape, cleaned_json)
 
-                # Parse JSON
+                # Parse JSON (with progressive fallbacks for common LLM mistakes)
+                def _try_parse(s):
+                    """Try parsing JSON, fixing trailing commas if needed."""
+                    try:
+                        return json.loads(s)
+                    except json.JSONDecodeError:
+                        # Fix trailing commas before } or ] (common LLM mistake)
+                        fixed = re.sub(r',\s*([}\]])', r'\1', s)
+                        return json.loads(fixed)
+
                 try:
-                    return json.loads(cleaned_json)
+                    return _try_parse(cleaned_json)
                 except json.JSONDecodeError:
-                    # Try to extract JSON from text
+                    # Try to extract JSON object from surrounding text
                     json_match = re.search(r'\{.*\}', cleaned_json, re.DOTALL)
                     if json_match:
-                        return json.loads(json_match.group(0))
+                        return _try_parse(json_match.group(0))
                     raise
                     
             except requests.exceptions.RequestException as req_error:
