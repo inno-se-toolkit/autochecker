@@ -814,11 +814,63 @@ class CheckEngine:
         
         return passed, details
 
-    def check_http_check(self, base_url: str, path: str, expect_status: int = 200, 
-                        expect_body_regex: str = None, timeout: int = 10) -> Tuple[bool, str]:
-        """Checks an HTTP endpoint."""
+    @staticmethod
+    def _is_internal_ip(url: str) -> bool:
+        """Returns True if the URL targets a private network IP."""
+        m = re.search(r'//(\d+)\.(\d+)\.\d+\.\d+', url)
+        if not m:
+            return False
+        a, b = int(m.group(1)), int(m.group(2))
+        return a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
+
+    def _http_check_via_relay(self, url: str, expect_status: int,
+                              expect_body_regex: str, timeout: int) -> Tuple[bool, str]:
+        """Route HTTP check through the relay worker for internal IPs."""
+        import os
         import requests
-        
+
+        relay_url = os.environ.get('RELAY_URL', 'http://dashboard:8000/relay/check')
+        relay_token = os.environ.get('RELAY_TOKEN', '')
+
+        try:
+            resp = requests.post(
+                relay_url,
+                json={"url": url, "timeout": timeout},
+                headers={"Authorization": f"Bearer {relay_token}"},
+                timeout=timeout + 20,
+            )
+            if resp.status_code == 503:
+                return False, "Relay worker not connected (university VM offline)"
+            if resp.status_code != 200:
+                return False, f"Relay error: {resp.text}"
+
+            data = resp.json()
+            if data.get("error"):
+                return False, f"Relay check failed: {data['error']}"
+
+            status_code = data.get("status_code", 0)
+            body = data.get("body", "")
+
+            if status_code != expect_status:
+                return False, f"Expected status {expect_status}, got {status_code}"
+
+            if expect_body_regex:
+                if not re.search(expect_body_regex, body, re.IGNORECASE):
+                    return False, f"Response body does not match pattern '{expect_body_regex}'"
+
+            return True, f"Endpoint accessible (via relay), status {status_code}"
+
+        except requests.exceptions.Timeout:
+            return False, f"Relay timeout checking {url}"
+        except Exception as e:
+            return False, f"Relay error: {str(e)}"
+
+    def check_http_check(self, base_url: str, path: str, expect_status: int = 200,
+                        expect_body_regex: str = None, timeout: int = 10) -> Tuple[bool, str]:
+        """Checks an HTTP endpoint. Routes internal IPs through the relay worker."""
+        import os
+        import requests
+
         # Build the full URL
         if base_url.endswith('/') and path.startswith('/'):
             url = base_url.rstrip('/') + path
@@ -826,22 +878,26 @@ class CheckEngine:
             url = base_url + '/' + path
         else:
             url = base_url + path
-        
+
+        # Route internal IPs through relay if RELAY_TOKEN is configured
+        if os.environ.get('RELAY_TOKEN') and self._is_internal_ip(url):
+            return self._http_check_via_relay(url, expect_status, expect_body_regex, timeout)
+
         try:
             response = requests.get(url, timeout=timeout)
-            
+
             # Check status
             if response.status_code != expect_status:
                 return False, f"Expected status {expect_status}, got {response.status_code}"
-            
+
             # Check body_regex if specified
             if expect_body_regex:
                 body = response.text
                 if not re.search(expect_body_regex, body, re.IGNORECASE):
                     return False, f"Response body does not match pattern '{expect_body_regex}'"
-            
+
             return True, f"Endpoint accessible, status {response.status_code}"
-            
+
         except requests.exceptions.Timeout:
             return False, f"Timeout requesting {url}"
         except requests.exceptions.ConnectionError:
@@ -1163,13 +1219,18 @@ class CheckEngine:
                 
                 # If base_url is not specified directly, try to get it from lab_spec
                 if not base_url_template and self._lab_spec:
-                    if hasattr(self._lab_spec, 'runtime') and self._lab_spec.runtime:
-                        if hasattr(self._lab_spec.runtime, runtime) and getattr(self._lab_spec.runtime, runtime):
-                            runtime_config = getattr(self._lab_spec.runtime, runtime)
-                            if isinstance(runtime_config, dict):
-                                base_url_template = runtime_config.get('base_url')
-                            elif hasattr(runtime_config, 'base_url'):
-                                base_url_template = runtime_config.base_url
+                    rt = getattr(self._lab_spec, 'runtime', None)
+                    if isinstance(rt, dict):
+                        runtime_config = rt.get(runtime)
+                    elif rt is not None:
+                        runtime_config = getattr(rt, runtime, None)
+                    else:
+                        runtime_config = None
+                    if runtime_config:
+                        if isinstance(runtime_config, dict):
+                            base_url_template = runtime_config.get('base_url')
+                        else:
+                            base_url_template = getattr(runtime_config, 'base_url', None)
                 
                 # If still not found, use environment variable or default
                 if not base_url_template:

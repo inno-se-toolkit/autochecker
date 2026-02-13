@@ -1,20 +1,25 @@
 """Web dashboard for viewing students and check results."""
 
+import asyncio
 import csv
 import hashlib
 import hmac
 import io
 import json
+import logging
 import os
+import uuid
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
 import aiosqlite
 import yaml
-from fastapi import FastAPI, Form, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi import FastAPI, Form, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
+
+logger = logging.getLogger(__name__)
 
 _BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = os.getenv("DB_PATH", str(_BASE_DIR / "bot.db"))
@@ -22,9 +27,17 @@ SPECS_DIR = _BASE_DIR / "specs"
 ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "lab-01").split(",") if l.strip()]
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 
+RELAY_TOKEN = os.getenv("RELAY_TOKEN", "")
+
 COOKIE_NAME = "dash_auth"
 
 app = FastAPI(title="Autochecker Dashboard")
+
+# ---------------------------------------------------------------------------
+# Relay state: one connected worker, pending job futures
+# ---------------------------------------------------------------------------
+_relay_worker: Optional[WebSocket] = None
+_relay_jobs: dict[str, asyncio.Future] = {}  # job_id -> Future[dict]
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
 
@@ -51,7 +64,7 @@ async def auth_middleware(request: Request, call_next):
     if not DASHBOARD_PASSWORD:
         return await call_next(request)
 
-    if request.url.path in ("/login", "/login/"):
+    if request.url.path in ("/login", "/login/") or request.url.path.startswith("/relay/"):
         return await call_next(request)
 
     cookie = request.cookies.get(COOKIE_NAME, "")
@@ -385,3 +398,88 @@ async def export_csv(lab: Optional[str] = Query(default=None)):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Relay: WebSocket for worker + HTTP for engine
+# ---------------------------------------------------------------------------
+
+@app.websocket("/relay/ws")
+async def relay_worker_ws(ws: WebSocket):
+    """WebSocket endpoint for the university VM relay worker."""
+    global _relay_worker
+
+    await ws.accept()
+
+    # First message must be auth
+    try:
+        raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
+        msg = json.loads(raw)
+    except Exception:
+        await ws.close(code=4001, reason="Auth timeout")
+        return
+
+    if not RELAY_TOKEN or msg.get("type") != "auth" or not hmac.compare_digest(msg.get("token", ""), RELAY_TOKEN):
+        await ws.send_json({"type": "auth_fail"})
+        await ws.close(code=4003, reason="Invalid token")
+        return
+
+    await ws.send_json({"type": "auth_ok"})
+    _relay_worker = ws
+    logger.info("Relay worker connected")
+
+    try:
+        while True:
+            raw = await ws.receive_text()
+            result = json.loads(raw)
+            job_id = result.get("job_id")
+            fut = _relay_jobs.pop(job_id, None)
+            if fut and not fut.done():
+                fut.set_result(result)
+    except WebSocketDisconnect:
+        logger.info("Relay worker disconnected")
+    except Exception as e:
+        logger.warning("Relay worker error: %s", e)
+    finally:
+        if _relay_worker is ws:
+            _relay_worker = None
+
+
+@app.post("/relay/check")
+async def relay_check(request: Request):
+    """Submit an HTTP check job to the relay worker. Called by the engine."""
+    # Token auth via header
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    if _relay_worker is None:
+        return JSONResponse({"error": "no worker connected"}, status_code=503)
+
+    body = await request.json()
+    url = body.get("url", "")
+    timeout = min(body.get("timeout", 10), 30)
+
+    job_id = uuid.uuid4().hex[:12]
+    fut: asyncio.Future = asyncio.get_event_loop().create_future()
+    _relay_jobs[job_id] = fut
+
+    try:
+        await _relay_worker.send_json({"job_id": job_id, "url": url, "timeout": timeout})
+        result = await asyncio.wait_for(fut, timeout=timeout + 15)
+        return JSONResponse(result)
+    except asyncio.TimeoutError:
+        _relay_jobs.pop(job_id, None)
+        return JSONResponse({"error": "worker timeout", "job_id": job_id, "status_code": 0}, status_code=504)
+    except Exception as e:
+        _relay_jobs.pop(job_id, None)
+        return JSONResponse({"error": str(e), "job_id": job_id, "status_code": 0}, status_code=502)
+
+
+@app.get("/relay/status")
+async def relay_status(request: Request):
+    """Check if a relay worker is connected."""
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    return JSONResponse({"worker_connected": _relay_worker is not None})
