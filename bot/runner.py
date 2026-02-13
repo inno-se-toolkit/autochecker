@@ -21,9 +21,14 @@ class CheckResult:
     error_message: Optional[str] = None
 
 
-def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = None) -> CheckResult:
+def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = None, server_ip: Optional[str] = None) -> CheckResult:
     """Synchronous wrapper that calls check_student directly."""
+    import os
     from autochecker import check_student
+
+    # Set SERVER_IP env var so the engine can resolve {server_ip} in base_url
+    if server_ip:
+        os.environ['SERVER_IP'] = server_ip
 
     try:
         result = check_student(
@@ -60,7 +65,7 @@ def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = Non
         )
 
 
-async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = None) -> CheckResult:
+async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = None, server_ip: Optional[str] = None) -> CheckResult:
     """
     Run the Autochecker asynchronously via run_in_executor.
 
@@ -68,6 +73,7 @@ async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = Non
         student_name: The student's GitHub username
         lab_id: The lab identifier (e.g. "lab-01")
         task_id: Optional task identifier (e.g. "task-1")
+        server_ip: Optional VM IP for http_check tasks
 
     Returns:
         CheckResult with execution details and file paths
@@ -78,7 +84,7 @@ async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = Non
         result = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
-                functools.partial(_run_check_sync, student_name, lab_id, task_id),
+                functools.partial(_run_check_sync, student_name, lab_id, task_id, server_ip),
             ),
             timeout=EXECUTION_TIMEOUT,
         )

@@ -26,7 +26,7 @@ class User:
 #   0 — legacy (users: tg_id, student_name, github_nick, is_admin)
 #   1 — self-registration + results table
 # ---------------------------------------------------------------------------
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 async def _get_table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -71,6 +71,8 @@ async def init_db() -> None:
             await _migrate_to_v1(db)
         if version < 2:
             await _migrate_to_v2(db)
+        if version < 3:
+            await _migrate_to_v3(db)
 
         await _set_schema_version(db, SCHEMA_VERSION)
         await db.commit()
@@ -179,6 +181,34 @@ async def _migrate_to_v2(db: aiosqlite.Connection) -> None:
         logger.info("Migration v2: adding details column to results")
         await db.execute("ALTER TABLE results ADD COLUMN details TEXT DEFAULT ''")
     logger.info("Migration to v2 complete")
+
+
+async def _migrate_to_v3(db: aiosqlite.Connection) -> None:
+    """Add server_ip column to users table for VM deployment checks."""
+    user_cols = await _get_table_columns(db, "users")
+    if "server_ip" not in user_cols:
+        logger.info("Migration v3: adding server_ip column to users")
+        await db.execute("ALTER TABLE users ADD COLUMN server_ip TEXT DEFAULT ''")
+    logger.info("Migration to v3 complete")
+
+
+async def get_server_ip(tg_id: int) -> str:
+    """Get stored server IP for a user. Returns empty string if not set."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT server_ip FROM users WHERE tg_id = ?", (tg_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return (row[0] or "") if row else ""
+
+
+async def set_server_ip(tg_id: int, ip: str) -> None:
+    """Store server IP for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET server_ip = ? WHERE tg_id = ?", (ip, tg_id)
+        )
+        await db.commit()
 
 
 async def get_user(tg_id: int) -> Optional[User]:

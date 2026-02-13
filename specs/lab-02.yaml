@@ -382,18 +382,18 @@ checks:
 
   - id: prod_items_ok
     task: task-4
-    title: "Deployed /items/course endpoint returns 200"
+    title: "Deployed /items/courses endpoint returns 200"
     class: execution
     runner: code
     type: http_check
     is_required: true
     weight: 5
     hint: >
-      Your deployed service at http://<vm-ip>:42002/items/course must return HTTP 200.
+      Your deployed service at http://<vm-ip>:42002/items/courses must return HTTP 200.
       This verifies the application is fully functional.
     params:
       runtime: prod
-      path: "/items/course"
+      path: "/items/courses"
       expect_status: 200
 
   # =====================================================
