@@ -2,7 +2,12 @@ FROM python:3.13-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
+    git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install uv (needed for clone_and_run checks)
+RUN pip install --no-cache-dir uv
 
 WORKDIR /app
 
