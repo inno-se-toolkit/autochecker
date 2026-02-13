@@ -205,6 +205,56 @@ checks:
     params:
       pattern: "^fix:\\s+bug in the dfs logic"
 
+  - id: bugfix_code_correct
+    task: task-2
+    title: "Bug fix is present in the code"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    depends_on: [bugfix_pr_merged]
+    hint: >
+      The fix should change `lab.id == item_id` to `task.id == item_id`
+      in src/app/services/item_service.py.
+    params:
+      path: "src/app/services/item_service.py"
+      pattern: "task\\.id\\s*==\\s*item_id"
+
+  - id: bugfix_pr_touches_service
+    task: task-2
+    title: "Bug fix PR modifies the item service"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 3
+    depends_on: [bugfix_pr_merged]
+    hint: >
+      Your bug fix PR should modify src/app/services/item_service.py.
+    params:
+      title_regex: "(?i)fix"
+      paths: ["src/app/services/"]
+      min_files: 1
+
+  - id: bugfix_tests_pass
+    task: task-2
+    title: "Tests pass after the bug fix"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: true
+    weight: 5
+    depends_on: [bugfix_pr_merged]
+    hint: >
+      All tests must pass after your bug fix.
+      Run `uv run poe test` locally to verify.
+    params:
+      commands:
+        - "uv sync"
+        - "uv run poe test"
+      timeout: 120
+
   # =====================================================
   # TASK 3: Run the web server using Docker Compose
   # =====================================================
@@ -376,3 +426,21 @@ checks:
       Create and merge a PR that implements the post-order traversal.
     params:
       title_regex: "(?i)post.?order"
+
+  - id: postorder_tests_pass
+    task: optional-3
+    title: "Tests pass with post-order traversal"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: false
+    weight: 3
+    depends_on: [postorder_pr_merged]
+    hint: >
+      All tests must pass after implementing the post-order traversal.
+      Run `uv run poe test` locally to verify.
+    params:
+      commands:
+        - "uv sync"
+        - "uv run poe test"
+      timeout: 120

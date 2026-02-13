@@ -796,6 +796,55 @@ class CheckEngine:
         except Exception as e:
             return False, f"Request error: {str(e)}"
 
+    def check_clone_and_run(self, commands: List[str], timeout: int = 120) -> Tuple[bool, str]:
+        """Clones the repo and runs commands. Returns (passed, details).
+
+        Uses a shallow clone into a temporary directory, runs each command
+        sequentially, and checks exit codes. Cleans up afterwards.
+        """
+        import subprocess
+        import tempfile
+        import shutil
+
+        owner = self._client._owner
+        repo = self._client._repo_name
+        clone_url = f"https://github.com/{owner}/{repo}.git"
+        branch = self._branch or "main"
+
+        tmpdir = tempfile.mkdtemp(prefix="autochecker_")
+        try:
+            # Shallow clone
+            result = subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", branch, clone_url, tmpdir],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.returncode != 0:
+                return False, f"git clone failed: {result.stderr.strip()}"
+
+            # Run each command
+            for cmd in commands:
+                result = subprocess.run(
+                    cmd, shell=True, cwd=tmpdir,
+                    capture_output=True, text=True, timeout=timeout
+                )
+                if result.returncode != 0:
+                    stderr = result.stderr.strip()
+                    stdout = result.stdout.strip()
+                    output = stderr or stdout
+                    # Truncate long output
+                    if len(output) > 500:
+                        output = output[:500] + "..."
+                    return False, f"Command `{cmd}` failed (exit {result.returncode}): {output}"
+
+            return True, "All commands passed"
+
+        except subprocess.TimeoutExpired:
+            return False, f"Command timed out after {timeout}s"
+        except Exception as e:
+            return False, f"Clone/run error: {str(e)}"
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
     def _find_pr_for_issue(self, title_regex: str) -> Tuple[Optional[Dict], str]:
         """Finds the PR that closes a specific issue (by issue title regex).
 
@@ -1084,6 +1133,12 @@ class CheckEngine:
                 passed, details = self.check_http_check(base_url, path, expect_status, expect_body_regex, timeout)
                 if passed: status = "PASS"
             
+            elif check_type == "clone_and_run":
+                commands = params.get('commands', [])
+                timeout = params.get('timeout', 120)
+                passed, details = self.check_clone_and_run(commands, timeout)
+                if passed: status = "PASS"
+
             elif check_type == "llm_judge":
                 # LLM checks are handled separately, not through engine
                 status = "SKIP"
