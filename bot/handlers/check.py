@@ -9,7 +9,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, set_server_ip
+from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip
 from ..keyboards import get_tasks_keyboard
 from ..runner import run_check
 from ..config import MAX_ATTEMPTS_PER_TASK
@@ -205,6 +205,15 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
         await message.answer(
             "That doesn't look like a valid IP address.\n"
             "Please send just the IP (e.g., <code>10.90.138.42</code>):"
+        )
+        return
+
+    # Check uniqueness — each student must have their own VM IP
+    existing_owner = await get_server_ip_owner(ip, db_user.tg_id)
+    if existing_owner:
+        await message.answer(
+            f"This IP is already registered to another student.\n"
+            f"Each student must use their own VM. Please enter your unique VM IP:"
         )
         return
 

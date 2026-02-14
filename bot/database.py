@@ -202,6 +202,16 @@ async def get_server_ip(tg_id: int) -> str:
             return (row[0] or "") if row else ""
 
 
+async def get_server_ip_owner(ip: str, exclude_tg_id: int) -> Optional[str]:
+    """Check if a server IP is already used by another student. Returns github_alias or None."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT github_alias FROM users WHERE server_ip = ? AND tg_id != ?", (ip, exclude_tg_id)
+        ) as cur:
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
 async def set_server_ip(tg_id: int, ip: str) -> None:
     """Store server IP for a user."""
     async with aiosqlite.connect(DB_PATH) as db:
