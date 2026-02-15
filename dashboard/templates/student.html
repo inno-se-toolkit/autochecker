@@ -103,6 +103,10 @@
                 <span class="info-label">Telegram</span>
                 <span class="info-value">{{ student.tg_username or "\u2014" }}</span>
             </div>
+            <div class="info-item">
+                <span class="info-label">Server IP</span>
+                <span class="info-value">{{ student.server_ip or "\u2014" }}</span>
+            </div>
             <div class="info-item" style="justify-content: center;">
                 <button class="edit-toggle" id="edit-btn">Edit</button>
             </div>
@@ -120,6 +124,10 @@
             <div class="field">
                 <label for="ef-tg">Telegram username</label>
                 <input type="text" id="ef-tg" name="tg_username" value="{{ student.tg_username or '' }}">
+            </div>
+            <div class="field">
+                <label for="ef-ip">Server IP</label>
+                <input type="text" id="ef-ip" name="server_ip" value="{{ student.server_ip or '' }}" placeholder="e.g. 10.90.138.42">
             </div>
             <div class="edit-actions">
                 <button type="submit" class="btn-save">Save</button>

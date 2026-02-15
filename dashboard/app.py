@@ -268,7 +268,7 @@ async def student_detail(
         db.row_factory = aiosqlite.Row
 
         async with db.execute(
-            "SELECT tg_id, email, github_alias, tg_username FROM users WHERE github_alias = ?",
+            "SELECT tg_id, email, github_alias, tg_username, server_ip FROM users WHERE github_alias = ?",
             (github_alias,)
         ) as cur:
             student_row = await cur.fetchone()
@@ -312,11 +312,13 @@ async def student_edit(
     email: str = Form(...),
     new_github_alias: str = Form(..., alias="github_alias"),
     tg_username: str = Form(""),
+    server_ip: str = Form(""),
 ):
     """Update student info. Redirects back to student page."""
     email = email.strip()
     new_github_alias = new_github_alias.strip()
     tg_username = tg_username.strip()
+    server_ip = server_ip.strip()
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -342,8 +344,8 @@ async def student_edit(
             )
 
         await db.execute(
-            "UPDATE users SET email = ?, github_alias = ?, tg_username = ? WHERE tg_id = ?",
-            (email, new_github_alias, tg_username, tg_id),
+            "UPDATE users SET email = ?, github_alias = ?, tg_username = ?, server_ip = ? WHERE tg_id = ?",
+            (email, new_github_alias, tg_username, server_ip, tg_id),
         )
         await db.commit()
 
