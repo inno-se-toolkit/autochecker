@@ -101,35 +101,105 @@ checks:
       title_regex: "\\[Task\\]\\s+Explore the API"
       state: "all"
 
-  - id: task1_questionnaire_filled
+  - id: task1_issue_has_linked_pr
     task: task-1
-    title: "Questionnaire is filled in"
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task1_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Explore the API"
+      merged: true
+
+  - id: task1_questionnaire_items_get
+    task: task-1
+    title: "Questionnaire: GET /items status code is correct"
     class: structural
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 4
+    weight: 2
     hint: >
-      Fill in all answers in lab/tasks/required/questionnaire.md.
-      Replace every ___ with the correct value.
+      In the questionnaire, the GET /items success status code should be 200.
     params:
       path: "lab/tasks/required/questionnaire.md"
-      pattern: "Status code \\(success\\): \\d+"
+      pattern: "Status code \\(success\\): 200"
+
+  - id: task1_questionnaire_items_type
+    task: task-1
+    title: "Questionnaire: GET /items response type is correct"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    hint: >
+      In the questionnaire, the GET /items response type should be 'array'.
+    params:
+      path: "lab/tasks/required/questionnaire.md"
+      pattern: "Response type \\(array or object\\): array"
+
+  - id: task1_questionnaire_post_status
+    task: task-1
+    title: "Questionnaire: POST /items status code is correct"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    hint: >
+      In the questionnaire, the POST /items success status code should be 201.
+    params:
+      path: "lab/tasks/required/questionnaire.md"
+      pattern: "Status code \\(created successfully\\): 201"
 
   - id: task1_questionnaire_auth
     task: task-1
-    title: "Questionnaire authentication section is filled"
+    title: "Questionnaire: authentication status code is correct"
     class: structural
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 3
+    weight: 2
     hint: >
-      Fill in the authentication section of the questionnaire.
-      The API returns 403 without a key, and the file is .env.docker.secret.
+      The API returns 403 when called without an API key.
     params:
       path: "lab/tasks/required/questionnaire.md"
-      pattern: "without the API key.*:\\s*\\d{3}"
+      pattern: "without the API key.*:\\s*403"
+
+  - id: task1_questionnaire_env_file
+    task: task-1
+    title: "Questionnaire: API key file is correct"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    hint: >
+      The API key for Docker Compose is set in .env.docker.secret.
+    params:
+      path: "lab/tasks/required/questionnaire.md"
+      pattern: "file name\\):\\s*\\.env\\.docker\\.secret"
+
+  - id: task1_commit_message
+    task: task-1
+    title: "Questionnaire commit message"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 1
+    hint: >
+      Your commit message should be:
+      docs: fill in the API exploration questionnaire
+    params:
+      pattern: "^docs:.*questionnaire"
 
   - id: task1_pr_merged
     task: task-1
@@ -144,6 +214,22 @@ checks:
       Make sure the PR targets YOUR fork's main branch, not the original repo.
     params:
       title_regex: "(?i)(explore|questionnaire|task.?1)"
+
+  - id: task1_pr_touches_questionnaire
+    task: task-1
+    title: "Task 1 PR modifies the questionnaire file"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 2
+    depends_on: [task1_pr_merged]
+    hint: >
+      Your PR should modify lab/tasks/required/questionnaire.md.
+    params:
+      title_regex: "(?i)(explore|questionnaire|task.?1)"
+      paths: ["lab/tasks/required/questionnaire.md"]
+      min_files: 1
 
   - id: task1_pr_approved
     task: task-1
@@ -178,6 +264,22 @@ checks:
     params:
       title_regex: "\\[Task\\]\\s+Enable and debug"
       state: "all"
+
+  - id: task2_issue_has_linked_pr
+    task: task-2
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task2_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Enable and debug"
+      merged: true
 
   - id: task2_bug1_fixed
     task: task-2
@@ -252,6 +354,38 @@ checks:
     params:
       title_regex: "(?i)(interaction|debug.*endpoint|fix.*bug)"
 
+  - id: task2_pr_touches_model
+    task: task-2
+    title: "PR modifies the interaction model"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 2
+    depends_on: [task2_pr_merged]
+    hint: >
+      Your bug fix PR should modify src/app/models/interaction.py.
+    params:
+      title_regex: "(?i)(interaction|debug.*endpoint|fix.*bug)"
+      paths: ["src/app/models/"]
+      min_files: 1
+
+  - id: task2_pr_touches_router
+    task: task-2
+    title: "PR modifies the interactions router"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 2
+    depends_on: [task2_pr_merged]
+    hint: >
+      Your bug fix PR should modify src/app/routers/interactions.py.
+    params:
+      title_regex: "(?i)(interaction|debug.*endpoint|fix.*bug)"
+      paths: ["src/app/routers/"]
+      min_files: 1
+
   - id: task2_pr_approved
     task: task-2
     title: "Bug fix PR has at least 1 approval"
@@ -286,6 +420,37 @@ checks:
       title_regex: "\\[Task\\]\\s+Implement the learners endpoint"
       state: "all"
 
+  - id: task3_issue_has_linked_pr
+    task: task-3
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Implement the learners endpoint"
+      merged: true
+
+  - id: task3_imports_uncommented
+    task: task-3
+    title: "Learner imports are uncommented"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    hint: >
+      Uncomment the imports at the top of src/app/routers/learners.py:
+      from app.db.learners import read_learners, create_learner
+    params:
+      path: "src/app/routers/learners.py"
+      pattern: "^from app\\.db\\.learners import"
+
   - id: task3_get_implemented
     task: task-3
     title: "GET /learners endpoint is implemented"
@@ -293,13 +458,28 @@ checks:
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 4
+    weight: 3
     hint: >
       Uncomment and fill in the GET endpoint in src/app/routers/learners.py.
       It should use @router.get with response_model=list[Learner].
     params:
       path: "src/app/routers/learners.py"
-      pattern: "@router\\.get\\("
+      pattern: "@router\\.get\\(.*response_model.*list\\[Learner\\]"
+
+  - id: task3_get_has_filter
+    task: task-3
+    title: "GET /learners has enrolled_after query parameter"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    hint: >
+      The GET endpoint should accept an optional enrolled_after parameter
+      of type datetime | None for filtering learners by enrollment date.
+    params:
+      path: "src/app/routers/learners.py"
+      pattern: "enrolled_after.*datetime"
 
   - id: task3_post_implemented
     task: task-3
@@ -308,13 +488,27 @@ checks:
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 4
+    weight: 3
     hint: >
       Uncomment and fill in the POST endpoint in src/app/routers/learners.py.
       It should use @router.post with status_code=201.
     params:
       path: "src/app/routers/learners.py"
-      pattern: "@router\\.post\\("
+      pattern: "@router\\.post\\(.*status_code.*201"
+
+  - id: task3_post_uses_schema
+    task: task-3
+    title: "POST /learners uses LearnerCreate schema"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    hint: >
+      The POST endpoint should accept a LearnerCreate request body.
+    params:
+      path: "src/app/routers/learners.py"
+      pattern: "LearnerCreate"
 
   - id: task3_commit_get
     task: task-3
@@ -323,7 +517,7 @@ checks:
     runner: code
     type: commit_message_regex
     is_required: true
-    weight: 2
+    weight: 1
     hint: >
       Your commit message should be:
       feat: implement GET /learners endpoint
@@ -337,7 +531,7 @@ checks:
     runner: code
     type: commit_message_regex
     is_required: true
-    weight: 2
+    weight: 1
     hint: >
       Your commit message should be:
       feat: implement POST /learners endpoint
@@ -357,6 +551,22 @@ checks:
       Make sure the PR targets YOUR fork's main branch, not the original repo.
     params:
       title_regex: "(?i)(learner|task.?3)"
+
+  - id: task3_pr_touches_learners
+    task: task-3
+    title: "PR modifies the learners router"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 2
+    depends_on: [task3_pr_merged]
+    hint: >
+      Your PR should modify src/app/routers/learners.py.
+    params:
+      title_regex: "(?i)(learner|task.?3)"
+      paths: ["src/app/routers/learners.py"]
+      min_files: 1
 
   - id: task3_pr_approved
     task: task-3
@@ -426,6 +636,23 @@ checks:
       path: "/items"
       expect_status: 403
 
+  - id: prod_docs_returns_200
+    task: task-4
+    title: "Deployed /docs returns 200"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    depends_on: [prod_items_returns_403]
+    hint: >
+      The Swagger UI at http://<vm-ip>:42002/docs should be accessible
+      without authentication.
+    params:
+      runtime: prod
+      path: "/docs"
+      expect_status: 200
+
   # =====================================================
   # OPTIONAL 1: Implement the /outcomes endpoint
   # =====================================================
@@ -452,11 +679,51 @@ checks:
     runner: code
     type: file_exists
     is_required: false
-    weight: 2
+    weight: 1
     hint: >
       Create the file src/app/routers/outcomes.py with the outcomes endpoints.
     params:
       path: "src/app/routers/outcomes.py"
+
+  - id: outcomes_model_exists
+    task: optional-1
+    title: "Outcomes model file exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create the file src/app/models/outcome.py with Pydantic models.
+    params:
+      path: "src/app/models/outcome.py"
+
+  - id: outcomes_db_exists
+    task: optional-1
+    title: "Outcomes database functions file exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create the file src/app/db/outcomes.py with CRUD functions.
+    params:
+      path: "src/app/db/outcomes.py"
+
+  - id: outcomes_table_in_sql
+    task: optional-1
+    title: "Outcomes table in database schema"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: false
+    weight: 1
+    hint: >
+      Add an outcomes table to src/app/data/init.sql.
+    params:
+      path: "src/app/data/init.sql"
+      pattern: "(?i)create table.*outcomes"
 
   - id: outcomes_pr_merged
     task: optional-1
@@ -499,11 +766,41 @@ checks:
     runner: code
     type: file_exists
     is_required: false
-    weight: 2
+    weight: 1
     hint: >
       Create the file .github/workflows/ci.yml with your CI workflow.
     params:
       path: ".github/workflows/ci.yml"
+
+  - id: ci_workflow_has_test
+    task: optional-2
+    title: "CI workflow runs tests"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: false
+    weight: 1
+    depends_on: [ci_workflow_exists]
+    hint: >
+      Your CI workflow should run tests with 'uv run poe test'.
+    params:
+      path: ".github/workflows/ci.yml"
+      pattern: "poe test"
+
+  - id: ci_workflow_has_lint
+    task: optional-2
+    title: "CI workflow runs linting"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: false
+    weight: 1
+    depends_on: [ci_workflow_exists]
+    hint: >
+      Your CI workflow should run the linter with 'uv run poe lint'.
+    params:
+      path: ".github/workflows/ci.yml"
+      pattern: "poe lint"
 
   - id: ci_pr_merged
     task: optional-2
