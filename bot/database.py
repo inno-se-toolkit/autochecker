@@ -241,6 +241,13 @@ async def get_user(tg_id: int) -> Optional[User]:
             return None
 
 
+async def delete_user(tg_id: int) -> None:
+    """Delete user by Telegram ID."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("DELETE FROM users WHERE tg_id = ?", (tg_id,))
+        await db.commit()
+
+
 async def get_user_by_email(email: str) -> Optional[User]:
     """Get user by email address."""
     async with aiosqlite.connect(DB_PATH) as db:
