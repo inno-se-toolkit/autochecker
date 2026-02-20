@@ -29,6 +29,16 @@ MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "3"))
 # Comma-separated list in env var, e.g. "lab-01,lab-02"
 ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "lab-01").split(",") if l.strip()]
 
+# Email whitelist — only these emails can register
+_whitelist_path = Path(__file__).resolve().parent / "allowed_emails.txt"
+ALLOWED_EMAILS: set[str] = set()
+if _whitelist_path.exists():
+    ALLOWED_EMAILS = {
+        line.strip().lower()
+        for line in _whitelist_path.read_text().splitlines()
+        if line.strip()
+    }
+
 
 @dataclass
 class TaskInfo:

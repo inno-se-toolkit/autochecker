@@ -9,6 +9,7 @@ from aiogram.types import Message, CallbackQuery, TelegramObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
+from ..config import ALLOWED_EMAILS
 from ..database import User, upsert_user, get_user_by_email, get_user_by_github
 from ..keyboards import get_labs_keyboard
 
@@ -52,6 +53,13 @@ async def process_email(message: Message, state: FSMContext) -> None:
     if not EMAIL_REGEX.match(email):
         await message.answer(
             "Invalid email. It must end with <code>@innopolis.university</code>.\n\nTry again:"
+        )
+        return
+
+    if ALLOWED_EMAILS and email not in ALLOWED_EMAILS:
+        await message.answer(
+            "This email is not in the course roster.\n"
+            "Please use the email registered in Moodle.\n\nTry again:"
         )
         return
 
