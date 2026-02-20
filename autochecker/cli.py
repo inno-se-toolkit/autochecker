@@ -29,10 +29,10 @@ LAB_CONFIG = {
         "ready": True,
     },
     "lab-03": {
-        "name": "Lab 03 – (Coming soon)",
-        "repo_suffix": "lab-03-tbd",
+        "name": "Lab 03 — Backend API: Explore, Debug, Implement, Deploy",
+        "repo_suffix": "se-toolkit-lab-3",
         "spec": "specs/lab-03.yaml",
-        "ready": False,
+        "ready": True,
     },
     "lab-04": {
         "name": "Lab 04 – (Coming soon)",

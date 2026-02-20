@@ -1,0 +1,521 @@
+id: lab-03
+title: "Lab 03 — Backend API: Explore, Debug, Implement, Deploy"
+repo_name: "se-toolkit-lab-3"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}:42002"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.8
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Explore the API"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Enable and debug the interactions endpoint"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Implement the learners endpoint"
+    prerequisite: setup
+  - id: task-4
+    title: "Task 4: Deploy to a hardened VM"
+    prerequisite: setup
+  - id: optional-1
+    title: "Optional 1: Implement the /outcomes endpoint"
+    prerequisite: setup
+  - id: optional-2
+    title: "Optional 2: Set up CI with GitHub Actions"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_is_fork
+    task: setup
+    title: "Repository is a fork"
+    class: structural
+    runner: code
+    type: repo_is_fork
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of the course instructors' repo.
+      Fork it from https://github.com/inno-se-toolkit/se-toolkit-lab-3.
+    params: {}
+
+  - id: repo_has_issues
+    task: setup
+    title: "Issues are enabled"
+    class: structural
+    runner: code
+    type: repo_has_issues
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Enable issues in your repo: Settings -> General -> Features -> Issues.
+    params: {}
+
+  # =====================================================
+  # TASK 1: Explore the API
+  # =====================================================
+
+  - id: task1_issue_exists
+    task: task-1
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title: [Task] Explore the API.
+    params:
+      title_regex: "\\[Task\\]\\s+Explore the API"
+      state: "all"
+
+  - id: task1_questionnaire_filled
+    task: task-1
+    title: "Questionnaire is filled in"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    hint: >
+      Fill in all answers in lab/tasks/required/questionnaire.md.
+      Replace every ___ with the correct value.
+    params:
+      path: "lab/tasks/required/questionnaire.md"
+      pattern: "Status code \\(success\\): \\d+"
+
+  - id: task1_questionnaire_auth
+    task: task-1
+    title: "Questionnaire authentication section is filled"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      Fill in the authentication section of the questionnaire.
+      The API returns 403 without a key, and the file is .env.docker.secret.
+    params:
+      path: "lab/tasks/required/questionnaire.md"
+      pattern: "without the API key.*:\\s*\\d{3}"
+
+  - id: task1_pr_merged
+    task: task-1
+    title: "Task 1 PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create and merge a PR with your questionnaire answers.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)(explore|questionnaire|task.?1)"
+
+  - id: task1_pr_approved
+    task: task-1
+    title: "Task 1 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task1_issue_exists]
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Explore the API"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 2: Enable and debug the interactions endpoint
+  # =====================================================
+
+  - id: task2_issue_exists
+    task: task-2
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Enable and debug the interactions endpoint.
+    params:
+      title_regex: "\\[Task\\]\\s+Enable and debug"
+      state: "all"
+
+  - id: task2_bug1_fixed
+    task: task-2
+    title: "Bug 1 fixed: timestamp renamed to created_at"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    hint: >
+      In src/app/models/interaction.py, change 'timestamp' to 'created_at'
+      in the InteractionModel class to match the database column name.
+    params:
+      path: "src/app/models/interaction.py"
+      pattern: "created_at:\\s*datetime"
+      min_matches: 2
+
+  - id: task2_bug2_fixed
+    task: task-2
+    title: "Bug 2 fixed: filter by item_id instead of learner_id"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    hint: >
+      In src/app/routers/interactions.py, change the filter from
+      i.learner_id == item_id to i.item_id == item_id.
+    params:
+      path: "src/app/routers/interactions.py"
+      pattern: "i\\.item_id\\s*==\\s*item_id"
+
+  - id: task2_commit_bug1
+    task: task-2
+    title: "Commit message for Bug 1 fix"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message for Bug 1 should be:
+      fix: rename timestamp to created_at in InteractionModel
+    params:
+      pattern: "^fix:\\s+rename timestamp to created_at"
+
+  - id: task2_commit_bug2
+    task: task-2
+    title: "Commit message for Bug 2 fix"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message for Bug 2 should be:
+      fix: filter interactions by item_id instead of learner_id
+    params:
+      pattern: "^fix:\\s+filter interactions by item_id"
+
+  - id: task2_pr_merged
+    task: task-2
+    title: "Bug fix PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create and merge a PR with your bug fixes.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)(interaction|debug.*endpoint|fix.*bug)"
+
+  - id: task2_pr_approved
+    task: task-2
+    title: "Bug fix PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task2_issue_exists]
+    hint: >
+      Ask your partner to review and approve your bug fix PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Enable and debug"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 3: Implement the learners endpoint
+  # =====================================================
+
+  - id: task3_issue_exists
+    task: task-3
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Implement the learners endpoint.
+    params:
+      title_regex: "\\[Task\\]\\s+Implement the learners endpoint"
+      state: "all"
+
+  - id: task3_get_implemented
+    task: task-3
+    title: "GET /learners endpoint is implemented"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    hint: >
+      Uncomment and fill in the GET endpoint in src/app/routers/learners.py.
+      It should use @router.get with response_model=list[Learner].
+    params:
+      path: "src/app/routers/learners.py"
+      pattern: "@router\\.get\\("
+
+  - id: task3_post_implemented
+    task: task-3
+    title: "POST /learners endpoint is implemented"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    hint: >
+      Uncomment and fill in the POST endpoint in src/app/routers/learners.py.
+      It should use @router.post with status_code=201.
+    params:
+      path: "src/app/routers/learners.py"
+      pattern: "@router\\.post\\("
+
+  - id: task3_commit_get
+    task: task-3
+    title: "Commit message for GET endpoint"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: implement GET /learners endpoint
+    params:
+      pattern: "^feat:\\s+implement GET /learners"
+
+  - id: task3_commit_post
+    task: task-3
+    title: "Commit message for POST endpoint"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: implement POST /learners endpoint
+    params:
+      pattern: "^feat:\\s+implement POST /learners"
+
+  - id: task3_pr_merged
+    task: task-3
+    title: "Learners endpoint PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create and merge a PR with your learners endpoint implementation.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)(learner|task.?3)"
+
+  - id: task3_pr_approved
+    task: task-3
+    title: "Learners endpoint PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Implement the learners endpoint"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 4: Deploy to a hardened VM
+  # =====================================================
+
+  - id: task4_issue_exists
+    task: task-4
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Deploy to a hardened VM.
+    params:
+      title_regex: "\\[Task\\]\\s+Deploy to a hardened VM"
+      state: "all"
+
+  - id: task4_issue_has_url_comment
+    task: task-4
+    title: "Issue has deployed URL in a comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: true
+    weight: 2
+    depends_on: [task4_issue_exists]
+    hint: >
+      Close the issue with a comment that contains the deployed URL
+      (e.g., http://<vm-ip>:42002/items).
+    params:
+      title_regex: "\\[Task\\]\\s+Deploy to a hardened VM"
+      comment_pattern: "http.*:42002"
+      state: "all"
+
+  - id: prod_items_returns_403
+    task: task-4
+    title: "Deployed /items returns 403 without API key"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 5
+    hint: >
+      Your deployed service at http://<vm-ip>:42002/items must return 403
+      when called without an API key. This proves the service is running
+      and authentication is configured.
+    params:
+      runtime: prod
+      path: "/items"
+      expect_status: 403
+
+  # =====================================================
+  # OPTIONAL 1: Implement the /outcomes endpoint
+  # =====================================================
+
+  - id: outcomes_issue_exists
+    task: optional-1
+    title: "Outcomes task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Implement the /outcomes endpoint.
+    params:
+      title_regex: "\\[Task\\].*[Oo]utcomes"
+      state: "all"
+
+  - id: outcomes_router_exists
+    task: optional-1
+    title: "Outcomes router file exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: false
+    weight: 2
+    hint: >
+      Create the file src/app/routers/outcomes.py with the outcomes endpoints.
+    params:
+      path: "src/app/routers/outcomes.py"
+
+  - id: outcomes_pr_merged
+    task: optional-1
+    title: "Outcomes feature PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [outcomes_issue_exists]
+    hint: >
+      Create and merge a PR that implements the /outcomes endpoint.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)outcomes"
+
+  # =====================================================
+  # OPTIONAL 2: Set up CI with GitHub Actions
+  # =====================================================
+
+  - id: ci_issue_exists
+    task: optional-2
+    title: "CI task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Set up CI with GitHub Actions.
+    params:
+      title_regex: "\\[Task\\].*CI.*GitHub Actions"
+      state: "all"
+
+  - id: ci_workflow_exists
+    task: optional-2
+    title: "CI workflow file exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: false
+    weight: 2
+    hint: >
+      Create the file .github/workflows/ci.yml with your CI workflow.
+    params:
+      path: ".github/workflows/ci.yml"
+
+  - id: ci_pr_merged
+    task: optional-2
+    title: "CI feature PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [ci_issue_exists]
+    hint: >
+      Create and merge a PR with your CI workflow.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)(ci|github.?action)"
