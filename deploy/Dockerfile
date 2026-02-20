@@ -4,6 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     git \
     curl \
+    docker.io \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (needed for clone_and_run checks)

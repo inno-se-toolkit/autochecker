@@ -927,23 +927,28 @@ class CheckEngine:
             return False, f"Request error: {str(e)}"
 
     def check_clone_and_run(self, commands: List[str], timeout: int = 120) -> Tuple[bool, str]:
-        """Clones the repo and runs commands. Returns (passed, details).
+        """Clones the repo and runs commands in a sandboxed Docker container.
 
-        Uses a shallow clone into a temporary directory, runs each command
-        sequentially, and checks exit codes. Cleans up afterwards.
+        Uses a shallow clone into a shared host directory, then executes
+        commands inside an ephemeral container with strict resource limits
+        and no access to the bot's environment.
         """
         import subprocess
         import tempfile
         import shutil
+        import os
 
         owner = self._client._owner
         repo = self._client._repo_name
         clone_url = f"https://github.com/{owner}/{repo}.git"
         branch = self._branch or "main"
 
-        tmpdir = tempfile.mkdtemp(prefix="autochecker_")
+        sandbox_dir = os.environ.get("SANDBOX_DIR", "/tmp/autochecker-sandbox")
+        os.makedirs(sandbox_dir, exist_ok=True)
+        tmpdir = tempfile.mkdtemp(prefix="run_", dir=sandbox_dir)
+
         try:
-            # Shallow clone
+            # Shallow clone (runs on host / bot container)
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", "--branch", branch, clone_url, tmpdir],
                 capture_output=True, text=True, timeout=60
@@ -951,22 +956,16 @@ class CheckEngine:
             if result.returncode != 0:
                 return False, f"git clone failed: {result.stderr.strip()}"
 
-            # Run each command
-            for cmd in commands:
-                result = subprocess.run(
-                    cmd, shell=True, cwd=tmpdir,
-                    capture_output=True, text=True, timeout=timeout
-                )
-                if result.returncode != 0:
-                    stderr = result.stderr.strip()
-                    stdout = result.stdout.strip()
-                    output = stderr or stdout
-                    # Truncate long output
-                    if len(output) > 500:
-                        output = output[:500] + "..."
-                    return False, f"Command `{cmd}` failed (exit {result.returncode}): {output}"
+            # Check if Docker is available for sandboxed execution
+            docker_available = subprocess.run(
+                ["docker", "info"], capture_output=True, timeout=5
+            ).returncode == 0
 
-            return True, "All commands passed"
+            if docker_available:
+                return self._run_in_sandbox(tmpdir, commands, timeout)
+            else:
+                # Fallback to direct execution (e.g. local dev without Docker)
+                return self._run_direct(tmpdir, commands, timeout)
 
         except subprocess.TimeoutExpired:
             return False, f"Command timed out after {timeout}s"
@@ -974,6 +973,57 @@ class CheckEngine:
             return False, f"Clone/run error: {str(e)}"
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def _run_in_sandbox(self, workdir: str, commands: List[str], timeout: int) -> Tuple[bool, str]:
+        """Run commands inside a sandboxed Docker container."""
+        import subprocess
+
+        cmd_chain = " && ".join(commands)
+        docker_cmd = [
+            "docker", "run", "--rm",
+            "--memory=512m",
+            "--cpus=1",
+            "--pids-limit=256",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            "-v", f"{workdir}:{workdir}",
+            "-w", workdir,
+            "autochecker-sandbox:latest",
+            "sh", "-c", cmd_chain,
+        ]
+
+        result = subprocess.run(
+            docker_cmd, capture_output=True, text=True, timeout=timeout
+        )
+
+        if result.returncode != 0:
+            stderr = result.stderr.strip()
+            stdout = result.stdout.strip()
+            output = stderr or stdout
+            if len(output) > 500:
+                output = output[:500] + "..."
+            return False, f"Command failed (exit {result.returncode}): {output}"
+
+        return True, "All commands passed (sandboxed)"
+
+    def _run_direct(self, workdir: str, commands: List[str], timeout: int) -> Tuple[bool, str]:
+        """Fallback: run commands directly (for local dev without Docker)."""
+        import subprocess
+
+        for cmd in commands:
+            result = subprocess.run(
+                cmd, shell=True, cwd=workdir,
+                capture_output=True, text=True, timeout=timeout
+            )
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                stdout = result.stdout.strip()
+                output = stderr or stdout
+                if len(output) > 500:
+                    output = output[:500] + "..."
+                return False, f"Command `{cmd}` failed (exit {result.returncode}): {output}"
+
+        return True, "All commands passed"
 
     def _find_pr_for_issue(self, title_regex: str) -> Tuple[Optional[Dict], str]:
         """Finds the PR that closes a specific issue (by issue title regex).

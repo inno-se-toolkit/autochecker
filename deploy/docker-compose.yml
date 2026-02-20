@@ -11,7 +11,16 @@ services:
     volumes:
       - bot-data:/app/data
       - autochecker-results:/app/results
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/autochecker-sandbox:/tmp/autochecker-sandbox
     command: python3 main_bot.py
+
+  sandbox:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.sandbox
+    image: autochecker-sandbox
+    profiles: ["build-only"]
 
   dashboard:
     build:
