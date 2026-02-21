@@ -1477,7 +1477,7 @@ class CheckEngine:
                 command = params.get('command', 'echo ok')
                 expect_regex = params.get('expect_regex')
                 expect_exit = params.get('expect_exit', 0)
-                username = params.get('username', 'checkbot')
+                username = params.get('username', 'autochecker')
                 port = params.get('port', 22)
                 timeout = params.get('timeout', 10)
 

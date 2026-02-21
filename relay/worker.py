@@ -61,7 +61,7 @@ def _do_ssh_check(job: dict) -> dict:
     job_id = job["job_id"]
     host = job.get("host", "")
     port = job.get("port", 22)
-    username = job.get("username", "checkbot")
+    username = job.get("username", "autochecker")
     command = job.get("command", "echo ok")
     timeout = min(job.get("timeout", 10), 30)
 
@@ -157,7 +157,7 @@ async def _run_worker():
                     loop = asyncio.get_event_loop()
 
                     if job_type == "ssh":
-                        log.info("SSH job %s: %s@%s", job.get("job_id"), job.get("username", "checkbot"), job.get("host"))
+                        log.info("SSH job %s: %s@%s", job.get("job_id"), job.get("username", "autochecker"), job.get("host"))
                         result = await loop.run_in_executor(None, _do_ssh_check, job)
                         log.info("SSH job %s: exit=%s", job.get("job_id"), result["exit_code"])
                     else:

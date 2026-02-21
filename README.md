@@ -165,11 +165,11 @@ When Docker is unavailable (local dev), commands run directly via `subprocess`. 
 
 ## SSH Checks (ssh_check)
 
-Some checks verify VM deployment by SSHing into student machines as `checkbot` and running commands (e.g. checking fail2ban, sshd config, running services).
+Some checks verify VM deployment by SSHing into student machines as `autochecker` and running commands (e.g. checking fail2ban, sshd config, running services).
 
 ### How it works
 
-1. Student creates a `checkbot` user on their VM and adds the autochecker's public SSH key
+1. Student creates a `autochecker` user on their VM and adds the autochecker's public SSH key
 2. Student provides their VM IP to the bot
 3. Engine dispatches `ssh_check` → routes through relay worker (for internal 10.x.x.x IPs) or direct SSH (for public IPs)
 
@@ -179,7 +179,7 @@ Some checks verify VM deployment by SSHing into student machines as `checkbot` a
 type: ssh_check
 params:
   runtime: prod              # resolves server_ip from runtime config
-  username: checkbot          # SSH user (default: checkbot)
+  username: autochecker          # SSH user (default: autochecker)
   port: 22                    # SSH port (default: 22)
   command: "echo ok"          # command to run on the VM
   expect_exit: 0              # expected exit code (-1 = any non-zero)
@@ -196,7 +196,7 @@ Engine → POST /relay/ssh → Dashboard → WebSocket → Relay Worker (univers
 
 ### SSH key setup
 
-**Public key** (give to students for `checkbot`'s `authorized_keys`):
+**Public key** (give to students for `autochecker`'s `authorized_keys`):
 ```
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKiL0DDQZw7L0Uf1c9cNlREY7IS6ZkIbGVWNsClqGNCZ se-toolkit-autochecker
 ```
@@ -225,7 +225,7 @@ The relay worker bridges the Hetzner server to the university network. It runs o
 ┌─ University VM (10.93.24.120) ────────│───────────────────┐
 │  Relay Worker (systemd service)  ←────┘                    │
 │   ├─ HTTP jobs: curl to internal IPs                       │
-│   └─ SSH jobs: ssh -i key checkbot@student-vm "command"    │
+│   └─ SSH jobs: ssh -i key autochecker@student-vm "command"    │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -254,7 +254,7 @@ ssh deploy@10.93.24.120 "sudo systemctl restart relay-worker"
 
 - Worker only accepts jobs targeting internal IPs (10.x, 172.16-31.x, 192.168.x)
 - All endpoints require HMAC-verified bearer token
-- SSH key has no sudo access on student VMs (checkbot user)
+- SSH key has no sudo access on student VMs (autochecker user)
 - Timeouts capped at 30 seconds, response bodies capped at 4KB
 
 ## Production Deployment

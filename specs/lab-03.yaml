@@ -655,7 +655,7 @@ checks:
 
   - id: ssh_connectivity
     task: task-4
-    title: "SSH login as checkbot works"
+    title: "SSH login as autochecker works"
     class: execution
     runner: code
     type: ssh_check
@@ -663,17 +663,18 @@ checks:
     weight: 5
     depends_on: [task4_issue_exists]
     hint: >
-      Create a 'checkbot' user on your VM and add the autochecker's
-      public SSH key to /home/checkbot/.ssh/authorized_keys.
+      Create an 'autochecker' user on your VM and add the autochecker's
+      public SSH key to /home/autochecker/.ssh/authorized_keys.
     params:
       runtime: prod
+      username: autochecker
       command: "echo ok"
       expect_exit: 0
       expect_regex: "ok"
 
   - id: ssh_no_sudo
     task: task-4
-    title: "checkbot has no sudo access"
+    title: "autochecker has no sudo access"
     class: execution
     runner: code
     type: ssh_check
@@ -681,10 +682,11 @@ checks:
     weight: 3
     depends_on: [ssh_connectivity]
     hint: >
-      The checkbot user must not have sudo privileges.
-      Do not add checkbot to the sudo group.
+      The autochecker user must not have sudo privileges.
+      Do not add autochecker to the sudo group.
     params:
       runtime: prod
+      username: autochecker
       command: "sudo -n true 2>&1"
       expect_exit: -1
 
@@ -702,6 +704,7 @@ checks:
       and restart sshd.
     params:
       runtime: prod
+      username: autochecker
       command: "grep -i '^PermitRootLogin' /etc/ssh/sshd_config"
       expect_exit: 0
       expect_regex: "(?i)no"
@@ -720,6 +723,7 @@ checks:
       and restart sshd.
     params:
       runtime: prod
+      username: autochecker
       command: "grep -i '^PasswordAuthentication' /etc/ssh/sshd_config"
       expect_exit: 0
       expect_regex: "(?i)no"
@@ -738,6 +742,7 @@ checks:
       then sudo systemctl enable --now fail2ban.
     params:
       runtime: prod
+      username: autochecker
       command: "systemctl is-active fail2ban"
       expect_exit: 0
       expect_regex: "^active"
@@ -756,6 +761,7 @@ checks:
       at localhost:42002 on the VM.
     params:
       runtime: prod
+      username: autochecker
       command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:42002/docs"
       expect_exit: 0
       expect_regex: "200"

@@ -528,7 +528,7 @@ async def relay_ssh(request: Request):
         "type": "ssh",
         "host": body.get("host", ""),
         "port": body.get("port", 22),
-        "username": body.get("username", "checkbot"),
+        "username": body.get("username", "autochecker"),
         "command": body.get("command", "echo ok"),
         "timeout": timeout,
     }, timeout=timeout)
