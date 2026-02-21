@@ -447,35 +447,69 @@ async def relay_worker_ws(ws: WebSocket):
             _relay_worker = None
 
 
+async def _await_worker(timeout: float = 12) -> bool:
+    """Wait for the relay worker to (re)connect. Returns True if available."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        if _relay_worker is not None:
+            return True
+        await asyncio.sleep(1)
+    return False
+
+
+async def _send_relay_job(job: dict, timeout: int) -> JSONResponse:
+    """Send a job to the relay worker with automatic retry on stale connections.
+
+    Handles the case where the university network kills the WebSocket:
+    waits for the worker to reconnect and retries once.
+    """
+    for attempt in range(2):
+        if _relay_worker is None:
+            if not await _await_worker(timeout=12):
+                return JSONResponse({"error": "no worker connected", "job_id": job.get("job_id", ""),
+                                     "status_code": 0, "exit_code": -1}, status_code=503)
+
+        job_id = uuid.uuid4().hex[:12]
+        job["job_id"] = job_id
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        _relay_jobs[job_id] = fut
+
+        try:
+            await _relay_worker.send_json(job)
+            result = await asyncio.wait_for(fut, timeout=timeout + 15)
+            return JSONResponse(result)
+        except asyncio.TimeoutError:
+            _relay_jobs.pop(job_id, None)
+            if attempt == 0:
+                logger.warning("Relay job %s timed out, retrying after reconnect...", job_id)
+                await asyncio.sleep(2)
+                continue
+            return JSONResponse({"error": "worker timeout", "job_id": job_id,
+                                 "status_code": 0, "exit_code": -1}, status_code=504)
+        except Exception:
+            _relay_jobs.pop(job_id, None)
+            if attempt == 0:
+                logger.warning("Relay send failed, waiting for worker reconnect...")
+                await asyncio.sleep(6)
+                continue
+            return JSONResponse({"error": "worker connection lost", "job_id": job_id,
+                                 "status_code": 0, "exit_code": -1}, status_code=502)
+
+    return JSONResponse({"error": "relay failed", "status_code": 0, "exit_code": -1}, status_code=502)
+
+
 @app.post("/relay/check")
 async def relay_check(request: Request):
     """Submit an HTTP check job to the relay worker. Called by the engine."""
-    # Token auth via header
     auth = request.headers.get("Authorization", "")
     if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
 
-    if _relay_worker is None:
-        return JSONResponse({"error": "no worker connected"}, status_code=503)
-
     body = await request.json()
-    url = body.get("url", "")
-    timeout = min(body.get("timeout", 10), 30)
-
-    job_id = uuid.uuid4().hex[:12]
-    fut: asyncio.Future = asyncio.get_event_loop().create_future()
-    _relay_jobs[job_id] = fut
-
-    try:
-        await _relay_worker.send_json({"job_id": job_id, "url": url, "timeout": timeout})
-        result = await asyncio.wait_for(fut, timeout=timeout + 15)
-        return JSONResponse(result)
-    except asyncio.TimeoutError:
-        _relay_jobs.pop(job_id, None)
-        return JSONResponse({"error": "worker timeout", "job_id": job_id, "status_code": 0}, status_code=504)
-    except Exception as e:
-        _relay_jobs.pop(job_id, None)
-        return JSONResponse({"error": str(e), "job_id": job_id, "status_code": 0}, status_code=502)
+    return await _send_relay_job({
+        "url": body.get("url", ""),
+        "timeout": min(body.get("timeout", 10), 30),
+    }, timeout=min(body.get("timeout", 10), 30))
 
 
 @app.post("/relay/ssh")
@@ -485,38 +519,16 @@ async def relay_ssh(request: Request):
     if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
 
-    if _relay_worker is None:
-        return JSONResponse({"error": "no worker connected"}, status_code=503)
-
     body = await request.json()
-    host = body.get("host", "")
-    port = body.get("port", 22)
-    username = body.get("username", "checkbot")
-    command = body.get("command", "echo ok")
     timeout = min(body.get("timeout", 10), 30)
-
-    job_id = uuid.uuid4().hex[:12]
-    fut: asyncio.Future = asyncio.get_event_loop().create_future()
-    _relay_jobs[job_id] = fut
-
-    try:
-        await _relay_worker.send_json({
-            "type": "ssh",
-            "job_id": job_id,
-            "host": host,
-            "port": port,
-            "username": username,
-            "command": command,
-            "timeout": timeout,
-        })
-        result = await asyncio.wait_for(fut, timeout=timeout + 15)
-        return JSONResponse(result)
-    except asyncio.TimeoutError:
-        _relay_jobs.pop(job_id, None)
-        return JSONResponse({"error": "worker timeout", "job_id": job_id, "exit_code": -1}, status_code=504)
-    except Exception as e:
-        _relay_jobs.pop(job_id, None)
-        return JSONResponse({"error": str(e), "job_id": job_id, "exit_code": -1}, status_code=502)
+    return await _send_relay_job({
+        "type": "ssh",
+        "host": body.get("host", ""),
+        "port": body.get("port", 22),
+        "username": body.get("username", "checkbot"),
+        "command": body.get("command", "echo ok"),
+        "timeout": timeout,
+    }, timeout=timeout)
 
 
 @app.get("/relay/status")
