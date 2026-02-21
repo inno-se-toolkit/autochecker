@@ -140,7 +140,7 @@ async def _run_worker():
         try:
             log.info("Connecting to %s ...", SERVER)
             async with websockets.connect(
-                SERVER, close_timeout=5, ping_interval=30, ping_timeout=60,
+                SERVER, close_timeout=5, ping_interval=10, ping_timeout=10,
             ) as ws:
                 # Authenticate
                 await ws.send(json.dumps({"type": "auth", "token": TOKEN}))
