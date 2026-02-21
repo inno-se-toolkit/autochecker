@@ -101,6 +101,16 @@ All config is via environment variables (`.env` file):
 | `MAX_ATTEMPTS_PER_TASK` | Max check attempts per student per task | `3` |
 | `DASHBOARD_PASSWORD` | Dashboard auth password (empty = no auth) | — |
 
+## Email Whitelist
+
+Only emails listed in `bot/allowed_emails.txt` can register. The file is one email per line, extracted from the Moodle grades CSV. Loaded at startup in `bot/config.py` as `ALLOWED_EMAILS`.
+
+- **New registrations**: blocked at the email step if not in the list
+- **Existing users**: evicted on next interaction if their email isn't in the list (middleware check in `bot/middlewares.py`)
+- **Admins**: exempt from the whitelist (`is_admin = 1` in DB)
+
+To update the whitelist, replace `bot/allowed_emails.txt` and redeploy.
+
 ## Architecture
 
 The bot imports `check_student()` from the `autochecker` package directly (no subprocess). This gives real Python exceptions, shared config, and eliminates disk I/O for result passing.
