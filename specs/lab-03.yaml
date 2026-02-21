@@ -168,10 +168,10 @@ checks:
     is_required: true
     weight: 2
     hint: >
-      The API returns 403 when called without an API key.
+      The API returns 401 when called without an API key.
     params:
       path: "lab/tasks/required/questionnaire.md"
-      pattern: "without the API key.*:\\s*403"
+      pattern: "without the API key.*:\\s*401"
 
   - id: task1_questionnaire_env_file
     task: task-1
@@ -619,22 +619,22 @@ checks:
       comment_pattern: "http.*:42002"
       state: "all"
 
-  - id: prod_items_returns_403
+  - id: prod_items_returns_401
     task: task-4
-    title: "Deployed /items returns 403 without API key"
+    title: "Deployed /items returns 401 without API key"
     class: execution
     runner: code
     type: http_check
     is_required: true
     weight: 5
     hint: >
-      Your deployed service at http://<vm-ip>:42002/items must return 403
+      Your deployed service at http://<vm-ip>:42002/items must return 401
       when called without an API key. This proves the service is running
       and authentication is configured.
     params:
       runtime: prod
       path: "/items"
-      expect_status: 403
+      expect_status: 401
 
   - id: prod_docs_returns_200
     task: task-4
@@ -644,7 +644,7 @@ checks:
     type: http_check
     is_required: true
     weight: 3
-    depends_on: [prod_items_returns_403]
+    depends_on: [prod_items_returns_401]
     hint: >
       The Swagger UI at http://<vm-ip>:42002/docs should be accessible
       without authentication.
