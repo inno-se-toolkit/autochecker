@@ -461,11 +461,14 @@ async def _send_relay_job(job: dict, timeout: int) -> JSONResponse:
     """Send a job to the relay worker with automatic retry on stale connections.
 
     Handles the case where the university network kills the WebSocket:
-    waits for the worker to reconnect and retries once.
+    detects stale connections, clears the worker reference, waits for
+    reconnection, and retries.
     """
-    for attempt in range(2):
+    global _relay_worker
+
+    for attempt in range(3):
         if _relay_worker is None:
-            if not await _await_worker(timeout=12):
+            if not await _await_worker(timeout=15):
                 return JSONResponse({"error": "no worker connected", "job_id": job.get("job_id", ""),
                                      "status_code": 0, "exit_code": -1}, status_code=503)
 
@@ -480,17 +483,17 @@ async def _send_relay_job(job: dict, timeout: int) -> JSONResponse:
             return JSONResponse(result)
         except asyncio.TimeoutError:
             _relay_jobs.pop(job_id, None)
-            if attempt == 0:
-                logger.warning("Relay job %s timed out, retrying after reconnect...", job_id)
-                await asyncio.sleep(2)
+            if attempt < 2:
+                logger.warning("Relay job %s timed out (attempt %d), marking worker stale...", job_id, attempt + 1)
+                _relay_worker = None  # Force reconnection wait
                 continue
             return JSONResponse({"error": "worker timeout", "job_id": job_id,
                                  "status_code": 0, "exit_code": -1}, status_code=504)
-        except Exception:
+        except Exception as e:
             _relay_jobs.pop(job_id, None)
-            if attempt == 0:
-                logger.warning("Relay send failed, waiting for worker reconnect...")
-                await asyncio.sleep(6)
+            logger.warning("Relay send failed (attempt %d): %s", attempt + 1, e)
+            _relay_worker = None  # Connection is stale, force reconnection
+            if attempt < 2:
                 continue
             return JSONResponse({"error": "worker connection lost", "job_id": job_id,
                                  "status_code": 0, "exit_code": -1}, status_code=502)

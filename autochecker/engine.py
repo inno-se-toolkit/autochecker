@@ -827,8 +827,8 @@ class CheckEngine:
                               expect_body_regex: str, timeout: int) -> Tuple[bool, str]:
         """Route HTTP check through the relay worker for internal IPs.
 
-        Retries once on transient failures (worker timeout / not connected)
-        to handle WebSocket reconnection after idle periods.
+        Retries up to 3 times on transient failures (worker timeout / not
+        connected) to handle WebSocket reconnection after idle periods.
         """
         import os
         import time
@@ -837,8 +837,9 @@ class CheckEngine:
         relay_url = os.environ.get('RELAY_URL', 'http://dashboard:8000/relay/check')
         relay_token = os.environ.get('RELAY_TOKEN', '')
 
+        max_attempts = 3
         last_error = ""
-        for attempt in range(2):
+        for attempt in range(max_attempts):
             try:
                 resp = requests.post(
                     relay_url,
@@ -846,9 +847,9 @@ class CheckEngine:
                     headers={"Authorization": f"Bearer {relay_token}"},
                     timeout=timeout + 20,
                 )
-                if resp.status_code in (503, 504) and attempt == 0:
+                if resp.status_code in (503, 504) and attempt < max_attempts - 1:
                     last_error = resp.text
-                    time.sleep(6)  # wait for worker to reconnect
+                    time.sleep(8)  # wait for worker to reconnect
                     continue
                 if resp.status_code == 503:
                     return False, "Relay worker not connected (university VM offline)"
@@ -857,9 +858,9 @@ class CheckEngine:
 
                 data = resp.json()
                 if data.get("error"):
-                    if attempt == 0:
+                    if attempt < max_attempts - 1:
                         last_error = data["error"]
-                        time.sleep(6)
+                        time.sleep(8)
                         continue
                     return False, f"Relay check failed: {data['error']}"
 
@@ -876,15 +877,15 @@ class CheckEngine:
                 return True, f"Endpoint accessible (via relay), status {status_code}"
 
             except requests.exceptions.Timeout:
-                if attempt == 0:
+                if attempt < max_attempts - 1:
                     last_error = f"Relay timeout checking {url}"
-                    time.sleep(6)
+                    time.sleep(8)
                     continue
                 return False, f"Relay timeout checking {url}"
             except Exception as e:
                 return False, f"Relay error: {str(e)}"
 
-        return False, f"Relay failed after retry: {last_error}"
+        return False, f"Relay failed after retries: {last_error}"
 
     def check_http_check(self, base_url: str, path: str, expect_status: int = 200,
                         expect_body_regex: str = None, timeout: int = 10) -> Tuple[bool, str]:
@@ -930,6 +931,7 @@ class CheckEngine:
                              command: str, timeout: int) -> Tuple[bool, dict]:
         """Route SSH check through the relay worker for internal IPs.
 
+        Retries up to 3 times on transient failures.
         Returns (success, result_dict) where result_dict has
         {exit_code, stdout, stderr, error}.
         """
@@ -945,8 +947,9 @@ class CheckEngine:
             relay_url = relay_url.rstrip('/').rsplit('/relay/', 1)[0] + '/relay/ssh'
 
         relay_token = os.environ.get('RELAY_TOKEN', '')
+        max_attempts = 3
 
-        for attempt in range(2):
+        for attempt in range(max_attempts):
             try:
                 resp = requests.post(
                     relay_url,
@@ -955,8 +958,8 @@ class CheckEngine:
                     headers={"Authorization": f"Bearer {relay_token}"},
                     timeout=timeout + 20,
                 )
-                if resp.status_code in (503, 504) and attempt == 0:
-                    time.sleep(6)
+                if resp.status_code in (503, 504) and attempt < max_attempts - 1:
+                    time.sleep(8)
                     continue
                 if resp.status_code == 503:
                     return False, {"exit_code": -1, "stdout": "", "stderr": "",
@@ -967,16 +970,16 @@ class CheckEngine:
 
                 data = resp.json()
                 if data.get("error"):
-                    if attempt == 0:
-                        time.sleep(6)
+                    if attempt < max_attempts - 1:
+                        time.sleep(8)
                         continue
                     return False, data
 
                 return True, data
 
             except requests.exceptions.Timeout:
-                if attempt == 0:
-                    time.sleep(6)
+                if attempt < max_attempts - 1:
+                    time.sleep(8)
                     continue
                 return False, {"exit_code": -1, "stdout": "", "stderr": "",
                                "error": f"Relay timeout for SSH to {host}"}
@@ -985,7 +988,7 @@ class CheckEngine:
                                "error": f"Relay error: {str(e)}"}
 
         return False, {"exit_code": -1, "stdout": "", "stderr": "",
-                       "error": "Relay failed after retry"}
+                       "error": "Relay failed after retries"}
 
     def check_ssh(self, host: str, username: str, command: str,
                   expect_regex: str = None, expect_exit: int = 0,
