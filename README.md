@@ -50,7 +50,7 @@ autochecker/                    # repo root
 │   ├── __init__.py             # check_student() API
 │   ├── __main__.py             # python -m autochecker
 │   ├── cli.py                  # Typer CLI
-│   ├── engine.py               # check engine
+│   ├── engine.py               # check engine (all check types)
 │   ├── llm_analyzer.py         # LLM analysis via OpenRouter
 │   ├── batch_processor.py      # parallel batch processing
 │   ├── reporter.py             # HTML/JSONL report generation
@@ -60,18 +60,21 @@ autochecker/                    # repo root
 │   ├── spec.py                 # YAML spec parser
 │   └── plagiarism_checker.py   # plagiarism detection
 ├── bot/                        # Telegram bot
-│   ├── config.py               # bot configuration
-│   ├── database.py             # SQLite with migrations
+│   ├── allowed_emails.txt      # email whitelist (from Moodle CSV)
+│   ├── config.py               # bot configuration + whitelist loading
+│   ├── database.py             # SQLite with migrations (v3)
 │   ├── runner.py               # autochecker integration (direct import)
 │   ├── keyboards.py            # inline keyboards
-│   ├── middlewares.py          # auth middleware
+│   ├── middlewares.py          # auth middleware + whitelist enforcement
 │   └── handlers/               # message/callback handlers
+├── relay/                      # relay worker (runs on university VM)
+│   └── worker.py               # WebSocket client, HTTP + SSH job executor
 ├── dashboard/                  # FastAPI dashboard
-│   ├── app.py                  # routes and auth
+│   ├── app.py                  # routes, auth, relay endpoints
 │   └── templates/              # Jinja2 HTML templates
 ├── specs/                      # lab YAML specs
 ├── deploy/                     # Docker deployment
-│   ├── Dockerfile              # bot + dashboard image
+│   ├── Dockerfile              # bot + dashboard image (includes docker-ce-cli)
 │   ├── Dockerfile.sandbox      # sandboxed student code runner
 │   ├── docker-compose.yml
 │   └── update.sh               # pull, verify, rebuild, restart
@@ -100,6 +103,10 @@ All config is via environment variables (`.env` file):
 | `ACTIVE_LABS` | Comma-separated active lab IDs | `lab-01` |
 | `MAX_ATTEMPTS_PER_TASK` | Max check attempts per student per task | `3` |
 | `DASHBOARD_PASSWORD` | Dashboard auth password (empty = no auth) | — |
+| `RELAY_TOKEN` | Shared secret for relay worker ↔ dashboard auth | — |
+| `RELAY_URL` | Relay WebSocket URL (worker config) | `wss://auche.namaz.live/relay/ws` |
+| `SSH_KEY_PATH` | Path to SSH private key for `ssh_check` (direct mode) | `/app/ssh_key` |
+| `SANDBOX_DIR` | Host directory for clone_and_run temp files | `/tmp/autochecker-sandbox` |
 
 ## Email Whitelist
 
@@ -200,37 +207,109 @@ ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKiL0DDQZw7L0Uf1c9cNlREY7IS6ZkIbGVWNsClqGNCZ
 
 The private key is **never committed to git**.
 
+## Relay Worker
+
+The relay worker bridges the Hetzner server to the university network. It runs on a university VM and handles HTTP and SSH check jobs for internal IPs (10.x.x.x) that the bot can't reach directly.
+
+### Architecture
+
+```
+┌─ Hetzner (188.245.43.68) ──────────────────────────────────┐
+│  Bot Engine                                                 │
+│   └─ POST /relay/check or /relay/ssh                       │
+│        ↓                                                    │
+│  Dashboard (FastAPI :8082)                                  │
+│   └─ WebSocket ────────────────────────┐                   │
+└────────────────────────────────────────│───────────────────┘
+                                         │ wss://auche.namaz.live/relay/ws
+┌─ University VM (10.93.24.120) ────────│───────────────────┐
+│  Relay Worker (systemd service)  ←────┘                    │
+│   ├─ HTTP jobs: curl to internal IPs                       │
+│   └─ SSH jobs: ssh -i key checkbot@student-vm "command"    │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Resilience
+
+The university network periodically kills WebSocket connections. The system handles this:
+- **Worker**: auto-reconnects every 5 seconds on disconnect, ping interval 30s / timeout 60s
+- **Dashboard**: `_send_relay_job()` waits up to 12 seconds for worker reconnection and retries once on timeout or stale connection
+- **Engine**: `_ssh_check_via_relay()` and `_http_check_via_relay()` retry on 503/504 with 6-second backoff
+
+### Deployment
+
+The worker runs on the university VM as a systemd service:
+- **Service**: `relay-worker.service`
+- **Code**: `/home/deploy/relay/worker.py` (copied manually, not a git clone)
+- **SSH key**: `/home/deploy/.ssh/autochecker_ed25519`
+- **Env vars**: `RELAY_TOKEN`, `RELAY_URL` (set in systemd unit)
+
+To update the worker:
+```bash
+scp relay/worker.py deploy@10.93.24.120:~/relay/worker.py
+ssh deploy@10.93.24.120 "sudo systemctl restart relay-worker"
+```
+
+### Security
+
+- Worker only accepts jobs targeting internal IPs (10.x, 172.16-31.x, 192.168.x)
+- All endpoints require HMAC-verified bearer token
+- SSH key has no sudo access on student VMs (checkbot user)
+- Timeouts capped at 30 seconds, response bodies capped at 4KB
+
 ## Production Deployment
 
-**Server:** `nurios@188.245.43.68`
-**Repo on server:** `~/autochecker`
-**Containers:** `autochecker-bot`, `autochecker-dashboard` (port 8082)
+### Infrastructure
 
-### Deploy a new version
+| Component | Host | Path / Container |
+|---|---|---|
+| Bot | `nurios@188.245.43.68` | `autochecker-bot` container |
+| Dashboard | `nurios@188.245.43.68` | `autochecker-dashboard` container (port 8082) |
+| Sandbox image | `nurios@188.245.43.68` | `autochecker-sandbox` (built, not running) |
+| Nginx | `nurios@188.245.43.68` | `/etc/nginx/sites-enabled/auche.namaz.live` |
+| Relay worker | `deploy@10.93.24.120` | `relay-worker.service` (`~/relay/worker.py`) |
+| SSH key | `deploy@10.93.24.120` | `~/.ssh/autochecker_ed25519` |
+| Repo on server | `nurios@188.245.43.68` | `~/autochecker` (git clone) |
+
+### Deploy a new version (Hetzner)
 
 ```bash
 ssh nurios@188.245.43.68
 cd ~/autochecker
+git pull
+cd deploy && docker compose build sandbox && docker compose up -d --build
+```
+
+Or use the automated script:
+```bash
 bash deploy/update.sh
 ```
 
-The script:
-1. `git pull`
-2. Runs `verify.py` inside a container (27 checks must pass)
-3. Rebuilds and restarts bot + dashboard containers
+### Deploy relay worker (university VM)
 
-### Docker volumes
+```bash
+scp relay/worker.py deploy@10.93.24.120:~/relay/worker.py
+ssh deploy@10.93.24.120 "sudo systemctl restart relay-worker"
+```
 
-| Volume | Mount | Contents |
+### Docker volumes and mounts
+
+| Volume / Mount | Container | Contents |
 |---|---|---|
-| `deploy_bot-data` | `/app/data/` | `bot.db` (SQLite — users, attempts, results) |
-| `deploy_autochecker-results` | `/app/results/` | Per-student report files |
+| `deploy_bot-data` → `/app/data/` | bot | `bot.db` (SQLite — users, attempts, results) |
+| `deploy_autochecker-results` → `/app/results/` | bot | Per-student report files |
+| `/var/run/docker.sock` | bot | Docker socket (for spawning sandbox containers) |
+| `/tmp/autochecker-sandbox` | bot | Shared temp dir for clone_and_run repos |
 
 ### Check logs
 
 ```bash
+# Hetzner
 docker logs autochecker-bot --tail 50
 docker logs autochecker-dashboard --tail 50
+
+# University VM
+ssh deploy@10.93.24.120 "sudo journalctl -u relay-worker --no-pager -n 50"
 ```
 
 ### Back up the database
@@ -241,12 +320,11 @@ docker cp autochecker-bot:/app/data/bot.db ./bot.db.backup
 
 ### Pre-deploy verification
 
-Run locally or inside a container:
 ```bash
 python verify.py
 ```
 
-This checks file structure, imports, path resolution, CLI commands, spec loading, no stale references, and deploy file correctness. All 27 checks must pass.
+Checks file structure, imports, path resolution, CLI commands, spec loading, no stale references, and deploy file correctness.
 
 ## License
 
