@@ -41,6 +41,64 @@ def _is_allowed_url(url: str) -> bool:
     return bool(_INTERNAL_RE.match(url))
 
 
+_INTERNAL_IP_RE = re.compile(
+    r"^(10\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+    r"|192\.168\.\d{1,3}\.\d{1,3})$"
+)
+
+SSH_KEY_PATH = os.path.expanduser(
+    os.environ.get("SSH_KEY_PATH", "~/.ssh/autochecker_ed25519")
+)
+
+
+def _is_allowed_host(host: str) -> bool:
+    return bool(_INTERNAL_IP_RE.match(host))
+
+
+def _do_ssh_check(job: dict) -> dict:
+    """Execute an SSH command on a remote host and return the result."""
+    job_id = job["job_id"]
+    host = job.get("host", "")
+    port = job.get("port", 22)
+    username = job.get("username", "checkbot")
+    command = job.get("command", "echo ok")
+    timeout = min(job.get("timeout", 10), 30)
+
+    if not _is_allowed_host(host):
+        return {"job_id": job_id, "exit_code": -1, "stdout": "", "stderr": "", "error": f"Host not allowed: {host}"}
+
+    if not os.path.exists(SSH_KEY_PATH):
+        return {"job_id": job_id, "exit_code": -1, "stdout": "", "stderr": "", "error": f"SSH key not found: {SSH_KEY_PATH}"}
+
+    try:
+        result = subprocess.run(
+            [
+                "ssh",
+                "-i", SSH_KEY_PATH,
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+                "-o", f"ConnectTimeout={timeout}",
+                "-o", "LogLevel=ERROR",
+                "-p", str(port),
+                f"{username}@{host}",
+                command,
+            ],
+            capture_output=True, text=True, timeout=timeout + 5,
+        )
+        return {
+            "job_id": job_id,
+            "exit_code": result.returncode,
+            "stdout": result.stdout[:4096],
+            "stderr": result.stderr[:4096],
+            "error": "",
+        }
+    except subprocess.TimeoutExpired:
+        return {"job_id": job_id, "exit_code": -1, "stdout": "", "stderr": "", "error": "timeout"}
+    except Exception as e:
+        return {"job_id": job_id, "exit_code": -1, "stdout": "", "stderr": "", "error": str(e)}
+
+
 def _do_check(job: dict) -> dict:
     """Execute an HTTP check via curl and return the result."""
     job_id = job["job_id"]
@@ -95,11 +153,18 @@ async def _run_worker():
 
                 async for raw in ws:
                     job = json.loads(raw)
-                    log.info("Job %s: %s", job.get("job_id"), job.get("url"))
-                    # Run in executor to avoid blocking the event loop (keeps WS alive)
+                    job_type = job.get("type", "http")
                     loop = asyncio.get_event_loop()
-                    result = await loop.run_in_executor(None, _do_check, job)
-                    log.info("Job %s: status=%s", job.get("job_id"), result["status_code"])
+
+                    if job_type == "ssh":
+                        log.info("SSH job %s: %s@%s", job.get("job_id"), job.get("username", "checkbot"), job.get("host"))
+                        result = await loop.run_in_executor(None, _do_ssh_check, job)
+                        log.info("SSH job %s: exit=%s", job.get("job_id"), result["exit_code"])
+                    else:
+                        log.info("HTTP job %s: %s", job.get("job_id"), job.get("url"))
+                        result = await loop.run_in_executor(None, _do_check, job)
+                        log.info("HTTP job %s: status=%s", job.get("job_id"), result["status_code"])
+
                     await ws.send(json.dumps(result))
 
         except (websockets.ConnectionClosed, ConnectionError, OSError) as e:

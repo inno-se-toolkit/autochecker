@@ -156,6 +156,50 @@ Some checks (e.g. lab-02 `uv run poe test`) clone a student repo and run command
 
 When Docker is unavailable (local dev), commands run directly via `subprocess`. This is logged as `"All commands passed"` (no sandbox suffix).
 
+## SSH Checks (ssh_check)
+
+Some checks verify VM deployment by SSHing into student machines as `checkbot` and running commands (e.g. checking fail2ban, sshd config, running services).
+
+### How it works
+
+1. Student creates a `checkbot` user on their VM and adds the autochecker's public SSH key
+2. Student provides their VM IP to the bot
+3. Engine dispatches `ssh_check` → routes through relay worker (for internal 10.x.x.x IPs) or direct SSH (for public IPs)
+
+### Spec params
+
+```yaml
+type: ssh_check
+params:
+  runtime: prod              # resolves server_ip from runtime config
+  username: checkbot          # SSH user (default: checkbot)
+  port: 22                    # SSH port (default: 22)
+  command: "echo ok"          # command to run on the VM
+  expect_exit: 0              # expected exit code (-1 = any non-zero)
+  expect_regex: "ok"          # regex to match against stdout
+  timeout: 10                 # seconds
+```
+
+### Relay routing (internal IPs)
+
+For university VMs (10.x.x.x), SSH checks go through the relay worker:
+```
+Engine → POST /relay/ssh → Dashboard → WebSocket → Relay Worker (university VM) → SSH → Student VM
+```
+
+### SSH key setup
+
+**Public key** (give to students for `checkbot`'s `authorized_keys`):
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKiL0DDQZw7L0Uf1c9cNlREY7IS6ZkIbGVWNsClqGNCZ se-toolkit-autochecker
+```
+
+**Private key** location:
+- Relay worker (university VM): `~/.ssh/autochecker_ed25519`
+- Direct mode: path from `SSH_KEY_PATH` env var (default `/app/ssh_key`)
+
+The private key is **never committed to git**.
+
 ## Production Deployment
 
 **Server:** `nurios@188.245.43.68`

@@ -478,6 +478,47 @@ async def relay_check(request: Request):
         return JSONResponse({"error": str(e), "job_id": job_id, "status_code": 0}, status_code=502)
 
 
+@app.post("/relay/ssh")
+async def relay_ssh(request: Request):
+    """Submit an SSH check job to the relay worker. Called by the engine."""
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    if _relay_worker is None:
+        return JSONResponse({"error": "no worker connected"}, status_code=503)
+
+    body = await request.json()
+    host = body.get("host", "")
+    port = body.get("port", 22)
+    username = body.get("username", "checkbot")
+    command = body.get("command", "echo ok")
+    timeout = min(body.get("timeout", 10), 30)
+
+    job_id = uuid.uuid4().hex[:12]
+    fut: asyncio.Future = asyncio.get_event_loop().create_future()
+    _relay_jobs[job_id] = fut
+
+    try:
+        await _relay_worker.send_json({
+            "type": "ssh",
+            "job_id": job_id,
+            "host": host,
+            "port": port,
+            "username": username,
+            "command": command,
+            "timeout": timeout,
+        })
+        result = await asyncio.wait_for(fut, timeout=timeout + 15)
+        return JSONResponse(result)
+    except asyncio.TimeoutError:
+        _relay_jobs.pop(job_id, None)
+        return JSONResponse({"error": "worker timeout", "job_id": job_id, "exit_code": -1}, status_code=504)
+    except Exception as e:
+        _relay_jobs.pop(job_id, None)
+        return JSONResponse({"error": str(e), "job_id": job_id, "exit_code": -1}, status_code=502)
+
+
 @app.get("/relay/status")
 async def relay_status(request: Request):
     """Check if a relay worker is connected."""

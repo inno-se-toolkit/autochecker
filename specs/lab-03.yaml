@@ -653,6 +653,113 @@ checks:
       path: "/docs"
       expect_status: 200
 
+  - id: ssh_connectivity
+    task: task-4
+    title: "SSH login as checkbot works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [task4_issue_exists]
+    hint: >
+      Create a 'checkbot' user on your VM and add the autochecker's
+      public SSH key to /home/checkbot/.ssh/authorized_keys.
+    params:
+      runtime: prod
+      command: "echo ok"
+      expect_exit: 0
+      expect_regex: "ok"
+
+  - id: ssh_no_sudo
+    task: task-4
+    title: "checkbot has no sudo access"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [ssh_connectivity]
+    hint: >
+      The checkbot user must not have sudo privileges.
+      Do not add checkbot to the sudo group.
+    params:
+      runtime: prod
+      command: "sudo -n true 2>&1"
+      expect_exit: -1
+
+  - id: ssh_root_login_disabled
+    task: task-4
+    title: "Root SSH login is disabled"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [ssh_connectivity]
+    hint: >
+      Set 'PermitRootLogin no' in /etc/ssh/sshd_config
+      and restart sshd.
+    params:
+      runtime: prod
+      command: "grep -i '^PermitRootLogin' /etc/ssh/sshd_config"
+      expect_exit: 0
+      expect_regex: "(?i)no"
+
+  - id: ssh_password_auth_disabled
+    task: task-4
+    title: "Password authentication is disabled"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [ssh_connectivity]
+    hint: >
+      Set 'PasswordAuthentication no' in /etc/ssh/sshd_config
+      and restart sshd.
+    params:
+      runtime: prod
+      command: "grep -i '^PasswordAuthentication' /etc/ssh/sshd_config"
+      expect_exit: 0
+      expect_regex: "(?i)no"
+
+  - id: ssh_fail2ban_active
+    task: task-4
+    title: "fail2ban is active"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [ssh_connectivity]
+    hint: >
+      Install and enable fail2ban: sudo apt install fail2ban,
+      then sudo systemctl enable --now fail2ban.
+    params:
+      runtime: prod
+      command: "systemctl is-active fail2ban"
+      expect_exit: 0
+      expect_regex: "^active"
+
+  - id: ssh_service_running
+    task: task-4
+    title: "App is running on the VM"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [ssh_connectivity]
+    hint: >
+      Your Docker Compose service should be running and accessible
+      at localhost:42002 on the VM.
+    params:
+      runtime: prod
+      command: "curl -sf -o /dev/null -w '%{http_code}' http://localhost:42002/docs"
+      expect_exit: 0
+      expect_regex: "200"
+
   # =====================================================
   # OPTIONAL 1: Implement the /outcomes endpoint
   # =====================================================

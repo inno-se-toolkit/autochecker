@@ -926,6 +926,129 @@ class CheckEngine:
         except Exception as e:
             return False, f"Request error: {str(e)}"
 
+    def _ssh_check_via_relay(self, host: str, port: int, username: str,
+                             command: str, timeout: int) -> Tuple[bool, dict]:
+        """Route SSH check through the relay worker for internal IPs.
+
+        Returns (success, result_dict) where result_dict has
+        {exit_code, stdout, stderr, error}.
+        """
+        import os
+        import time
+        import requests
+
+        relay_url = os.environ.get('RELAY_URL', 'http://dashboard:8000/relay/ssh')
+        # Derive SSH relay URL from HTTP relay URL if needed
+        if '/relay/check' in relay_url:
+            relay_url = relay_url.replace('/relay/check', '/relay/ssh')
+        elif not relay_url.endswith('/relay/ssh'):
+            relay_url = relay_url.rstrip('/').rsplit('/relay/', 1)[0] + '/relay/ssh'
+
+        relay_token = os.environ.get('RELAY_TOKEN', '')
+
+        for attempt in range(2):
+            try:
+                resp = requests.post(
+                    relay_url,
+                    json={"host": host, "port": port, "username": username,
+                          "command": command, "timeout": timeout},
+                    headers={"Authorization": f"Bearer {relay_token}"},
+                    timeout=timeout + 20,
+                )
+                if resp.status_code in (503, 504) and attempt == 0:
+                    time.sleep(6)
+                    continue
+                if resp.status_code == 503:
+                    return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                                   "error": "Relay worker not connected (university VM offline)"}
+                if resp.status_code != 200:
+                    return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                                   "error": f"Relay error: {resp.text}"}
+
+                data = resp.json()
+                if data.get("error"):
+                    if attempt == 0:
+                        time.sleep(6)
+                        continue
+                    return False, data
+
+                return True, data
+
+            except requests.exceptions.Timeout:
+                if attempt == 0:
+                    time.sleep(6)
+                    continue
+                return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                               "error": f"Relay timeout for SSH to {host}"}
+            except Exception as e:
+                return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                               "error": f"Relay error: {str(e)}"}
+
+        return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                       "error": "Relay failed after retry"}
+
+    def check_ssh(self, host: str, username: str, command: str,
+                  expect_regex: str = None, expect_exit: int = 0,
+                  port: int = 22, timeout: int = 10) -> Tuple[bool, str]:
+        """SSH into a host, run a command, and validate output.
+
+        Args:
+            expect_exit: Expected exit code. Use -1 for "any non-zero".
+        """
+        import os
+        import subprocess
+
+        is_internal = re.match(r'^(10\.\d|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)', host)
+
+        if is_internal and os.environ.get('RELAY_TOKEN'):
+            success, data = self._ssh_check_via_relay(host, port, username, command, timeout)
+            if not success:
+                return False, data.get("error", "SSH relay failed")
+        else:
+            key_path = os.environ.get('SSH_KEY_PATH', '/app/ssh_key')
+            if not os.path.exists(key_path):
+                return False, f"SSH key not found at {key_path}"
+
+            try:
+                result = subprocess.run(
+                    ["ssh", "-i", key_path,
+                     "-o", "StrictHostKeyChecking=no",
+                     "-o", "UserKnownHostsFile=/dev/null",
+                     "-o", f"ConnectTimeout={timeout}",
+                     "-o", "LogLevel=ERROR",
+                     "-p", str(port),
+                     f"{username}@{host}", command],
+                    capture_output=True, text=True, timeout=timeout + 5,
+                )
+                data = {
+                    "exit_code": result.returncode,
+                    "stdout": result.stdout[:4096],
+                    "stderr": result.stderr[:4096],
+                    "error": "",
+                }
+            except subprocess.TimeoutExpired:
+                return False, f"SSH connection timed out after {timeout}s"
+            except Exception as e:
+                return False, f"SSH error: {str(e)}"
+
+        exit_code = data.get("exit_code", -1)
+        stdout = data.get("stdout", "").strip()
+
+        # Validate exit code
+        if expect_exit == -1:
+            # Expect any non-zero
+            if exit_code == 0:
+                return False, f"Expected non-zero exit code, got 0. Output: {stdout[:200]}"
+        elif exit_code != expect_exit:
+            return False, f"Expected exit code {expect_exit}, got {exit_code}. Output: {stdout[:200]}"
+
+        # Validate output regex
+        if expect_regex:
+            if not re.search(expect_regex, stdout):
+                return False, f"Output does not match '{expect_regex}'. Got: {stdout[:200]}"
+
+        return True, f"SSH check passed (exit={exit_code}, output={stdout[:100]})"
+
     def check_clone_and_run(self, commands: List[str], timeout: int = 120) -> Tuple[bool, str]:
         """Clones the repo and runs commands in a sandboxed Docker container.
 
@@ -1325,6 +1448,40 @@ class CheckEngine:
                 passed, details = self.check_http_check(base_url, path, expect_status, expect_body_regex, timeout)
                 if passed: status = "PASS"
             
+            elif check_type == "ssh_check":
+                import os
+                # Resolve server_ip (same mechanism as http_check)
+                runtime = params.get('runtime', 'prod')
+                base_url_template = None
+                if self._lab_spec:
+                    rt = getattr(self._lab_spec, 'runtime', None)
+                    if isinstance(rt, dict):
+                        runtime_config = rt.get(runtime)
+                    elif rt is not None:
+                        runtime_config = getattr(rt, runtime, None)
+                    else:
+                        runtime_config = None
+                    if runtime_config:
+                        if isinstance(runtime_config, dict):
+                            base_url_template = runtime_config.get('base_url')
+                        else:
+                            base_url_template = getattr(runtime_config, 'base_url', None)
+
+                ssh_host = os.environ.get('SERVER_IP', 'localhost')
+                if base_url_template and '{server_ip}' in base_url_template:
+                    pass  # ssh_host already set from SERVER_IP env
+
+                command = params.get('command', 'echo ok')
+                expect_regex = params.get('expect_regex')
+                expect_exit = params.get('expect_exit', 0)
+                username = params.get('username', 'checkbot')
+                port = params.get('port', 22)
+                timeout = params.get('timeout', 10)
+
+                passed, details = self.check_ssh(ssh_host, username, command,
+                                                  expect_regex, expect_exit, port, timeout)
+                if passed: status = "PASS"
+
             elif check_type == "clone_and_run":
                 commands = params.get('commands', [])
                 timeout = params.get('timeout', 120)
