@@ -71,7 +71,8 @@ autochecker/                    # repo root
 │   └── templates/              # Jinja2 HTML templates
 ├── specs/                      # lab YAML specs
 ├── deploy/                     # Docker deployment
-│   ├── Dockerfile
+│   ├── Dockerfile              # bot + dashboard image
+│   ├── Dockerfile.sandbox      # sandboxed student code runner
 │   ├── docker-compose.yml
 │   └── update.sh               # pull, verify, rebuild, restart
 ├── main.py                     # CLI entry point
@@ -109,6 +110,41 @@ bot/runner.py  →  autochecker.check_student()  →  engine + LLM  →  Student
     ↓
 bot/handlers/check.py reads result files + saves to SQLite
 ```
+
+## Sandbox (clone_and_run)
+
+Some checks (e.g. lab-02 `uv run poe test`) clone a student repo and run commands. These execute inside ephemeral Docker containers, isolated from the bot.
+
+### How it works
+
+1. Bot clones the repo into `/tmp/autochecker-sandbox/run_XXXX/` (host-visible path)
+2. Bot spawns `docker run autochecker-sandbox:latest sh -c "uv sync && uv run poe test"` with the repo mounted
+3. Container is destroyed after the run (`--rm`)
+
+### Restrictions on student code
+
+| Resource | Limit |
+|---|---|
+| RAM | 512 MB (`--memory=512m`) |
+| CPU | 1 core (`--cpus=1`) |
+| Processes | 256 (`--pids-limit=256`) |
+| Linux capabilities | All dropped (`--cap-drop=ALL`) |
+| Privilege escalation | Blocked (`--security-opt=no-new-privileges`) |
+| Filesystem | Only their cloned repo directory is mounted |
+| Bot env vars | Not accessible (separate container) |
+| Bot database | Not accessible |
+| Network | Allowed (needed for `uv sync` to install dependencies) |
+
+### Files
+
+- `deploy/Dockerfile.sandbox` — minimal image (Python 3.13 + git + uv)
+- `deploy/Dockerfile` — bot image includes `docker-ce-cli` to spawn sandbox containers
+- `deploy/docker-compose.yml` — mounts Docker socket + shared `/tmp/autochecker-sandbox`
+- `autochecker/engine.py` — `check_clone_and_run()` → `_run_in_sandbox()` / `_run_direct()` fallback
+
+### Fallback
+
+When Docker is unavailable (local dev), commands run directly via `subprocess`. This is logged as `"All commands passed"` (no sandbox suffix).
 
 ## Production Deployment
 
