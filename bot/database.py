@@ -26,7 +26,7 @@ class User:
 #   0 — legacy (users: tg_id, student_name, github_nick, is_admin)
 #   1 — self-registration + results table
 # ---------------------------------------------------------------------------
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 async def _get_table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -73,10 +73,16 @@ async def init_db() -> None:
             await _migrate_to_v2(db)
         if version < 3:
             await _migrate_to_v3(db)
+        if version < 4:
+            await _migrate_to_v4(db)
 
         await _set_schema_version(db, SCHEMA_VERSION)
         await db.commit()
         logger.info("DB ready at schema version %d", SCHEMA_VERSION)
+
+        # Backfill groups from allowed_emails.csv on every startup
+        await _backfill_groups(db)
+        await db.commit()
 
 
 async def _migrate_to_v1(db: aiosqlite.Connection) -> None:
@@ -192,6 +198,38 @@ async def _migrate_to_v3(db: aiosqlite.Connection) -> None:
     logger.info("Migration to v3 complete")
 
 
+async def _migrate_to_v4(db: aiosqlite.Connection) -> None:
+    """Add student_group column to users table."""
+    user_cols = await _get_table_columns(db, "users")
+    if "student_group" not in user_cols:
+        logger.info("Migration v4: adding student_group column to users")
+        await db.execute("ALTER TABLE users ADD COLUMN student_group TEXT DEFAULT ''")
+    logger.info("Migration to v4 complete")
+
+
+async def _backfill_groups(db: aiosqlite.Connection) -> None:
+    """Sync student groups from allowed_emails.csv into the users table."""
+    import csv as _csv
+    csv_path = Path(__file__).resolve().parent / "allowed_emails.csv"
+    if not csv_path.exists():
+        return
+    email_to_group: dict[str, str] = {}
+    with open(csv_path, encoding="utf-8") as f:
+        for row in _csv.DictReader(f):
+            email = row["email"].strip().lower()
+            group = row["group"].strip()
+            if email and group:
+                email_to_group[email] = group
+    if not email_to_group:
+        return
+    for email, group in email_to_group.items():
+        await db.execute(
+            "UPDATE users SET student_group = ? WHERE email = ? AND (student_group IS NULL OR student_group = '')",
+            (group, email),
+        )
+    logger.info("Backfilled groups for %d emails", len(email_to_group))
+
+
 async def get_server_ip(tg_id: int) -> str:
     """Get stored server IP for a user. Returns empty string if not set."""
     async with aiosqlite.connect(DB_PATH) as db:
@@ -288,7 +326,7 @@ async def get_user_by_github(github_alias: str) -> Optional[User]:
             return None
 
 
-async def upsert_user(tg_id: int, email: str, github_alias: str, tg_username: str = "") -> None:
+async def upsert_user(tg_id: int, email: str, github_alias: str, tg_username: str = "", student_group: str = "") -> None:
     """Create or update a user.
 
     First-come-first-served: if the email or github_alias already belongs
@@ -313,13 +351,14 @@ async def upsert_user(tg_id: int, email: str, github_alias: str, tg_username: st
                 raise ValueError(f"GitHub username {github_alias} is already registered to another account.")
 
         await db.execute("""
-            INSERT INTO users (tg_id, email, github_alias, tg_username)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (tg_id, email, github_alias, tg_username, student_group)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(tg_id) DO UPDATE SET
                 email = excluded.email,
                 github_alias = excluded.github_alias,
-                tg_username = excluded.tg_username
-        """, (tg_id, email, github_alias, tg_username))
+                tg_username = excluded.tg_username,
+                student_group = excluded.student_group
+        """, (tg_id, email, github_alias, tg_username, student_group))
         await db.commit()
 
 

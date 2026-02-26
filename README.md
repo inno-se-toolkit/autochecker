@@ -60,9 +60,9 @@ autochecker/                    # repo root
 │   ├── spec.py                 # YAML spec parser
 │   └── plagiarism_checker.py   # plagiarism detection
 ├── bot/                        # Telegram bot
-│   ├── allowed_emails.txt      # email whitelist (from Moodle CSV)
+│   ├── allowed_emails.csv      # email whitelist with groups (from Moodle CSV)
 │   ├── config.py               # bot configuration + whitelist loading
-│   ├── database.py             # SQLite with migrations (v3)
+│   ├── database.py             # SQLite with migrations (v4)
 │   ├── runner.py               # autochecker integration (direct import)
 │   ├── keyboards.py            # inline keyboards
 │   ├── middlewares.py          # auth middleware + whitelist enforcement
@@ -110,13 +110,14 @@ All config is via environment variables (`.env` file):
 
 ## Email Whitelist
 
-Only emails listed in `bot/allowed_emails.txt` can register. The file is one email per line, extracted from the Moodle grades CSV. Loaded at startup in `bot/config.py` as `ALLOWED_EMAILS`.
+Only emails listed in `bot/allowed_emails.csv` can register. The CSV has two columns (`email,group`) and is generated from the Moodle participants export. Loaded at startup in `bot/config.py` as `ALLOWED_EMAILS` (dict mapping email to group). Falls back to `allowed_emails.txt` (one email per line, no groups) if the CSV doesn't exist.
 
-- **New registrations**: blocked at the email step if not in the list
+- **New registrations**: blocked at the email step if not in the list; group is auto-assigned from the CSV
 - **Existing users**: evicted on next interaction if their email isn't in the list (middleware check in `bot/middlewares.py`)
 - **Admins**: exempt from the whitelist (`is_admin = 1` in DB)
+- **Group backfill**: on every startup, `init_db()` syncs groups from the CSV into existing users
 
-To update the whitelist, replace `bot/allowed_emails.txt` and redeploy.
+To update the whitelist, replace `bot/allowed_emails.csv` and redeploy.
 
 ## Architecture
 

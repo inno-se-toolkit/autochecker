@@ -1,5 +1,6 @@
 """Configuration module for the bot."""
 
+import csv
 import os
 import yaml
 from pathlib import Path
@@ -30,12 +31,20 @@ MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "3"))
 ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "lab-01").split(",") if l.strip()]
 
 # Email whitelist — only these emails can register
-_whitelist_path = Path(__file__).resolve().parent / "allowed_emails.txt"
-ALLOWED_EMAILS: set[str] = set()
-if _whitelist_path.exists():
+# Dict maps email -> student group (empty string if no group)
+_whitelist_csv = Path(__file__).resolve().parent / "allowed_emails.csv"
+_whitelist_txt = Path(__file__).resolve().parent / "allowed_emails.txt"
+ALLOWED_EMAILS: dict[str, str] = {}
+if _whitelist_csv.exists():
+    with open(_whitelist_csv, encoding="utf-8") as _f:
+        for _row in csv.DictReader(_f):
+            _email = _row["email"].strip().lower()
+            if _email:
+                ALLOWED_EMAILS[_email] = _row.get("group", "").strip()
+elif _whitelist_txt.exists():
     ALLOWED_EMAILS = {
-        line.strip().lower()
-        for line in _whitelist_path.read_text().splitlines()
+        line.strip().lower(): ""
+        for line in _whitelist_txt.read_text().splitlines()
         if line.strip()
     }
 

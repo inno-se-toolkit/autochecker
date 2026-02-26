@@ -38,6 +38,7 @@
         tbody tr:hover { background: #f9fafb; }
         .col-github { min-width: 140px; }
         .col-email { min-width: 180px; }
+        .col-group { min-width: 110px; }
         .col-last-sub { min-width: 130px; }
         .ts { color: #6b7280; font-size: 0.8rem; }
 
@@ -94,9 +95,10 @@
                     <tr>
                         <th class="col-github" data-col="0">GitHub <span class="sort-arrow active">&#9650;</span></th>
                         <th class="col-email" data-col="1">Email <span class="sort-arrow">&#9650;</span></th>
-                        <th class="col-last-sub" data-col="2">Last Submission <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-group" data-col="2">Group <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-last-sub" data-col="3">Last Submission <span class="sort-arrow">&#9650;</span></th>
                         {% for t in tasks %}
-                        <th data-col="{{ loop.index0 + 3 }}">
+                        <th data-col="{{ loop.index0 + 4 }}">
                             <div class="task-header">
                                 <span>{{ t.task_id }}</span>
                                 <span class="task-title" title="{{ t.title }}">{{ t.title }}</span>
@@ -113,6 +115,7 @@
                     <tr>
                         <td><a href="/student/{{ s.github_alias }}">{{ s.github_alias }}</a></td>
                         <td>{{ s.email }}</td>
+                        <td>{{ s.student_group or "—" }}</td>
                         <td class="ts">{{ s.last_submission or "—" }}</td>
                         {% for t in tasks %}
                         {% set key = t.lab_id ~ ":" ~ t.task_id %}
@@ -138,7 +141,7 @@
         let ascending = true;
 
         function sortValue(td, col) {
-            if (col <= 2) return td.textContent.trim().toLowerCase() || 'zzz';
+            if (col <= 3) return td.textContent.trim().toLowerCase() || 'zzz';
             // For score columns: extract pass/partial/none from cell class
             const cell = td.querySelector('.cell');
             if (!cell) return 'zzz';

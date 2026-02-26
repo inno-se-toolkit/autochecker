@@ -112,6 +112,7 @@ async def process_github(message: Message, state: FSMContext) -> None:
             email=email,
             github_alias=alias,
             tg_username=tg_username,
+            student_group=ALLOWED_EMAILS.get(email, ""),
         )
     except ValueError as e:
         await state.clear()

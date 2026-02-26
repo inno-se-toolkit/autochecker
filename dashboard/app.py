@@ -188,7 +188,7 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
 
         students = []
         async with db.execute(
-            "SELECT tg_id, email, github_alias, tg_username FROM users ORDER BY github_alias"
+            "SELECT tg_id, email, github_alias, tg_username, student_group FROM users ORDER BY github_alias"
         ) as cur:
             async for row in cur:
                 students.append(dict(row))
@@ -268,7 +268,7 @@ async def student_detail(
         db.row_factory = aiosqlite.Row
 
         async with db.execute(
-            "SELECT tg_id, email, github_alias, tg_username, server_ip FROM users WHERE github_alias = ?",
+            "SELECT tg_id, email, github_alias, tg_username, server_ip, student_group FROM users WHERE github_alias = ?",
             (github_alias,)
         ) as cur:
             student_row = await cur.fetchone()
@@ -365,7 +365,7 @@ async def export_csv(lab: Optional[str] = Query(default=None)):
 
         students = []
         async with db.execute(
-            "SELECT tg_id, email, github_alias FROM users ORDER BY github_alias"
+            "SELECT tg_id, email, github_alias, student_group FROM users ORDER BY github_alias"
         ) as cur:
             async for row in cur:
                 students.append(dict(row))
@@ -376,14 +376,14 @@ async def export_csv(lab: Optional[str] = Query(default=None)):
     writer = csv.writer(output)
 
     # Header
-    header = ["github_alias", "email"]
+    header = ["github_alias", "email", "group"]
     for t in tasks:
         header.append(t["task_id"])
     writer.writerow(header)
 
     # Rows
     for s in students:
-        row = [s["github_alias"], s["email"]]
+        row = [s["github_alias"], s["email"], s.get("student_group", "")]
         for t in tasks:
             key = f"{t['lab_id']}:{t['task_id']}"
             entry = scores.get(s["tg_id"], {}).get(key)
