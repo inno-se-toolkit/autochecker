@@ -1,6 +1,8 @@
 """Database module for SQLite operations."""
 
 import logging
+from pathlib import Path
+
 import aiosqlite
 from datetime import datetime
 from typing import Optional
