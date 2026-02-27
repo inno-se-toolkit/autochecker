@@ -456,8 +456,9 @@ checks:
     weight: 4
     depends_on: [task1_deployment_docs]
     hint: >
-      Build the frontend with 'npm run build' and deploy the dist/ folder
-      to your VM. Caddy should serve the static files at the root URL.
+      Rebuild the Caddy container on your VM with
+      'docker compose --env-file .env.docker.secret up --build caddy -d'.
+      Caddy serves the frontend at the root URL (http://<vm-ip>:<api-port>/).
     params:
       runtime: prod
       path: "/"
