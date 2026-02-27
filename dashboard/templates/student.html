@@ -33,11 +33,14 @@
         tr.row-pass:hover { background: #dcfce7; }
         tr.row-partial { background: #fffbeb; }
         tr.row-partial:hover { background: #fef9c3; }
+        tr.row-fail { background: #fef2f2; }
+        tr.row-fail:hover { background: #fee2e2; }
         tr.row-none:hover { background: #f9fafb; }
 
         .badge { display: inline-block; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
         .badge-pass { background: #dcfce7; color: #166534; }
         .badge-partial { background: #fef9c3; color: #854d0e; }
+        .badge-fail { background: #fee2e2; color: #991b1b; }
         .badge-none { background: #f3f4f6; color: #9ca3af; }
 
         .ts { color: #6b7280; font-size: 0.8rem; }
@@ -176,6 +179,8 @@
                                 <span class="badge badge-pass">PASSED</span>
                             {% elif a.status == "partial" %}
                                 <span class="badge badge-partial">PARTIAL</span>
+                            {% elif a.status == "fail" %}
+                                <span class="badge badge-fail">FAIL</span>
                             {% else %}
                                 <span class="badge badge-none">&mdash;</span>
                             {% endif %}
@@ -227,6 +232,8 @@
                                 <span class="badge badge-pass">PASSED</span>
                             {% elif r.status == "partial" %}
                                 <span class="badge badge-partial">PARTIAL</span>
+                            {% elif r.status == "fail" %}
+                                <span class="badge badge-fail">FAIL</span>
                             {% else %}
                                 <span class="badge badge-none">&mdash;</span>
                             {% endif %}

@@ -54,6 +54,7 @@
         .cell { padding: 0.35rem 0.5rem; border-radius: 4px; text-align: center; font-weight: 600; font-size: 0.8rem; }
         .cell-pass { background: #dcfce7; color: #166534; }
         .cell-partial { background: #fef9c3; color: #854d0e; }
+        .cell-fail { background: #fee2e2; color: #991b1b; }
         .cell-none { background: #f3f4f6; color: #9ca3af; font-weight: 400; }
     </style>
 </head>
@@ -121,9 +122,9 @@
                         {% set key = t.lab_id ~ ":" ~ t.task_id %}
                         {% set entry = scores.get(s.tg_id, {}).get(key) %}
                         {% if entry %}
-                            <td><span class="cell cell-{{ entry.status }}">{{ entry.score }}</span></td>
+                            <td data-pct="{{ entry.pct }}"><span class="cell cell-{{ entry.status }}">{{ entry.score }}</span></td>
                         {% else %}
-                            <td><span class="cell cell-none">&mdash;</span></td>
+                            <td data-pct="-1"><span class="cell cell-none">&mdash;</span></td>
                         {% endif %}
                         {% endfor %}
                     </tr>
@@ -142,12 +143,9 @@
 
         function sortValue(td, col) {
             if (col <= 3) return td.textContent.trim().toLowerCase() || 'zzz';
-            // For score columns: extract pass/partial/none from cell class
-            const cell = td.querySelector('.cell');
-            if (!cell) return 'zzz';
-            if (cell.classList.contains('cell-pass')) return 'a';
-            if (cell.classList.contains('cell-partial')) return 'b';
-            return 'c';
+            // For score columns: use numeric percentage from data-pct attribute
+            var pct = parseInt(td.getAttribute('data-pct'), 10);
+            return isNaN(pct) ? -1 : pct;
         }
 
         headers.forEach(function(th) {
@@ -179,6 +177,10 @@
                 rows.sort(function(a, b) {
                     const va = sortValue(a.children[col], col);
                     const vb = sortValue(b.children[col], col);
+                    // Numeric columns (scores): higher first by default
+                    if (typeof va === 'number') {
+                        return ascending ? va - vb : vb - va;
+                    }
                     if (va < vb) return ascending ? -1 : 1;
                     if (va > vb) return ascending ? 1 : -1;
                     return 0;

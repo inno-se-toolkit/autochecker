@@ -131,18 +131,28 @@ def load_task_metadata() -> list[dict]:
 
 
 def _cell_status(passed: Optional[int], failed: Optional[int], total: Optional[int]) -> str:
-    """Return 'pass', 'partial', or 'none'."""
+    """Return 'pass' (100%), 'partial' (>=75%), 'fail' (<75%), or 'none'."""
     if total is None or total == 0:
         return "none"
     if failed == 0:
         return "pass"
-    return "partial"
+    pct = (passed or 0) / total * 100
+    if pct >= 75:
+        return "partial"
+    return "fail"
+
+
+def _cell_pct(passed: Optional[int], total: Optional[int]) -> int:
+    """Return integer percentage (0-100) for sorting. -1 if no data."""
+    if total is None or total == 0:
+        return -1
+    return round((passed or 0) / total * 100)
 
 
 async def _fetch_best_scores(db: aiosqlite.Connection) -> dict[int, dict[str, dict]]:
     """Best result per student per task (highest passed count, lowest failed).
 
-    Returns {tg_id: {"lab:task": {"score": str, "passed": int, "failed": int, "total": int, "status": str}}}
+    Returns {tg_id: {"lab:task": {"score": str, "passed": int, "failed": int, "total": int, "status": str, "pct": int}}}
     """
     scores: dict[int, dict[str, dict]] = {}
     async with db.execute("""
@@ -159,6 +169,7 @@ async def _fetch_best_scores(db: aiosqlite.Connection) -> dict[int, dict[str, di
                 "total": row["total"],
             }
             entry["status"] = _cell_status(entry["passed"], entry["failed"], entry["total"])
+            entry["pct"] = _cell_pct(entry["passed"], entry["total"])
             prev = scores.setdefault(row["tg_id"], {}).get(key)
             if prev is None:
                 scores[row["tg_id"]][key] = entry
