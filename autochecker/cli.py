@@ -35,10 +35,10 @@ LAB_CONFIG = {
         "ready": True,
     },
     "lab-04": {
-        "name": "Lab 04 – (Coming soon)",
-        "repo_suffix": "lab-04-tbd",
+        "name": "Lab 04 — Testing, Front-end, and AI Agents",
+        "repo_suffix": "se-toolkit-lab-4",
         "spec": "specs/lab-04.yaml",
-        "ready": False,
+        "ready": True,
     },
     "lab-05": {
         "name": "Lab 05 – (Coming soon)",
@@ -250,6 +250,7 @@ def batch(
     check_plagiarism: bool = typer.Option(True, "--plagiarism/--no-plagiarism", help="Plagiarism check"),
     plagiarism_threshold: float = typer.Option(0.5, "--threshold", help="Plagiarism threshold (0.0-1.0)"),
     cache: bool = typer.Option(False, "--cache", help="Enable persistent API response caching"),
+    template_repo: str = typer.Option(None, "--template-repo", help="Template repo (owner/name) for diff-based plagiarism"),
 ):
     """
     Batch student check (up to 300+ students).
@@ -257,6 +258,7 @@ def batch(
     Examples:
       python main.py batch -s students.csv -l lab-01 -p github
       python main.py batch -s students.csv -l lab-01 -p gitlab --gitlab-url https://gitlab.astanait.edu.kz
+      python main.py batch -s students.csv -l lab-03 --template-repo inno-se-toolkit/se-toolkit-lab-3
     """
     # Check token
     if not token:
@@ -299,6 +301,8 @@ def batch(
     print(f"  Students:  {students_file}")
     print(f"  LLM:       {'Enabled' if openrouter_key else 'Not configured'}")
     print(f"  Plagiarism: {'Enabled' if check_plagiarism else 'Disabled'}")
+    if template_repo:
+        print(f"  Template:  {template_repo}")
     print(f"  Workers:   {max_workers}")
     print("=" * 60 + "\n")
 
@@ -319,6 +323,7 @@ def batch(
             gitlab_url=gitlab_url,
             branch=branch,
             no_cache=not cache,
+            template_repo=template_repo,
         )
     except Exception as e:
         print(f"\n  Error: {e}")
