@@ -94,7 +94,7 @@
             <table id="dashboard-table">
                 <thead>
                     <tr>
-                        <th class="col-github" data-col="0">GitHub <span class="sort-arrow active">&#9650;</span></th>
+                        <th class="col-github" data-col="0">GitHub <span class="sort-arrow">&#9650;</span></th>
                         <th class="col-email" data-col="1">Email <span class="sort-arrow">&#9650;</span></th>
                         <th class="col-group" data-col="2">Group <span class="sort-arrow">&#9650;</span></th>
                         <th class="col-last-sub" data-col="3">Last Submission <span class="sort-arrow">&#9650;</span></th>
@@ -138,8 +138,9 @@
     (function() {
         const table = document.getElementById('dashboard-table');
         const headers = table.querySelectorAll('th');
-        let currentCol = 0;
-        let ascending = true;
+        // Default: sort by first task column (col 4), descending (highest first)
+        let currentCol = 4;
+        let ascending = false;
 
         function sortValue(td, col) {
             if (col <= 3) return td.textContent.trim().toLowerCase() || 'zzz';
@@ -148,46 +149,55 @@
             return isNaN(pct) ? -1 : pct;
         }
 
-        headers.forEach(function(th) {
-            th.addEventListener('click', function() {
-                const col = parseInt(th.dataset.col);
-                if (col === currentCol) {
-                    ascending = !ascending;
-                } else {
-                    currentCol = col;
-                    ascending = true;
+        function doSort(col) {
+            // Update arrows
+            headers.forEach(function(h) {
+                var arrow = h.querySelector('.sort-arrow');
+                if (arrow) {
+                    arrow.classList.remove('active');
+                    arrow.innerHTML = '&#9650;';
                 }
-
-                // Update arrows
-                headers.forEach(function(h) {
-                    const arrow = h.querySelector('.sort-arrow');
-                    if (arrow) {
-                        arrow.classList.remove('active');
-                        arrow.innerHTML = '&#9650;';
-                    }
-                });
-                const arrow = th.querySelector('.sort-arrow');
+            });
+            var th = table.querySelector('th[data-col="' + col + '"]');
+            if (th) {
+                var arrow = th.querySelector('.sort-arrow');
                 if (arrow) {
                     arrow.classList.add('active');
                     arrow.innerHTML = ascending ? '&#9650;' : '&#9660;';
                 }
+            }
 
-                const tbody = table.querySelector('tbody');
-                const rows = Array.from(tbody.querySelectorAll('tr'));
-                rows.sort(function(a, b) {
-                    const va = sortValue(a.children[col], col);
-                    const vb = sortValue(b.children[col], col);
-                    // Numeric columns (scores): higher first by default
-                    if (typeof va === 'number') {
-                        return ascending ? va - vb : vb - va;
-                    }
-                    if (va < vb) return ascending ? -1 : 1;
-                    if (va > vb) return ascending ? 1 : -1;
-                    return 0;
-                });
-                rows.forEach(function(row) { tbody.appendChild(row); });
+            var tbody = table.querySelector('tbody');
+            var rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort(function(a, b) {
+                var va = sortValue(a.children[col], col);
+                var vb = sortValue(b.children[col], col);
+                // Numeric columns (scores): higher first by default
+                if (typeof va === 'number') {
+                    return ascending ? va - vb : vb - va;
+                }
+                if (va < vb) return ascending ? -1 : 1;
+                if (va > vb) return ascending ? 1 : -1;
+                return 0;
+            });
+            rows.forEach(function(row) { tbody.appendChild(row); });
+        }
+
+        headers.forEach(function(th) {
+            th.addEventListener('click', function() {
+                var col = parseInt(th.dataset.col);
+                if (col === currentCol) {
+                    ascending = !ascending;
+                } else {
+                    currentCol = col;
+                    ascending = col <= 3;  // text cols: A-Z default; score cols: high-first default
+                }
+                doSort(currentCol);
             });
         });
+
+        // Initial sort on page load
+        if (headers.length > 4) doSort(currentCol);
     })();
     </script>
 </body>
