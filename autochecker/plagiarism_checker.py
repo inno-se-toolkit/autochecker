@@ -2,6 +2,8 @@
 import hashlib
 import fnmatch
 import html
+import json
+from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Set
 from pathlib import Path
 
@@ -58,7 +60,17 @@ class PlagiarismChecker:
         self._student_code_signatures: Dict[str, Dict[str, str]] = {}
         # File content storage (for detailed report)
         self._student_file_contents: Dict[str, Dict[str, str]] = {}
-        
+
+        # Git history storage
+        self._student_commits: Dict[str, List[Dict]] = {}  # student -> raw commit list
+
+        # Template baseline: file hashes from the upstream/template repo
+        self._template_signatures: Dict[str, str] = {}  # filepath -> hash
+
+        # Template commit SHAs and messages — excluded from git plagiarism checks
+        self._template_shas: Set[str] = set()
+        self._template_messages: Set[str] = set()
+
         # Filtering settings
         self._include_paths = include_paths or []
         self._exclude_paths = exclude_paths or []
@@ -156,6 +168,226 @@ class PlagiarismChecker:
         self._student_file_contents[student_alias] = contents
         return signatures
     
+    def set_template_baseline(self, reader) -> None:
+        """Load file hashes from the template/upstream repo.
+
+        Files matching the template are excluded from diff-based comparison
+        since every student starts with them.
+        """
+        if not reader._zip_file:
+            return
+        all_files = [f for f in reader._zip_file.namelist()
+                     if not f.endswith('/') and f.startswith(reader._root_dir)]
+        for file_path in all_files:
+            file_path_rel = file_path.replace(reader._root_dir, '')
+            if not self._should_include_file(file_path_rel):
+                continue
+            try:
+                content = reader.read_file(file_path_rel)
+                if content and len(content.strip()) > 10:
+                    self._template_signatures[file_path_rel] = hashlib.md5(
+                        content.encode('utf-8')
+                    ).hexdigest()
+            except Exception:
+                continue
+
+    def set_template_commits(self, commits: List[Dict]) -> None:
+        """Load template repo commits to exclude from plagiarism analysis.
+
+        All SHAs and non-trivial messages from the template are stored so they
+        can be filtered out when comparing students (since every fork inherits
+        the template's full commit history).
+        """
+        for c in (commits or []):
+            sha = c.get('sha', '')
+            if sha:
+                self._template_shas.add(sha)
+            msg = c.get('commit', {}).get('message', '').strip()
+            if msg:
+                self._template_messages.add(msg)
+
+    def add_student_commits(self, student_alias: str, commits: List[Dict]) -> None:
+        """Store a student's commit history for cross-student comparison."""
+        self._student_commits[student_alias] = commits or []
+
+    def check_git_plagiarism(self) -> Dict[str, List[Dict]]:
+        """Cross-student git history analysis.
+
+        Detects:
+        1. Shared commit SHAs (literal repo copy / push of someone else's history)
+        2. Identical non-merge commit messages between students
+        3. Git author/email appearing in another student's repo
+
+        Template commits (SHAs and messages from the upstream repo) are
+        automatically excluded since all forks inherit them.
+
+        Returns {student: [flag_dict, ...]} for every student with findings.
+        """
+        flags: Dict[str, List[Dict]] = defaultdict(list)
+
+        students = list(self._student_commits.keys())
+
+        # Build indexes — filtering out template commits
+        sha_to_students: Dict[str, List[str]] = defaultdict(list)
+        msg_to_students: Dict[str, List[str]] = defaultdict(list)
+        author_to_students: Dict[str, Set[str]] = defaultdict(set)
+
+        for student, commits in self._student_commits.items():
+            seen_msgs: Set[str] = set()
+            for c in commits:
+                sha = c.get('sha', '')
+                msg = c.get('commit', {}).get('message', '').strip()
+                author_name = c.get('commit', {}).get('author', {}).get('name', '')
+                author_email = c.get('commit', {}).get('author', {}).get('email', '')
+
+                # Skip commits that come from the template repo
+                if sha and sha in self._template_shas:
+                    continue
+
+                if sha:
+                    sha_to_students[sha].append(student)
+                # Skip generic merge commits for message comparison
+                # Also skip messages that exist in the template
+                if msg and not msg.startswith('Merge ') and msg not in seen_msgs \
+                        and msg not in self._template_messages:
+                    msg_to_students[msg].append(student)
+                    seen_msgs.add(msg)
+                if author_email:
+                    author_to_students[author_email].add(student)
+
+        # 1. Shared commit SHAs — strongest signal (literal copy of git history)
+        for sha, owners in sha_to_students.items():
+            if len(owners) <= 1:
+                continue
+            unique_owners = sorted(set(owners))
+            if len(unique_owners) <= 1:
+                continue
+            for student in unique_owners:
+                others = [s for s in unique_owners if s != student]
+                flags[student].append({
+                    "type": "shared_commit_sha",
+                    "severity": "critical",
+                    "detail": f"Commit {sha[:8]} also exists in: {', '.join(others)}",
+                    "sha": sha,
+                    "shared_with": others,
+                })
+
+        # Deduplicate: collapse multiple shared SHAs per pair into one flag
+        for student in list(flags.keys()):
+            sha_flags = [f for f in flags[student] if f['type'] == 'shared_commit_sha']
+            if len(sha_flags) > 1:
+                # Group by shared_with set
+                pair_shas: Dict[str, List[str]] = defaultdict(list)
+                for f in sha_flags:
+                    key = ','.join(sorted(f['shared_with']))
+                    pair_shas[key].append(f['sha'])
+                non_sha = [f for f in flags[student] if f['type'] != 'shared_commit_sha']
+                for key, shas in pair_shas.items():
+                    others = key.split(',')
+                    non_sha.append({
+                        "type": "shared_commit_sha",
+                        "severity": "critical",
+                        "detail": f"{len(shas)} commits shared with: {', '.join(others)}",
+                        "shared_count": len(shas),
+                        "shared_with": others,
+                    })
+                flags[student] = non_sha
+
+        # 2. Identical commit messages (non-merge, non-trivial)
+        trivial = {
+            'initial commit', 'init', 'first commit', 'update readme.md',
+            'create readme.md', 'update .gitignore',
+        }
+        for msg, owners in msg_to_students.items():
+            if len(owners) <= 1:
+                continue
+            unique_owners = sorted(set(owners))
+            if len(unique_owners) <= 1:
+                continue
+            if msg.lower().strip() in trivial:
+                continue
+            if len(msg) < 10:
+                continue
+            for student in unique_owners:
+                others = [s for s in unique_owners if s != student]
+                flags[student].append({
+                    "type": "identical_commit_message",
+                    "severity": "high",
+                    "detail": f'Message "{msg[:80]}" also used by: {", ".join(others)}',
+                    "message": msg,
+                    "shared_with": others,
+                })
+
+        # 3. Git author email appearing in another student's repo
+        for email, owners in author_to_students.items():
+            if len(owners) <= 1:
+                continue
+            # Skip bot / noreply emails
+            if 'noreply' in email or 'bot' in email:
+                continue
+            for student in owners:
+                others = [s for s in owners if s != student]
+                # Only flag if the email looks like it belongs to a specific other student
+                flags[student].append({
+                    "type": "shared_author_email",
+                    "severity": "medium",
+                    "detail": f"Author email {email} also appears in: {', '.join(others)}",
+                    "email": email,
+                    "shared_with": others,
+                })
+
+        return dict(flags)
+
+    def get_template_diff_report(self, threshold: float = 0.8) -> Dict[str, List[Dict]]:
+        """Compare students based only on files that differ from the template.
+
+        If no template is set, falls back to regular file hash comparison.
+        Returns same format as get_all_plagiarism_report().
+        """
+        if not self._template_signatures:
+            return self.get_all_plagiarism_report(threshold)
+
+        # Build per-student "delta signatures" — only files that differ from template
+        student_deltas: Dict[str, Dict[str, str]] = {}
+        for student, sigs in self._student_code_signatures.items():
+            delta = {}
+            for fpath, fhash in sigs.items():
+                template_hash = self._template_signatures.get(fpath)
+                # Include if: file not in template OR file changed from template
+                if template_hash is None or fhash != template_hash:
+                    delta[fpath] = fhash
+            student_deltas[student] = delta
+
+        # Compare deltas across students
+        all_matches: Dict[str, List[Dict]] = {}
+        for student, delta in student_deltas.items():
+            if not delta:
+                continue
+            matches = []
+            for other, other_delta in student_deltas.items():
+                if other == student or not other_delta:
+                    continue
+                common = set(delta.keys()) & set(other_delta.keys())
+                if not common:
+                    continue
+                identical = [f for f in common if delta[f] == other_delta[f]]
+                if not identical:
+                    continue
+                similarity = len(identical) / max(len(delta), len(other_delta))
+                if similarity >= threshold:
+                    matches.append({
+                        "suspicious_student": other,
+                        "similarity_score": similarity,
+                        "identical_files": identical,
+                        "common_files_count": len(common),
+                        "total_files_student": len(delta),
+                        "total_files_other": len(other_delta),
+                    })
+            if matches:
+                matches.sort(key=lambda x: x['similarity_score'], reverse=True)
+                all_matches[student] = matches
+        return all_matches
+
     def check_plagiarism(self, student_alias: str, threshold: float = 0.8) -> List[Dict]:
         """
         Checks plagiarism for a specific student.
@@ -467,5 +699,88 @@ class PlagiarismChecker:
         output_path = Path(output_dir) / "plagiarism_detailed_report.html"
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(html_content)
-        
+
+        return str(output_path)
+
+    def generate_git_flags_report(self, output_dir: str) -> Optional[str]:
+        """Generate an HTML report of git-history plagiarism flags.
+
+        Returns path to the generated report, or None if no flags found.
+        """
+        git_flags = self.check_git_plagiarism()
+        if not git_flags:
+            return None
+
+        # Deduplicate pairs for shared_commit_sha to avoid showing A->B and B->A
+        seen_pairs: Set[Tuple[str, str]] = set()
+        severity_order = {"critical": 0, "high": 1, "medium": 2}
+
+        rows = []
+        for student, flags_list in sorted(git_flags.items()):
+            for flag in sorted(flags_list, key=lambda f: severity_order.get(f['severity'], 9)):
+                # For pairwise flags, deduplicate
+                shared = flag.get('shared_with', [])
+                if shared:
+                    pair = tuple(sorted([student] + shared))
+                    if pair in seen_pairs and flag['type'] in ('shared_commit_sha', 'identical_commit_message'):
+                        continue
+                    seen_pairs.add(pair)
+                rows.append((student, flag))
+
+        sev_colors = {
+            "critical": "#d32f2f",
+            "high": "#e65100",
+            "medium": "#f9a825",
+        }
+
+        table_rows = ""
+        for student, flag in rows:
+            color = sev_colors.get(flag['severity'], '#666')
+            table_rows += f"""
+            <tr>
+                <td><b>{html.escape(student)}</b></td>
+                <td style="color:{color};font-weight:600">{html.escape(flag['severity'].upper())}</td>
+                <td>{html.escape(flag['type'].replace('_', ' '))}</td>
+                <td>{html.escape(flag['detail'])}</td>
+            </tr>"""
+
+        critical_count = sum(1 for _, f in rows if f['severity'] == 'critical')
+        high_count = sum(1 for _, f in rows if f['severity'] == 'high')
+
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Git History Plagiarism Report</title>
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #f5f5f5; }}
+        .container {{ max-width: 1200px; margin: 0 auto; }}
+        h1 {{ color: #d32f2f; }}
+        .summary {{ background: #fff; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        table {{ border-collapse: collapse; width: 100%; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
+        th {{ background: #263238; color: #fff; padding: 12px 15px; text-align: left; font-size: 0.85em; text-transform: uppercase; }}
+        td {{ padding: 10px 15px; border-bottom: 1px solid #eee; font-size: 0.9em; }}
+        tr:hover {{ background: #f9fafb; }}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Git History Plagiarism Report</h1>
+    <div class="summary">
+        <p><b>Students analyzed:</b> {len(self._student_commits)}</p>
+        <p><b>Total flags:</b> {len(rows)}</p>
+        <p><b style="color:#d32f2f">Critical (shared commit SHAs):</b> {critical_count}</p>
+        <p><b style="color:#e65100">High (identical commit messages):</b> {high_count}</p>
+    </div>
+    <table>
+        <thead><tr><th>Student</th><th>Severity</th><th>Type</th><th>Details</th></tr></thead>
+        <tbody>{table_rows}</tbody>
+    </table>
+</div>
+</body>
+</html>"""
+
+        output_path = Path(output_dir) / "git_plagiarism_report.html"
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_content)
         return str(output_path)

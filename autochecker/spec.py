@@ -39,6 +39,8 @@ class PlagiarismConfig(BaseModel):
     exclude_paths: List[str] = Field(default_factory=list)
     # File extensions to check (if empty - standard ones are used)
     include_extensions: List[str] = Field(default_factory=list)
+    # Template repo for diff-based comparison (e.g. "inno-se-toolkit/se-toolkit-lab-3")
+    template_repo: Optional[str] = Field(default=None)
 
 
 class LabSpec(BaseModel):

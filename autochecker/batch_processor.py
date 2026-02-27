@@ -92,8 +92,16 @@ def process_single_student(
         plagiarism_info = None
         if plagiarism_checker:
             plagiarism_checker.add_student_code(student_alias, reader)
-            # Check plagiarism (but only after all students are added)
-            # This will be done after processing all students
+            # Also collect git commits for cross-student comparison
+            try:
+                repo_info_for_branch = client.get_repo_info()
+                commit_branch = branch
+                if not commit_branch and repo_info_for_branch:
+                    commit_branch = repo_info_for_branch.get('default_branch', 'main')
+                commits = client.get_commits(commit_branch or 'main')
+                plagiarism_checker.add_student_commits(student_alias, commits)
+            except Exception:
+                pass  # Non-critical: skip if commits can't be fetched
         
         # Get branch: parameter > spec file > repo default
         check_branch = branch
@@ -207,7 +215,8 @@ def process_batch(
     platform: str = "github",
     gitlab_url: str = "https://gitlab.com",
     branch: Optional[str] = None,
-    no_cache: bool = False
+    no_cache: bool = False,
+    template_repo: Optional[str] = None,  # "owner/repo" for diff-from-template comparison
 ) -> Dict:
     """
     Processes student list from file.
@@ -274,6 +283,54 @@ def process_batch(
             exclude_paths=exclude_paths,
             include_extensions=include_extensions
         )
+
+        # Load template repo as baseline for diff-based comparison
+        # CLI --template-repo overrides spec setting
+        if not template_repo and hasattr(lab_spec, 'plagiarism') and lab_spec.plagiarism:
+            template_repo = lab_spec.plagiarism.template_repo
+        if template_repo:
+            try:
+                parts = template_repo.split('/')
+                tmpl_owner, tmpl_name = parts[0], parts[1]
+                print(f"   Loading template baseline: {template_repo}")
+                tmpl_reader = RepoReader(
+                    owner=tmpl_owner, repo_name=tmpl_name, token=token,
+                    platform=platform, gitlab_url=gitlab_url, branch=branch,
+                )
+                plagiarism_checker.set_template_baseline(tmpl_reader)
+                print(f"   Template baseline: {len(plagiarism_checker._template_signatures)} files indexed")
+
+                # Also fetch template commits to exclude from git history analysis
+                # Use paginated fetch since templates can have >100 commits
+                try:
+                    import requests
+                    tmpl_commits = []
+                    page = 1
+                    api_headers = {
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "application/vnd.github.v3+json",
+                    }
+                    while True:
+                        resp = requests.get(
+                            f"https://api.github.com/repos/{template_repo}/commits",
+                            headers=api_headers,
+                            params={"per_page": 100, "page": page},
+                        )
+                        if resp.status_code != 200:
+                            break
+                        batch = resp.json()
+                        if not batch:
+                            break
+                        tmpl_commits.extend(batch)
+                        if len(batch) < 100:
+                            break
+                        page += 1
+                    plagiarism_checker.set_template_commits(tmpl_commits)
+                    print(f"   Template commits loaded: {len(tmpl_commits)} (will be excluded from git analysis)")
+                except Exception as e:
+                    print(f"   Warning: could not load template commits: {e}")
+            except Exception as e:
+                print(f"   Warning: could not load template repo: {e}")
     
     # Process students (first without plagiarism check)
     results = []
@@ -331,45 +388,67 @@ def process_batch(
     
     # Check plagiarism after processing all students
     plagiarism_report = None
+    git_flags_count = 0
     if check_plagiarism and plagiarism_checker:
         print(f"\n🔍 Checking for plagiarism...")
-        plagiarism_report = plagiarism_checker.get_all_plagiarism_report(plagiarism_threshold)
-        
-        # Save plagiarism report
+
+        # Use template-diff comparison if template was loaded, otherwise raw hashes
+        if plagiarism_checker._template_signatures:
+            plagiarism_report = plagiarism_checker.get_template_diff_report(plagiarism_threshold)
+            print(f"  Using template-diff comparison ({len(plagiarism_checker._template_signatures)} template files)")
+        else:
+            plagiarism_report = plagiarism_checker.get_all_plagiarism_report(plagiarism_threshold)
+
+        # Save file-based plagiarism report
         if plagiarism_report:
-            # JSON report
             plagiarism_file = Path(output_dir) / "plagiarism_report.json"
             with open(plagiarism_file, 'w', encoding='utf-8') as f:
                 json.dump(plagiarism_report, f, ensure_ascii=False, indent=2)
-            print(f"  📄 JSON report: {plagiarism_file}")
-            
-            # Detailed HTML report with file contents
+            print(f"  📄 File similarity report: {plagiarism_file}")
+
             detailed_report_path = plagiarism_checker.generate_detailed_html_report(
                 output_dir, plagiarism_threshold
             )
             if detailed_report_path:
                 print(f"  📊 Detailed HTML report: {detailed_report_path}")
         else:
-            print(f"  ✅ No plagiarism detected (threshold: {plagiarism_threshold*100:.0f}%)")
-            
-            # Add plagiarism info to HTML reports
+            print(f"  ✅ No file-based plagiarism detected (threshold: {plagiarism_threshold*100:.0f}%)")
+
+        # Git history analysis
+        if plagiarism_checker._student_commits:
+            print(f"  🔍 Analyzing git history across {len(plagiarism_checker._student_commits)} students...")
+            git_flags = plagiarism_checker.check_git_plagiarism()
+            if git_flags:
+                git_flags_count = sum(len(v) for v in git_flags.values())
+                git_flags_file = Path(output_dir) / "git_plagiarism_flags.json"
+                with open(git_flags_file, 'w', encoding='utf-8') as f:
+                    json.dump(git_flags, f, ensure_ascii=False, indent=2)
+                print(f"  ⚠️  Git history flags: {git_flags_count} issues across {len(git_flags)} students")
+                print(f"  📄 Git flags JSON: {git_flags_file}")
+
+                git_html = plagiarism_checker.generate_git_flags_report(output_dir)
+                if git_html:
+                    print(f"  📊 Git flags HTML: {git_html}")
+            else:
+                print(f"  ✅ No git history anomalies detected")
+
+        # Add plagiarism info to individual student HTML reports
+        if plagiarism_report:
             for student_alias, matches in plagiarism_report.items():
                 student_dir = Path(output_dir) / student_alias
                 if matches:
-                    # Update HTML report with plagiarism info
                     summary_file = student_dir / "summary.html"
                     if summary_file.exists():
                         with open(summary_file, 'r', encoding='utf-8') as f:
                             html_content = f.read()
-                        
+
                         plagiarism_section = "<h2>⚠️ Plagiarism check</h2><ul>"
-                        for match in matches[:3]:  # Show top-3 matches
+                        for match in matches[:3]:
                             plagiarism_section += f"<li><b>{match['suspicious_student']}</b>: similarity {match['similarity_score']*100:.1f}% ({len(match['identical_files'])} identical files)</li>"
                         plagiarism_section += "</ul>"
-                        
-                        # Insert after header
+
                         html_content = html_content.replace("<h2>🤖", plagiarism_section + "<h2>🤖")
-                        
+
                         with open(summary_file, 'w', encoding='utf-8') as f:
                             f.write(html_content)
     
@@ -381,6 +460,7 @@ def process_batch(
         "elapsed_time_seconds": elapsed_time,
         "average_time_per_student": elapsed_time / len(students) if students else 0,
         "plagiarism_detected": len(plagiarism_report) if plagiarism_report else 0,
+        "git_flags_count": git_flags_count,
         "results": results
     }
     
