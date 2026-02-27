@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Lab 3 Plagiarism Analysis Report</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; background: #f5f5f5; color: #333; }
+        .container { max-width: 960px; margin: 0 auto; padding: 20px; }
+        h1 { color: #1a237e; border-bottom: 3px solid #1a237e; padding-bottom: 10px; }
+        h2 { color: #283593; margin-top: 40px; }
+        h3 { color: #455a64; }
+        .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stats { display: flex; gap: 20px; flex-wrap: wrap; }
+        .stat-box { background: #e8eaf6; border-radius: 8px; padding: 15px 20px; flex: 1; min-width: 150px; text-align: center; }
+        .stat-box .number { font-size: 2em; font-weight: 700; color: #1a237e; }
+        .stat-box .label { font-size: 0.85em; color: #666; margin-top: 4px; }
+        .alert { border-left: 4px solid; padding: 15px 20px; margin: 15px 0; border-radius: 0 8px 8px 0; }
+        .alert-red { background: #ffebee; border-color: #d32f2f; }
+        .alert-green { background: #e8f5e9; border-color: #388e3c; }
+        .alert-yellow { background: #fff8e1; border-color: #f9a825; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+        th { background: #263238; color: #fff; padding: 10px 12px; text-align: left; font-size: 0.85em; }
+        td { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 0.9em; }
+        tr:hover { background: #f5f5f5; }
+        .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; font-weight: 600; }
+        .tag-red { background: #ffcdd2; color: #b71c1c; }
+        .tag-green { background: #c8e6c9; color: #1b5e20; }
+        .tag-gray { background: #e0e0e0; color: #616161; }
+        code { background: #eceff1; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; }
+        .evidence { background: #fafafa; border: 1px solid #e0e0e0; border-radius: 4px; padding: 12px; margin: 10px 0; font-size: 0.9em; }
+        .timeline { position: relative; padding-left: 30px; }
+        .timeline::before { content: ''; position: absolute; left: 10px; top: 0; bottom: 0; width: 2px; background: #ccc; }
+        .timeline-item { position: relative; margin-bottom: 15px; }
+        .timeline-item::before { content: ''; position: absolute; left: -24px; top: 4px; width: 10px; height: 10px; border-radius: 50%; background: #1a237e; }
+        .footer { text-align: center; color: #999; font-size: 0.85em; margin-top: 40px; padding: 20px; border-top: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+<div class="container">
+
+<h1>Lab 3 &mdash; Plagiarism Analysis Report</h1>
+<p style="color:#666;">Generated: 2026-02-27 &bull; Course: Software Engineering Toolkit &bull; Lab: Backend API</p>
+
+<div class="card">
+    <div class="stats">
+        <div class="stat-box"><div class="number">218</div><div class="label">Total students</div></div>
+        <div class="stat-box"><div class="number">172</div><div class="label">Repos found</div></div>
+        <div class="stat-box"><div class="number">46</div><div class="label">Repos missing</div></div>
+        <div class="stat-box"><div class="number" style="color:#d32f2f">1</div><div class="label">Confirmed plagiarism</div></div>
+    </div>
+</div>
+
+<!-- ====== METHODOLOGY ====== -->
+<h2>Methodology</h2>
+<div class="card">
+    <p>Two independent checks were run, both filtering out the template repo (<code>inno-se-toolkit/se-toolkit-lab-3</code>, 1322 commits, 17 source files):</p>
+    <ol>
+        <li><strong>File similarity</strong> &mdash; MD5 hashes of every source file, minus files identical to the template. Pairs with &ge;50% identical non-template files are flagged.</li>
+        <li><strong>Git history</strong> &mdash; cross-student comparison of commit SHAs (critical), commit messages (high), and author emails (medium), excluding all 1322 template commits.</li>
+    </ol>
+    <p>Raw flags were then manually investigated to distinguish real plagiarism from expected noise (lab-instructed commit messages, PR reviewer emails, trivially-constrained code).</p>
+</div>
+
+<!-- ====== CONFIRMED CASE ====== -->
+<h2>Confirmed Plagiarism</h2>
+
+<div class="card">
+    <h3><span class="tag tag-red">HIGH CONFIDENCE</span> &nbsp; Rena-ln copied from Fyukon</h3>
+
+    <div class="alert alert-red">
+        <strong>Rena-ln</strong> copied the interaction bug fixes (Task 2) from <strong>Fyukon</strong>'s repository.
+        A third student, <strong>s0ftach</strong>, shares 14 identical files with Rena-ln but those are all unmodified template files &mdash; s0ftach only completed the questionnaire and did not copy code.
+    </div>
+
+    <h4>Timeline</h4>
+    <div class="timeline">
+        <div class="timeline-item"><strong>Feb 20, 14:50 UTC</strong> &mdash; <strong>Fyukon</strong> creates repo, completes all tasks (questionnaire + bug fixes + learner endpoint). 8 commits, proper branch-per-task workflow. PR reviewer: TripleA89.</div>
+        <div class="timeline-item"><strong>Feb 21, 11:32 UTC</strong> &mdash; <strong>s0ftach</strong> creates repo, completes only the questionnaire (Task 1). Both bugs left unfixed, learner endpoint untouched. 3 commits.</div>
+        <div class="timeline-item"><strong>Feb 23, 10:46 UTC</strong> &mdash; <strong>Rena-ln</strong> creates repo.</div>
+        <div class="timeline-item"><strong>Feb 24</strong> &mdash; <strong>Rena-ln</strong> PR #2 rewrites the entire repo (100+ files with equal +/&minus; lines), suggesting wholesale replacement with another student's copy.</div>
+        <div class="timeline-item"><strong>Feb 25</strong> &mdash; <strong>Rena-ln</strong> PR #4 fixes <em>exactly</em> the same two bugs Fyukon fixed 5 days earlier: <code>timestamp &rarr; created_at</code> and <code>learner_id &rarr; item_id</code>.</div>
+    </div>
+
+    <h4>Evidence</h4>
+
+    <div class="evidence">
+        <strong>1. Cyrillic homoglyph.</strong> Rena-ln's version contains a Cyrillic &lsquo;&#1089;&rsquo; (U+0441) instead of ASCII &lsquo;c&rsquo; in the word &ldquo;database&rdquo;:
+        <br><br>
+        <code>Fyukon: &nbsp;"...to match the database column"</code> &nbsp;(all ASCII)<br>
+        <code>Rena-ln: "...to match the dat<span style="color:red;font-weight:bold">с</span>abase column"</code> &nbsp;(Cyrillic &#1089; at byte 0x48)
+        <br><br>
+        This character was not in the template or Fyukon's version. It was introduced during manual retyping on a Russian keyboard layout &mdash; a classic sign of copying between Russian-speaking students.
+    </div>
+
+    <div class="evidence">
+        <strong>2. Wholesale repo replacement.</strong> Rena-ln's PR #2 (Feb 24) shows equal additions and deletions across 100+ files &mdash; consistent with deleting the repo contents and replacing them from another source, not incremental development.
+    </div>
+
+    <div class="evidence">
+        <strong>3. Inability to complete later tasks.</strong> Despite &ldquo;understanding&rdquo; the codebase well enough to find and fix both bugs, Rena-ln left the learner endpoint (Task 4) completely untouched (template placeholder). Fyukon completed Task 4.
+    </div>
+
+    <div class="evidence">
+        <strong>4. File-level match.</strong> 14 non-template source files are byte-identical between Rena-ln and s0ftach (who used the unmodified template), and 10&ndash;11 are identical between Rena-ln and Fyukon, including: <code>auth.py</code>, <code>database.py</code>, <code>main.py</code>, <code>settings.py</code>, <code>run.py</code>, <code>items.py</code>, <code>interactions.py</code>, <code>learner.py</code>, <code>learners.py</code>, <code>__init__.py</code>.
+    </div>
+
+    <table>
+        <tr><th>Student</th><th>Repo created</th><th>Task 1</th><th>Task 2 (bugs)</th><th>Task 4 (learners)</th><th>Score</th></tr>
+        <tr><td><strong>Fyukon</strong></td><td>Feb 20</td><td>Done</td><td>Done</td><td>Done</td><td>50.9%</td></tr>
+        <tr><td>s0ftach</td><td>Feb 21</td><td>Done</td><td>Not done</td><td>Not done</td><td>22.8%</td></tr>
+        <tr><td><strong>Rena-ln</strong></td><td>Feb 23</td><td>Done</td><td>Copied from Fyukon</td><td>Not done</td><td>&mdash;</td></tr>
+    </table>
+</div>
+
+<!-- ====== CLEARED CASES ====== -->
+<h2>Cleared Cases</h2>
+
+<div class="card">
+    <h3><span class="tag tag-green">ALL CLEAR</span> &nbsp; Shared author emails (15 pairs)</h3>
+    <p>All 15 shared-email pairs are explained by the lab's <strong>PR review workflow</strong>: students review each other's pull requests, causing merge commits with the reviewer's email to appear in the author's repo.</p>
+
+    <table>
+        <tr><th>Students</th><th>Shared email</th><th>Explanation</th></tr>
+        <tr><td>Fedos113, NurikDen, omarichev</td><td><code>amirgaf29@gmail.com</code></td><td>Omarichev reviewed PRs for both Fedos113 and NurikDen</td></tr>
+        <tr><td>Fyukon, TripleA89</td><td><code>olseky2610@mail.ru</code>, <code>askaraitov966@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>CatherineHar, Evgeni1a</td><td><code>evgenia040307@gmail.com</code></td><td>Evgeni1a reviewed CatherineHar's PRs</td></tr>
+        <tr><td>Davidkaaa33, scaredofthesix</td><td><code>davuska06.david@yandex.ru</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>Dima280807, THEsTAS-cyber</td><td><code>stassariew19@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>Ikkdar, coldtime108</td><td><code>coldtime82@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>Nematodont, daniyagg</td><td><code>nastena5lina@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>Riderufa1984, alexzhal1</td><td><code>nikart.33@icloud.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>TeraloToxin, kadambaevsanzhar</td><td><code>kadambaevsanzhar@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>kaftanovaa, witchearrt</td><td><code>svetaiak2007@gmail.com</code>, <code>uliana200708@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>khas-ab, millfsw</td><td><code>a.abbyazova2280@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>kkonstantin08, vasilisatumakina29</td><td><code>vasilisa.tumakina29@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>kristina19-gif, llliizzz</td><td><code>pilipcukkristina653@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>RomanSanta, lostcntrol</td><td><code>damirgaliev2008@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+        <tr><td>Send4etup, moddyl</td><td><code>svetlevagina@gmail.com</code>, <code>tyusupov2000@gmail.com</code></td><td>Mutual PR reviewers</td></tr>
+    </table>
+</div>
+
+<div class="card">
+    <h3><span class="tag tag-green">ALL CLEAR</span> &nbsp; Single-file similarity (3 pairs)</h3>
+    <p>Three pairs shared a single non-template file. All were trivial coincidences:</p>
+    <table>
+        <tr><th>Pair</th><th>File</th><th>Explanation</th></tr>
+        <tr><td>Erusiaaa &harr; millfsw</td><td><code>post-process-lychee.py</code></td><td>Unmodified template file &mdash; neither student wrote it. False positive due to template version mismatch.</td></tr>
+        <tr><td>FuFill &harr; NadezhdaVoskan</td><td><code>routers/learners.py</code></td><td>Fill-in-the-blank scaffold with one correct answer. Independent students converge to identical code.</td></tr>
+        <tr><td>mimics0s &harr; vya4eslav1k</td><td><code>routers/learners.py</code></td><td>Same &mdash; template constrains the solution so tightly that 50/50 chance of matching.</td></tr>
+    </table>
+</div>
+
+<div class="card">
+    <h3><span class="tag tag-green">ALL CLEAR</span> &nbsp; Identical commit messages (13 unique messages)</h3>
+    <p>All shared commit messages are lab-instructed conventional commits that students are expected to use:</p>
+    <ul>
+        <li><code>docs: fill in the API exploration questionnaire</code> &mdash; shared by 6 students</li>
+        <li><code>fix: filter interactions by item_id instead of learner_id</code> &mdash; 5 students</li>
+        <li><code>fix: rename timestamp to created_at in InteractionModel</code> &mdash; 5 students</li>
+        <li><code>feat: implement POST /learners endpoint</code> &mdash; 3 students</li>
+        <li><code>feat: implement GET /learners endpoint</code> &mdash; 3 students</li>
+    </ul>
+    <p>These are not evidence of plagiarism &mdash; the lab instructions suggest conventional commit messages and the task descriptions naturally lead to these wordings.</p>
+</div>
+
+<!-- ====== NOISE ====== -->
+<h2>Known Noise (excluded from analysis)</h2>
+<div class="card">
+    <p>Five files were shared by 50&ndash;170+ students because the lab has everyone make the same prescribed bug fixes:</p>
+    <table>
+        <tr><th>File</th><th>Match count</th><th>Reason</th></tr>
+        <tr><td><code>src/app/models/interaction.py</code></td><td>2922</td><td>Task 2: rename <code>timestamp</code> &rarr; <code>created_at</code></td></tr>
+        <tr><td><code>src/app/routers/interactions.py</code></td><td>2640</td><td>Task 2: fix filter <code>learner_id</code> &rarr; <code>item_id</code></td></tr>
+        <tr><td><code>src/app/models/item.py</code></td><td>1756</td><td>Minimal model file with one correct form</td></tr>
+        <tr><td><code>src/app/db/learners.py</code></td><td>1728</td><td>DB helper with one correct form</td></tr>
+        <tr><td><code>lab/design/scripts/lychee-locate.py</code></td><td>1688</td><td>Instructor script, not student-written</td></tr>
+    </table>
+    <p>These files are not useful for plagiarism detection in this lab since the task design produces identical outputs.</p>
+</div>
+
+<!-- ====== RAW DATA ====== -->
+<h2>Raw Data Files</h2>
+<div class="card">
+    <ul>
+        <li><a href="batch_summary.html">Batch check summary</a> &mdash; per-student scores</li>
+        <li><a href="plagiarism_report.json">plagiarism_report.json</a> &mdash; file similarity pairs (raw, includes noise)</li>
+        <li><a href="plagiarism_detailed_report.html">Detailed file comparison report</a></li>
+        <li><a href="git_plagiarism_flags.json">git_plagiarism_flags.json</a> &mdash; git history flags (raw)</li>
+        <li><a href="git_plagiarism_report.html">Git history flags report</a></li>
+    </ul>
+</div>
+
+<div class="footer">
+    Generated by autochecker plagiarism analysis &bull; 218 students &bull; 172 repos processed &bull; 12.6 min runtime
+</div>
+
+</div>
+</body>
+</html>

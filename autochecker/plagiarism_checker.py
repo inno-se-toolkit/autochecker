@@ -237,8 +237,8 @@ class PlagiarismChecker:
             for c in commits:
                 sha = c.get('sha', '')
                 msg = c.get('commit', {}).get('message', '').strip()
-                author_name = c.get('commit', {}).get('author', {}).get('name', '')
                 author_email = c.get('commit', {}).get('author', {}).get('email', '')
+                is_merge = msg.startswith('Merge ')
 
                 # Skip commits that come from the template repo
                 if sha and sha in self._template_shas:
@@ -246,14 +246,18 @@ class PlagiarismChecker:
 
                 if sha:
                     sha_to_students[sha].append(student)
-                # Skip generic merge commits for message comparison
-                # Also skip messages that exist in the template
-                if msg and not msg.startswith('Merge ') and msg not in seen_msgs \
+                # Skip merge commits and messages that exist in the template
+                if msg and not is_merge and msg not in seen_msgs \
                         and msg not in self._template_messages:
                     msg_to_students[msg].append(student)
                     seen_msgs.add(msg)
-                if author_email:
+                # Skip merge commits for author-email (PR reviewers show up here)
+                if author_email and not is_merge:
                     author_to_students[author_email].add(student)
+
+        # Popularity threshold: skip items shared by >10% of students
+        # (these are likely lab-instructed, not plagiarism)
+        popularity_limit = max(3, len(students) // 10)
 
         # 1. Shared commit SHAs — strongest signal (literal copy of git history)
         for sha, owners in sha_to_students.items():
@@ -308,6 +312,9 @@ class PlagiarismChecker:
                 continue
             if len(msg) < 10:
                 continue
+            # Skip messages shared by too many students (lab-instructed)
+            if len(unique_owners) > popularity_limit:
+                continue
             for student in unique_owners:
                 others = [s for s in unique_owners if s != student]
                 flags[student].append({
@@ -319,15 +326,19 @@ class PlagiarismChecker:
                 })
 
         # 3. Git author email appearing in another student's repo
+        #    Merge commits are already excluded from the index above,
+        #    so PR reviewers won't be flagged.
         for email, owners in author_to_students.items():
             if len(owners) <= 1:
                 continue
             # Skip bot / noreply emails
             if 'noreply' in email or 'bot' in email:
                 continue
+            # Skip emails shared by too many students (e.g. instructor email)
+            if len(owners) > popularity_limit:
+                continue
             for student in owners:
-                others = [s for s in owners if s != student]
-                # Only flag if the email looks like it belongs to a specific other student
+                others = sorted(s for s in owners if s != student)
                 flags[student].append({
                     "type": "shared_author_email",
                     "severity": "medium",
@@ -342,6 +353,8 @@ class PlagiarismChecker:
         """Compare students based only on files that differ from the template.
 
         If no template is set, falls back to regular file hash comparison.
+        Files whose hash is shared by >10% of students are automatically
+        excluded (prescribed fixes that everyone implements identically).
         Returns same format as get_all_plagiarism_report().
         """
         if not self._template_signatures:
@@ -357,6 +370,31 @@ class PlagiarismChecker:
                 if template_hash is None or fhash != template_hash:
                     delta[fpath] = fhash
             student_deltas[student] = delta
+
+        # Popularity filter: count how many students share each (file, hash) pair.
+        # If a specific file version appears in >10% of students it's a prescribed
+        # fix (e.g. the one correct bug-fix), not individual work.
+        num_students = max(len(student_deltas), 1)
+        popularity_limit = max(3, num_students // 10)
+
+        hash_popularity: Dict[Tuple[str, str], int] = defaultdict(int)
+        for delta in student_deltas.values():
+            for fpath, fhash in delta.items():
+                hash_popularity[(fpath, fhash)] += 1
+
+        popular_hashes: Set[Tuple[str, str]] = {
+            key for key, count in hash_popularity.items()
+            if count > popularity_limit
+        }
+
+        # Remove popular hashes from deltas
+        if popular_hashes:
+            for student in student_deltas:
+                student_deltas[student] = {
+                    fpath: fhash
+                    for fpath, fhash in student_deltas[student].items()
+                    if (fpath, fhash) not in popular_hashes
+                }
 
         # Compare deltas across students
         all_matches: Dict[str, List[Dict]] = {}
