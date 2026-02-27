@@ -98,3 +98,20 @@ def get_lab_titles() -> dict[str, str]:
         else:
             titles[lab_id] = lab_id
     return titles
+
+
+def get_tasks_needing_ip(lab_id: str) -> set[str]:
+    """Return task IDs that have checks with runtime: prod (need server IP)."""
+    spec_path = SPECS_DIR / f"{lab_id}.yaml"
+    if not spec_path.exists():
+        return set()
+
+    with open(spec_path, "r", encoding="utf-8") as f:
+        spec = yaml.safe_load(f)
+
+    task_ids: set[str] = set()
+    for check in spec.get("checks", []):
+        params = check.get("params", {})
+        if params.get("runtime"):
+            task_ids.add(check["task"])
+    return task_ids

@@ -12,12 +12,9 @@ from aiogram.fsm.state import State, StatesGroup
 from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip
 from ..keyboards import get_tasks_keyboard
 from ..runner import run_check
-from ..config import MAX_ATTEMPTS_PER_TASK
+from ..config import MAX_ATTEMPTS_PER_TASK, get_tasks_needing_ip
 
 router = Router()
-
-# Tasks that require a server IP for http_check
-TASKS_NEEDING_IP = {"task-4"}
 
 IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 
@@ -75,7 +72,7 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
 
     # For tasks needing a server IP, check if we have one stored
     server_ip = ""
-    if task_id in TASKS_NEEDING_IP:
+    if task_id in get_tasks_needing_ip(lab_id):
         server_ip = await get_server_ip(db_user.tg_id)
         if not server_ip:
             await callback.answer()
