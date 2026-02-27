@@ -248,7 +248,7 @@ Some checks (e.g. lab-02 `uv run poe test`) clone a student repo and run command
 
 ### Files
 
-- `deploy/Dockerfile.sandbox` — minimal image (Python 3.13 + git + uv)
+- `deploy/Dockerfile.sandbox` — minimal image (Python 3.14 + git + uv)
 - `deploy/Dockerfile` — bot image includes `docker-ce-cli` to spawn sandbox containers
 - `deploy/docker-compose.yml` — mounts Docker socket + shared `/tmp/autochecker-sandbox`
 - `autochecker/engine.py` — `check_clone_and_run()` → `_run_in_sandbox()` / `_run_direct()` fallback
@@ -367,16 +367,54 @@ ssh deploy@10.93.24.120 "sudo systemctl restart relay-worker"
 
 ### Deploy a new version (Hetzner)
 
+**Recommended**: use the automated script, which pulls, verifies, builds, and restarts:
+
 ```bash
 ssh nurios@188.245.43.68
 cd ~/autochecker
-git pull
-cd deploy && docker compose build sandbox && docker compose up -d --build
+bash deploy/update.sh
 ```
 
-Or use the automated script:
+**Manual steps** (if you need finer control):
+
 ```bash
-bash deploy/update.sh
+ssh nurios@188.245.43.68
+cd ~/autochecker
+
+# 1. Pull latest code
+git pull
+
+# 2. (Optional) Run pre-deploy verification
+docker build -f deploy/Dockerfile -t autochecker-verify . --quiet
+docker run --rm autochecker-verify python verify.py
+
+# 3. Build ALL images (bot, dashboard, sandbox)
+#    IMPORTANT: always build before recreating — `docker compose up` alone reuses old images
+cd deploy
+docker compose build
+
+# 4. Restart containers
+docker compose up -d
+
+# 5. Verify containers are running
+docker compose ps
+docker logs autochecker-bot --tail 20
+docker logs autochecker-dashboard --tail 20
+```
+
+**Gotcha**: `docker compose up -d --force-recreate` without a preceding `docker compose build` will recreate the container from the **old** image. Code changes from `git pull` won't take effect. Always build first.
+
+**Rebuild only specific services** (when you know what changed):
+
+```bash
+# Bot code changed (handlers, runner, config, engine)
+docker compose build bot dashboard && docker compose up -d bot dashboard
+
+# Sandbox image changed (Dockerfile.sandbox, Python version)
+docker compose build sandbox
+
+# Both
+docker compose build && docker compose up -d
 ```
 
 ### Deploy relay worker (university VM)
@@ -390,7 +428,7 @@ ssh deploy@10.93.24.120 "sudo systemctl restart relay-worker"
 
 | Volume / Mount | Container | Contents |
 |---|---|---|
-| `deploy_bot-data` → `/app/data/` | bot | `bot.db` (SQLite — users, attempts, results) |
+| `deploy_bot-data` → `/app/data/` | bot, dashboard | `bot.db` (SQLite — users, attempts, results) |
 | `deploy_autochecker-results` → `/app/results/` | bot | Per-student report files |
 | `/var/run/docker.sock` | bot | Docker socket (for spawning sandbox containers) |
 | `/tmp/autochecker-sandbox` | bot | Shared temp dir for clone_and_run repos |
@@ -419,6 +457,118 @@ python verify.py
 ```
 
 Checks file structure, imports, path resolution, CLI commands, spec loading, no stale references, and deploy file correctness.
+
+## Adding a New Lab Spec
+
+Step-by-step guide for adding autochecker support for a new lab.
+
+### 1. Create the spec file
+
+Create `specs/lab-XX.yaml` with the lab's check definitions. See existing specs for structure reference and `CONTRIBUTING.md` for available check types.
+
+```yaml
+id: lab-XX
+title: "Lab XX – Title"
+repo_name: "se-toolkit-lab-X"
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: ..."
+    prerequisite: setup
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}:42002"
+
+checks:
+  # Setup checks
+  - id: setup_repo_exists
+    task: setup
+    type: repo_exists
+    # ...
+
+  # Task checks
+  - id: t1_some_check
+    task: task-1
+    type: regex_in_file
+    # ...
+```
+
+### 2. Register the lab in the CLI
+
+Edit `autochecker/cli.py` and add an entry to `LAB_CONFIG`:
+
+```python
+"lab-XX": {
+    "repo_suffix": "se-toolkit-lab-X",
+    "name": "Lab XX – Title",
+    "ready": True,
+},
+```
+
+### 3. Activate the lab in the bot
+
+On the server, update `deploy/.env`:
+
+```bash
+# Add the new lab to the comma-separated list
+ACTIVE_LABS=lab-01,lab-02,lab-03,lab-04
+```
+
+### 4. Validate the spec
+
+```bash
+# Check that the spec parses correctly
+python -c "from autochecker.spec import load_spec; s = load_spec('specs/lab-XX.yaml'); print(f'{len(s[\"checks\"])} checks loaded')"
+
+# Test against a known student repo
+python main.py check -s <student-username> -l lab-XX -p github
+```
+
+### 5. Deploy
+
+```bash
+ssh nurios@188.245.43.68
+cd ~/autochecker
+git pull
+cd deploy
+docker compose build && docker compose up -d
+docker logs autochecker-bot --tail 20  # verify bot started with new lab
+```
+
+### 6. Verify on the bot
+
+- Open the Telegram bot
+- The new lab should appear in the lab selection menu
+- Run a check to confirm it works end-to-end
+
+### Runtime checks (VM deployment)
+
+If the lab has checks that target student VMs (`runtime: prod` in params), the bot will automatically prompt students for their VM IP. The IP is stored per-student and reused across checks. The engine resolves `{server_ip}` in `base_url` at check time.
+
+For internal IPs (10.x.x.x), checks are routed through the relay worker on the university VM. Ensure the relay worker is running (see [Deploy relay worker](#deploy-relay-worker-university-vm)).
+
+### Sandbox (clone_and_run) checks
+
+If the lab has `clone_and_run` checks, ensure the sandbox image supports the lab's Python version. The sandbox Dockerfile is at `deploy/Dockerfile.sandbox` (currently Python 3.14). If a lab needs a different runtime, update the Dockerfile and rebuild:
+
+```bash
+cd deploy
+docker compose build sandbox
+```
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Bot doesn't show the new lab | `ACTIVE_LABS` not updated | Add lab ID to `ACTIVE_LABS` in `deploy/.env`, restart |
+| "No spec found" error | Spec file missing or `ready: False` in CLI | Check `specs/lab-XX.yaml` exists and `cli.py` entry |
+| Checks show `localhost` instead of student IP | Spec missing `runtime: prod` on check params | Add `runtime: prod` to checks that need student VM access |
+| `clone_and_run` exit code 2 | Import errors in student code | Ensure spec commands set required env vars (e.g. `API_TOKEN=test`) |
+| Container has old code after deploy | Forgot to `docker compose build` | Always build before `up -d` |
+| Dashboard doesn't reflect new lab | Dashboard container not rebuilt | Rebuild dashboard: `docker compose build dashboard && docker compose up -d dashboard` |
 
 ## License
 
