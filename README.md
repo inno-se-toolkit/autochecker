@@ -73,6 +73,7 @@ autochecker/                    # repo root
 │   ├── app.py                  # routes, auth, relay endpoints
 │   └── templates/              # Jinja2 HTML templates
 ├── specs/                      # lab YAML specs
+├── reports/                    # plagiarism analysis reports (date-stamped)
 ├── deploy/                     # Docker deployment
 │   ├── Dockerfile              # bot + dashboard image (includes docker-ce-cli)
 │   ├── Dockerfile.sandbox      # sandboxed student code runner
@@ -118,6 +119,98 @@ Only emails listed in `bot/allowed_emails.csv` can register. The CSV has two col
 - **Group backfill**: on every startup, `init_db()` syncs groups from the CSV into existing users
 
 To update the whitelist, replace `bot/allowed_emails.csv` and redeploy.
+
+## Plagiarism Detection
+
+The `batch` command includes cross-student plagiarism analysis. It runs **after** all students are checked, comparing their code and git histories.
+
+### What it checks
+
+1. **File similarity** — MD5 hashes of every source file, minus files identical to the template repo. Pairs exceeding the threshold are flagged.
+2. **Git history** — cross-student comparison of:
+   - **Shared commit SHAs** (critical) — identical commit objects = literal repo copy
+   - **Identical commit messages** (high) — same non-trivial message across students
+   - **Shared author emails** (medium) — one person's git email in another student's repo
+
+### Noise reduction
+
+The checker automatically filters out false positives:
+
+| Filter | What it removes |
+|---|---|
+| Template file subtraction | Files identical to the upstream template repo (everyone starts with them) |
+| Template commit exclusion | All commit SHAs and messages from the template (inherited by every fork) |
+| Merge commit filtering | Author emails from `"Merge pull request"` commits (PR reviewers, not plagiarism) |
+| Popularity threshold | File hashes, commit messages, or emails shared by >10% of students (prescribed fixes, lab-instructed messages) |
+| Trivial message skip | Generic messages like `"initial commit"`, `"update readme.md"`, and messages <10 chars |
+
+### Usage
+
+```bash
+# 1. Export student list (one GitHub username per line)
+ssh nurios@188.245.43.68 "docker exec autochecker-bot python3 -c \"
+import sqlite3
+conn = sqlite3.connect('/app/data/bot.db')
+for r in conn.execute('SELECT github_alias FROM users WHERE github_alias != \\\"\\\"').fetchall():
+    print(r[0])
+\"" > students.txt
+
+# 2. Run batch check with plagiarism analysis
+python main.py batch \
+  -s students.txt \
+  -l lab-03 \
+  --template-repo inno-se-toolkit/se-toolkit-lab-3 \
+  --plagiarism \
+  --threshold 0.5 \
+  -w 5 \
+  -o /tmp/lab3-results
+```
+
+### CLI options
+
+| Flag | Default | Description |
+|---|---|---|
+| `--plagiarism / --no-plagiarism` | on | Enable/disable plagiarism analysis |
+| `--template-repo owner/name` | from spec | Upstream template repo for diff-based comparison |
+| `--threshold 0.5` | `0.5` | Minimum file similarity ratio to flag a pair |
+
+### Output files
+
+| File | Description |
+|---|---|
+| `batch_summary.html` | Per-student scores and links to individual reports |
+| `plagiarism_report.json` | All file-similarity pairs above threshold |
+| `plagiarism_detailed_report.html` | Side-by-side file contents for flagged pairs |
+| `git_plagiarism_flags.json` | All git history flags (shared SHAs, messages, emails) |
+| `git_plagiarism_report.html` | Formatted table of git history flags |
+
+### Interpreting results
+
+- **Shared commit SHAs** (critical severity) are the strongest signal — they mean one student literally has another student's commit objects in their repo. This only happens via `git push` of someone else's history or cloning their repo.
+- **File similarity** is useful but noisy for labs with prescribed fixes. After the popularity filter, only genuinely unusual matches remain. Look for pairs sharing 5+ non-template files.
+- **Identical commit messages** are common when labs suggest specific conventional commit messages. The popularity filter removes these. Remaining matches (shared by 2-3 students) may indicate copying but need manual review.
+- **Shared author emails** after merge-commit filtering means someone's git email appears in non-merge commits on another student's repo — i.e., one person authored code in both repos.
+
+### Spec configuration
+
+You can set plagiarism defaults in the lab YAML spec:
+
+```yaml
+plagiarism:
+  template_repo: "inno-se-toolkit/se-toolkit-lab-3"
+  threshold: 0.5
+  include_paths:
+    - "src/*"
+  exclude_paths:
+    - "docs/*"
+  include_extensions:
+    - ".py"
+    - ".js"
+```
+
+### Reports directory
+
+Analysis reports are saved in `reports/` with date-stamped directories (e.g. `reports/lab3-plagiarism-2026-02-27/`). These are not auto-generated — save them manually after review.
 
 ## Architecture
 
