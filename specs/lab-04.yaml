@@ -317,8 +317,8 @@ checks:
     params:
       commands:
         - "uv sync"
-        - "uv run poe test"
-      timeout: 120
+        - "API_TOKEN=test uv run poe test"
+      timeout: 180
 
   - id: task2_interactions_deployed
     task: task-2

@@ -1135,11 +1135,18 @@ class CheckEngine:
     def _run_direct(self, workdir: str, commands: List[str], timeout: int) -> Tuple[bool, str]:
         """Fallback: run commands directly (for local dev without Docker)."""
         import subprocess
+        import os
+
+        # Sanitise environment: drop vars that leak from the host and
+        # confuse uv / venv discovery inside the cloned project.
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME")}
 
         for cmd in commands:
             result = subprocess.run(
                 cmd, shell=True, cwd=workdir,
-                capture_output=True, text=True, timeout=timeout
+                capture_output=True, text=True, timeout=timeout,
+                env=env,
             )
             if result.returncode != 0:
                 stderr = result.stderr.strip()
