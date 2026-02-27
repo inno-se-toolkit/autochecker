@@ -12,6 +12,7 @@ import uuid
 from datetime import date
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlencode
 
 import aiosqlite
 import yaml
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 _BASE_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = os.getenv("DB_PATH", str(_BASE_DIR / "bot.db"))
 SPECS_DIR = _BASE_DIR / "specs"
-ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "lab-01").split(",") if l.strip()]
+ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "").split(",") if l.strip()]
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 
 RELAY_TOKEN = os.getenv("RELAY_TOKEN", "")
@@ -111,7 +112,10 @@ async def login_submit(password: str = Form(...)):
 def load_task_metadata() -> list[dict]:
     """Load task id+title from spec files for active labs."""
     tasks: list[dict] = []
-    for lab_id in ACTIVE_LABS:
+    discovered_labs = sorted(path.stem for path in SPECS_DIR.glob("lab-*.yaml"))
+    lab_ids = ACTIVE_LABS + [lab for lab in discovered_labs if lab not in ACTIVE_LABS]
+
+    for lab_id in lab_ids:
         spec_path = SPECS_DIR / f"{lab_id}.yaml"
         if not spec_path.exists():
             continue
@@ -259,6 +263,10 @@ async def student_detail(
     request: Request,
     github_alias: str,
     error: Optional[str] = Query(default=None),
+    info: Optional[str] = Query(default=None),
+    lab: Optional[str] = Query(default=None),
+    task: Optional[str] = Query(default=None),
+    count: Optional[int] = Query(default=None),
 ):
     """Detail page: full check history for a student."""
     task_meta = load_task_metadata()
@@ -298,11 +306,47 @@ async def student_detail(
                         pass
                 results.append(r)
 
+        latest_by_task: dict[str, dict] = {}
+        for result in results:
+            key = f"{result['lab_id']}:{result['task_id']}"
+            if key not in latest_by_task:
+                latest_by_task[key] = result
+
+        task_attempts_map: dict[str, dict] = {}
+        async with db.execute(
+            """SELECT lab_id, task_id, COUNT(*) AS attempts, MAX(timestamp) AS last_attempt
+               FROM attempts WHERE tg_id = ? GROUP BY lab_id, task_id
+               ORDER BY lab_id, task_id""",
+            (student["tg_id"],)
+        ) as cur:
+            async for row in cur:
+                key = f"{row['lab_id']}:{row['task_id']}"
+                latest = latest_by_task.get(key, {})
+                task_attempts_map[key] = {
+                    "lab_id": row["lab_id"],
+                    "task_id": row["task_id"],
+                    "title": title_map.get(key, row["task_id"]),
+                    "attempts": row["attempts"] or 0,
+                    "last_attempt": row["last_attempt"] or "",
+                    "score": latest.get("score") or "—",
+                    "status": latest.get("status", "none"),
+                }
+
+        task_attempts = sorted(
+            task_attempts_map.values(),
+            key=lambda row: (row["lab_id"], row["task_id"]),
+        )
+
     return templates.TemplateResponse("student.html", {
         "request": request,
         "student": student,
         "results": results,
+        "task_attempts": task_attempts,
         "error": error,
+        "info": info,
+        "info_lab": lab,
+        "info_task": task,
+        "info_count": count,
     })
 
 
@@ -350,6 +394,51 @@ async def student_edit(
         await db.commit()
 
     return RedirectResponse(f"/student/{new_github_alias}", status_code=302)
+
+
+@app.post("/student/{github_alias}/attempts/reset")
+async def student_reset_attempts(
+    github_alias: str,
+    lab_id: str = Form(...),
+    task_id: str = Form(...),
+):
+    """Reset attempts counter for a student's specific lab task."""
+    lab_id = lab_id.strip()
+    task_id = task_id.strip()
+    if not lab_id or not task_id:
+        return RedirectResponse(f"/student/{github_alias}", status_code=302)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        async with db.execute(
+            "SELECT COUNT(*) AS cnt FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
+            (tg_id, lab_id, task_id),
+        ) as cur:
+            count_row = await cur.fetchone()
+        deleted_count = int(count_row["cnt"]) if count_row else 0
+
+        await db.execute(
+            "DELETE FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
+            (tg_id, lab_id, task_id),
+        )
+        await db.commit()
+
+    query = urlencode({
+        "info": "attempts_reset",
+        "lab": lab_id,
+        "task": task_id,
+        "count": deleted_count,
+    })
+    return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
 
 
 @app.get("/export/csv")

@@ -76,6 +76,13 @@
         .btn-cancel { padding: 0.45rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; border: 1px solid #d1d5db; background: #fff; cursor: pointer; color: #374151; }
         .btn-cancel:hover { background: #f9fafb; }
         .error-banner { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.6rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; }
+        .success-banner { background: #ecfdf3; border: 1px solid #a7f3d0; color: #065f46; padding: 0.6rem 1rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.85rem; }
+
+        /* Attempts table */
+        .section-title { font-size: 1rem; font-weight: 600; color: #1f2937; margin: 1rem 0 0.6rem; }
+        .btn-reset { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; border: 1px solid #fca5a5; background: #fff; color: #b91c1c; cursor: pointer; }
+        .btn-reset:hover { background: #fef2f2; }
+        .inline-form { margin: 0; }
     </style>
 </head>
 <body>
@@ -88,6 +95,9 @@
 
         {% if error == "conflict" %}
         <div class="error-banner">Email or GitHub alias already belongs to another student. No changes were made.</div>
+        {% endif %}
+        {% if info == "attempts_reset" %}
+        <div class="success-banner">Attempts reset for {{ info_lab }} / {{ info_task }}. Removed {{ info_count or 0 }} attempt record(s).</div>
         {% endif %}
 
         <div class="student-info">
@@ -138,6 +148,54 @@
                 <button type="button" class="btn-cancel" id="edit-cancel">Cancel</button>
             </div>
         </form>
+
+        <h2 class="section-title">Task Attempts</h2>
+        {% if task_attempts %}
+        <div class="table-wrapper" style="margin-bottom: 1.25rem;">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Lab</th>
+                        <th>Task</th>
+                        <th>Attempts</th>
+                        <th>Latest Score</th>
+                        <th>Status</th>
+                        <th>Last Attempt</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in task_attempts %}
+                    <tr>
+                        <td>{{ a.lab_id }}</td>
+                        <td title="{{ a.title }}">{{ a.task_id }}</td>
+                        <td>{{ a.attempts }}</td>
+                        <td>{{ a.score }}</td>
+                        <td>
+                            {% if a.status == "pass" %}
+                                <span class="badge badge-pass">PASSED</span>
+                            {% elif a.status == "partial" %}
+                                <span class="badge badge-partial">PARTIAL</span>
+                            {% else %}
+                                <span class="badge badge-none">&mdash;</span>
+                            {% endif %}
+                        </td>
+                        <td class="ts">{{ a.last_attempt[:16] | replace("T", " ") if a.last_attempt else "—" }}</td>
+                        <td>
+                            <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/reset" onsubmit="return confirm('Reset attempts for this task? Previous check results will stay in history.');">
+                                <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
+                                <input type="hidden" name="task_id" value="{{ a.task_id }}">
+                                <button type="submit" class="btn-reset">Reset attempts</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="empty">No attempts recorded yet.</p>
+        {% endif %}
 
         {% if results %}
         <div class="table-wrapper">
