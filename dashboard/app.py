@@ -223,21 +223,19 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         ts = last_submission.get(s["tg_id"], "")
         s["last_submission"] = ts[:16].replace("T", " ") if ts else ""
 
+    # >=75% counts as "passed" for completion metrics
+    _PASS_STATUSES = ("pass", "partial")
+
     # Compute per-task pass rates
     task_stats = {}
     for t in tasks:
         key = f"{t['lab_id']}:{t['task_id']}"
         passed_count = sum(
             1 for s in students
-            if scores.get(s["tg_id"], {}).get(key, {}).get("status") == "pass"
-        )
-        attempted_count = sum(
-            1 for s in students
-            if scores.get(s["tg_id"], {}).get(key, {}).get("status") in ("pass", "partial")
+            if scores.get(s["tg_id"], {}).get(key, {}).get("status") in _PASS_STATUSES
         )
         task_stats[key] = {
             "passed": passed_count,
-            "attempted": attempted_count,
             "pass_rate": round(passed_count / len(students) * 100) if students else 0,
         }
 
@@ -257,7 +255,7 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
             attempted_students += 1
             passed_tasks = sum(
                 1 for k in required_keys
-                if student_scores.get(k, {}).get("status") == "pass"
+                if student_scores.get(k, {}).get("status") in _PASS_STATUSES
             )
             completion_sum += passed_tasks / len(required_keys)
         avg_completion = round(completion_sum / attempted_students * 100) if attempted_students else 0
@@ -265,7 +263,7 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         completed_count = sum(
             1 for s in students
             if all(
-                scores.get(s["tg_id"], {}).get(k, {}).get("status") == "pass"
+                scores.get(s["tg_id"], {}).get(k, {}).get("status") in _PASS_STATUSES
                 for k in required_keys
             )
         )
