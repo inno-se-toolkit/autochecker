@@ -241,20 +241,31 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
             "pass_rate": round(passed_count / len(students) * 100) if students else 0,
         }
 
-    # Overall completion: student completed lab = passed all tasks in that lab
-    if students and tasks:
-        task_keys = [f"{t['lab_id']}:{t['task_id']}" for t in tasks]
-        completed = sum(
-            1 for s in students
-            if all(
-                scores.get(s["tg_id"], {}).get(k, {}).get("status") == "pass"
-                for k in task_keys
+    # Average completion across required tasks (excluding optional/setup), only for students who attempted
+    required_keys = [
+        f"{t['lab_id']}:{t['task_id']}" for t in tasks
+        if not t["task_id"].startswith("optional") and t["task_id"] != "setup"
+    ]
+    if students and required_keys:
+        completion_sum = 0
+        attempted_students = 0
+        for s in students:
+            student_scores = scores.get(s["tg_id"], {})
+            has_any = any(student_scores.get(k) for k in required_keys)
+            if not has_any:
+                continue
+            attempted_students += 1
+            passed_tasks = sum(
+                1 for k in required_keys
+                if student_scores.get(k, {}).get("status") == "pass"
             )
-        )
-        completion_pct = round(completed / len(students) * 100)
+            completion_sum += passed_tasks / len(required_keys)
+        avg_completion = round(completion_sum / attempted_students * 100) if attempted_students else 0
+        not_started = len(students) - attempted_students
     else:
-        completed = 0
-        completion_pct = 0
+        avg_completion = 0
+        attempted_students = 0
+        not_started = len(students)
 
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -264,8 +275,8 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         "task_stats": task_stats,
         "labs": labs,
         "active_lab": active_lab,
-        "completion_pct": completion_pct,
-        "completed_count": completed,
+        "avg_completion": avg_completion,
+        "not_started": not_started,
     })
 
 
