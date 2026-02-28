@@ -13,6 +13,7 @@ services:
       - autochecker-results:/app/results
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/autochecker-sandbox:/tmp/autochecker-sandbox
+      - ${SSH_KEY_PATH:-/home/nurios/autochecker-ssh-key}:/app/ssh_key:ro
     command: python3 main_bot.py
 
   sandbox:
