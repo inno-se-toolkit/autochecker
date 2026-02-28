@@ -281,12 +281,25 @@ params:
   timeout: 10                 # seconds
 ```
 
-### Relay routing (internal IPs)
+### Routing: internal vs public IPs
 
-For university VMs (10.x.x.x), SSH checks go through the relay worker:
+The engine routes SSH and HTTP checks differently based on the student's IP:
+
+| Student IP | Route | SSH key location |
+|---|---|---|
+| Internal (`10.93.x.x`) | Bot → Relay worker → Student VM | Relay VM: `~/.ssh/autochecker_ed25519` |
+| Public (e.g. `92.x.x.x`) | Bot → direct SSH/HTTP → Student VM | Bot container: `/app/ssh_key` (mounted from `~/autochecker-ssh-key`) |
+
+For relay-routed checks:
 ```
 Engine → POST /relay/ssh → Dashboard → WebSocket → Relay Worker (university VM) → SSH → Student VM
 ```
+
+**Known limitation**: The relay worker runs on `10.93.24.120` and can only reach the `10.93.x.x` subnet. Students on other internal subnets (e.g. `10.90.x.x`) cannot be reached — their deployment checks must be passed manually via the dashboard or DB.
+
+For direct SSH checks, the bot container requires:
+- `openssh-client` installed (in `deploy/Dockerfile`)
+- SSH private key mounted at `/app/ssh_key` (in `deploy/docker-compose.yml`)
 
 ### SSH key setup
 
@@ -361,8 +374,9 @@ ssh deploy@10.93.24.120 "sudo systemctl restart relay-worker"
 | Dashboard | `nurios@188.245.43.68` | `autochecker-dashboard` container (port 8082) |
 | Sandbox image | `nurios@188.245.43.68` | `autochecker-sandbox` (built, not running) |
 | Nginx | `nurios@188.245.43.68` | `/etc/nginx/sites-enabled/auche.namaz.live` |
+| SSH key (bot) | `nurios@188.245.43.68` | `~/autochecker-ssh-key` → mounted as `/app/ssh_key` (for direct SSH to public IPs) |
 | Relay worker | `deploy@10.93.24.120` | `relay-worker.service` (`~/relay/worker.py`) |
-| SSH key | `deploy@10.93.24.120` | `~/.ssh/autochecker_ed25519` |
+| SSH key (relay) | `deploy@10.93.24.120` | `~/.ssh/autochecker_ed25519` (for SSH through relay to internal IPs) |
 | Repo on server | `nurios@188.245.43.68` | `~/autochecker` (git clone) |
 
 ### Deploy a new version (Hetzner)
@@ -569,6 +583,11 @@ docker compose build sandbox
 | `clone_and_run` exit code 2 | Import errors in student code | Ensure spec commands set required env vars (e.g. `API_TOKEN=test`) |
 | Container has old code after deploy | Forgot to `docker compose build` | Always build before `up -d` |
 | Dashboard doesn't reflect new lab | Dashboard container not rebuilt | Rebuild dashboard: `docker compose build dashboard && docker compose up -d dashboard` |
+| "SSH key not found at /app/ssh_key" | SSH private key not mounted into bot container | Save key to `~/autochecker-ssh-key` on server, verify `docker-compose.yml` mounts it |
+| SSH exit code 255 for public IP students | `openssh-client` not in Dockerfile, or key not mounted | Check `deploy/Dockerfile` has `openssh-client`, rebuild |
+| SSH timeout for `10.90.x.x` students | Relay worker on `10.93.x.x` can't route to `10.90.x.x` | Pass deployment checks manually; no fix without a second relay |
+| HTTP expect_status mismatch (e.g. expected 403 got 401) | App returns different auth error code than spec expects | Verify actual response with `curl`, update spec `expect_status` |
+| Student IP typo (e.g. `0.93.x.x` instead of `10.93.x.x`) | Mistyped IP during bot registration | Fix via dashboard or DB: `UPDATE users SET server_ip = '...' WHERE github_alias = '...'` |
 
 ## License
 
