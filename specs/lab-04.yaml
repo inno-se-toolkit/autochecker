@@ -335,7 +335,7 @@ checks:
     params:
       runtime: prod
       path: "/interactions/"
-      expect_status: 403
+      expect_status: 401
 
   - id: task2_issue_has_linked_pr
     task: task-2
