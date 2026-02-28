@@ -20,6 +20,10 @@
         .stat { display: flex; flex-direction: column; }
         .stat-value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
         .stat-label { font-size: 0.8rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-green .stat-value { color: #166534; }
+        .stat-green .stat-label { color: #166534; }
+        .stat-yellow .stat-value { color: #854d0e; }
+        .stat-yellow .stat-label { color: #854d0e; }
 
         .tabs { display: flex; gap: 0.25rem; padding: 0.75rem 2rem 0; background: #fff; }
         .tab { padding: 0.5rem 1.25rem; border-radius: 6px 6px 0 0; font-size: 0.85rem; font-weight: 500; text-decoration: none; color: #6b7280; background: transparent; border: 1px solid transparent; border-bottom: none; transition: all 0.15s; }
@@ -71,11 +75,15 @@
             <span class="stat-value">{{ students | length }}</span>
             <span class="stat-label">Students</span>
         </div>
+        <div class="stat stat-green">
+            <span class="stat-value">{{ completed_count }}</span>
+            <span class="stat-label">Completed all</span>
+        </div>
         <div class="stat">
             <span class="stat-value">{{ avg_completion }}%</span>
             <span class="stat-label">Avg completion (required)</span>
         </div>
-        <div class="stat">
+        <div class="stat stat-yellow">
             <span class="stat-value">{{ not_started }}</span>
             <span class="stat-label">Not started</span>
         </div>

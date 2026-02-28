@@ -262,10 +262,18 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
             completion_sum += passed_tasks / len(required_keys)
         avg_completion = round(completion_sum / attempted_students * 100) if attempted_students else 0
         not_started = len(students) - attempted_students
+        completed_count = sum(
+            1 for s in students
+            if all(
+                scores.get(s["tg_id"], {}).get(k, {}).get("status") == "pass"
+                for k in required_keys
+            )
+        )
     else:
         avg_completion = 0
         attempted_students = 0
         not_started = len(students)
+        completed_count = 0
 
     return templates.TemplateResponse("index.html", {
         "request": request,
@@ -277,6 +285,7 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         "active_lab": active_lab,
         "avg_completion": avg_completion,
         "not_started": not_started,
+        "completed_count": completed_count,
     })
 
 
