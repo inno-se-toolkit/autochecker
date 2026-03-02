@@ -24,7 +24,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SPECS_DIR = BASE_DIR / "specs"
 RESULTS_DIR = BASE_DIR / "results"
 EXECUTION_TIMEOUT = 120  # seconds
-MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "3"))
+MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "12"))
 
 # Active labs — controls which tasks appear in the bot
 # Comma-separated list in env var, e.g. "lab-01,lab-02"
