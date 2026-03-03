@@ -1,0 +1,554 @@
+id: lab-05
+title: "Lab 05 — Data Pipeline and Analytics Dashboard"
+repo_name: "se-toolkit-lab-5"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}:42002"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.8
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Build the Data Pipeline"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Analytics Endpoints"
+    prerequisite: task-1
+  - id: task-3
+    title: "Task 3: Dashboard Front-end"
+    prerequisite: task-2
+  - id: optional-1
+    title: "Optional 1: Grafana Dashboard"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_is_fork
+    task: setup
+    title: "Repository is a fork"
+    class: structural
+    runner: code
+    type: repo_is_fork
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of the course instructors' repo.
+      Fork it from https://github.com/inno-se-toolkit/se-toolkit-lab-5.
+    params: {}
+
+  - id: repo_has_issues
+    task: setup
+    title: "Issues are enabled"
+    class: structural
+    runner: code
+    type: repo_has_issues
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Enable issues in your repo: Settings -> General -> Features -> Issues.
+    params: {}
+
+  # =====================================================
+  # TASK 1: Build the Data Pipeline
+  # =====================================================
+
+  - id: task1_issue_exists
+    task: task-1
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Build the Data Pipeline.
+    params:
+      title_regex: "\\[Task\\]\\s+Build the Data Pipeline"
+      state: "all"
+
+  - id: task1_ssh_connectivity
+    task: task-1
+    title: "SSH login as autochecker works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      Create an 'autochecker' user on your VM and add the autochecker's
+      public SSH key to /home/autochecker/.ssh/authorized_keys.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "echo ok"
+      expect_exit: 0
+      expect_regex: "ok"
+
+  - id: task1_deployment_docs
+    task: task-1
+    title: "Deployed /docs returns 200"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 4
+    depends_on: [task1_ssh_connectivity]
+    hint: >
+      The Swagger UI at http://<vm-ip>:42002/docs should be accessible.
+      Make sure your Docker Compose services are running on the VM.
+    params:
+      runtime: prod
+      path: "/docs"
+      expect_status: 200
+
+  - id: task1_etl_uses_httpx
+    task: task-1
+    title: "ETL pipeline uses httpx for API calls"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      Implement the fetch functions in backend/app/etl.py using
+      httpx.AsyncClient for HTTP requests.
+    params:
+      path: "backend/app/etl.py"
+      pattern: "httpx\\.AsyncClient|httpx\\.Client"
+
+  - id: task1_etl_has_pagination
+    task: task-1
+    title: "ETL pipeline handles pagination"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      The fetch_logs function must handle pagination by checking the
+      has_more field and fetching additional pages.
+    params:
+      path: "backend/app/etl.py"
+      pattern: "has_more"
+
+  - id: task1_etl_has_upsert
+    task: task-1
+    title: "ETL pipeline performs idempotent upserts"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      The load functions must check for existing records before inserting
+      (using external_id) to avoid duplicates on re-runs.
+    params:
+      path: "backend/app/etl.py"
+      pattern: "external_id"
+
+  - id: task1_items_endpoint_deployed
+    task: task-1
+    title: "Deployed /items/ endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /items/ endpoint must be accessible on the VM. It should return
+      403 when accessed without authentication.
+    params:
+      runtime: prod
+      path: "/items/"
+      expect_status: 403
+
+  - id: task1_commit
+    task: task-1
+    title: "Commit message for ETL pipeline"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: implement ETL pipeline for autochecker data
+    params:
+      pattern: "^feat:\\s+implement ETL pipeline"
+
+  - id: task1_issue_has_linked_pr
+    task: task-1
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task1_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Build the Data Pipeline"
+      merged: true
+
+  - id: task1_pr_approved
+    task: task-1
+    title: "Task 1 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task1_issue_exists]
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Build the Data Pipeline"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 2: Analytics Endpoints
+  # =====================================================
+
+  - id: task2_issue_exists
+    task: task-2
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Analytics Endpoints.
+    params:
+      title_regex: "\\[Task\\]\\s+Analytics Endpoints"
+      state: "all"
+
+  - id: task2_analytics_has_queries
+    task: task-2
+    title: "Analytics endpoints have SQL query logic"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      Implement the analytics endpoints in backend/app/routers/analytics.py.
+      Replace 'raise NotImplementedError' with actual SQL query logic.
+    params:
+      path: "backend/app/routers/analytics.py"
+      pattern: "select|func\\."
+      min_matches: 2
+
+  - id: task2_tests_pass
+    task: task-2
+    title: "All unit tests pass (20 tests)"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: true
+    weight: 5
+    hint: >
+      All unit tests must pass. Run `uv run poe test` locally to verify.
+      There should be 17 analytics tests + 3 interaction tests = 20 total.
+    params:
+      commands:
+        - "uv sync"
+        - "API_KEY=test uv run poe test"
+      timeout: 180
+
+  - id: task2_analytics_scores_deployed
+    task: task-2
+    title: "Deployed /analytics/scores endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /analytics/scores endpoint must be accessible on the VM.
+      Deploy and rebuild your containers.
+    params:
+      runtime: prod
+      path: "/analytics/scores?lab=lab-04"
+      expect_status: 403
+
+  - id: task2_commit
+    task: task-2
+    title: "Commit message for analytics endpoints"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: implement analytics endpoints (scores, pass-rates, timeline, groups)
+    params:
+      pattern: "^feat:\\s+implement analytics endpoints"
+
+  - id: task2_issue_has_linked_pr
+    task: task-2
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task2_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Analytics Endpoints"
+      merged: true
+
+  - id: task2_pr_approved
+    task: task-2
+    title: "Task 2 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task2_issue_exists]
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Analytics Endpoints"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 3: Dashboard Front-end
+  # =====================================================
+
+  - id: task3_issue_exists
+    task: task-3
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Dashboard Front-end.
+    params:
+      title_regex: "\\[Task\\]\\s+Dashboard Front-end"
+      state: "all"
+
+  - id: task3_chartjs_dependency
+    task: task-3
+    title: "react-chartjs-2 is in package.json dependencies"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      Install chart.js and react-chartjs-2 in the frontend directory:
+      cd frontend && npm install chart.js react-chartjs-2
+    params:
+      path: "frontend/package.json"
+      pattern: "react-chartjs-2"
+
+  - id: task3_dashboard_imports_chartjs
+    task: task-3
+    title: "Dashboard component imports from Chart.js"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task3_chartjs_dependency]
+    hint: >
+      Create frontend/src/Dashboard.tsx and import chart components
+      from react-chartjs-2 (e.g., import { Bar } from 'react-chartjs-2').
+    params:
+      path: "frontend/src/Dashboard.tsx"
+      pattern: "react-chartjs-2|chart\\.js"
+
+  - id: task3_dashboard_has_canvas
+    task: task-3
+    title: "Dashboard renders chart elements"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task3_dashboard_imports_chartjs]
+    hint: >
+      Your Dashboard component must render at least one chart component
+      (Bar, Line, Pie, Doughnut, etc.) from react-chartjs-2.
+    params:
+      path: "frontend/src/Dashboard.tsx"
+      pattern: "<Bar|<Line|<Pie|<Doughnut|<Radar|<Scatter"
+
+  - id: task3_navigation
+    task: task-3
+    title: "Navigation between Items page and Dashboard exists"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      Update frontend/src/App.tsx to include navigation between the
+      Items page and the Dashboard (e.g., buttons or links to switch pages).
+    params:
+      path: "frontend/src/App.tsx"
+      pattern: "[Dd]ashboard"
+
+  - id: task3_frontend_deployed
+    task: task-3
+    title: "Frontend is served on the VM"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 4
+    depends_on: [task1_deployment_docs]
+    hint: >
+      Rebuild the Caddy container on your VM with
+      'docker compose --env-file .env.docker.secret up --build caddy -d'.
+      Caddy serves the frontend at the root URL (http://<vm-ip>:42002/).
+    params:
+      runtime: prod
+      path: "/"
+      expect_status: 200
+      expect_body_regex: "<html|<!doctype"
+
+  - id: task3_commit
+    task: task-3
+    title: "Commit message for dashboard front-end"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: add analytics dashboard with charts
+    params:
+      pattern: "^feat:\\s+add analytics dashboard"
+
+  - id: task3_issue_has_linked_pr
+    task: task-3
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Dashboard Front-end"
+      merged: true
+
+  - id: task3_pr_approved
+    task: task-3
+    title: "Task 3 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Dashboard Front-end"
+      min_approvals: 1
+
+  # =====================================================
+  # OPTIONAL 1: Grafana Dashboard
+  # =====================================================
+
+  - id: grafana_issue_exists
+    task: optional-1
+    title: "Grafana task issue exists and is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Grafana Dashboard.
+      Close the issue when you are done.
+    params:
+      title_regex: "\\[Task\\]\\s+Grafana Dashboard"
+      state: "closed"
+
+  - id: grafana_issue_has_reflection
+    task: optional-1
+    title: "Issue has a reflection comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: false
+    weight: 1
+    depends_on: [grafana_issue_exists]
+    hint: >
+      Add a comment to the issue comparing the hand-built dashboard
+      (React + Chart.js) with the tool-assisted dashboard (Grafana).
+    params:
+      title_regex: "\\[Task\\]\\s+Grafana Dashboard"
+      comment_pattern: "(?i)(grafana|chart\\.?js|react|dashboard|hand.?built|tool)"
+      state: "closed"
+
+  - id: grafana_accessible
+    task: optional-1
+    title: "Grafana is accessible on port 3000"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: false
+    weight: 2
+    depends_on: [task1_ssh_connectivity]
+    hint: >
+      Uncomment the grafana service in docker-compose.yml and run
+      'docker compose --env-file .env.docker.secret up --build -d'.
+      Grafana should be accessible at http://<vm-ip>:3000.
+    params:
+      runtime: prod
+      base_url: "http://{server_ip}:3000"
+      path: "/api/health"
+      expect_status: 200

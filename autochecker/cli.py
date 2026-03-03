@@ -41,10 +41,10 @@ LAB_CONFIG = {
         "ready": True,
     },
     "lab-05": {
-        "name": "Lab 05 – (Coming soon)",
-        "repo_suffix": "lab-05-tbd",
+        "name": "Lab 05 — Data Pipeline and Analytics Dashboard",
+        "repo_suffix": "se-toolkit-lab-5",
         "spec": "specs/lab-05.yaml",
-        "ready": False,
+        "ready": True,
     },
     "lab-06": {
         "name": "Lab 06 – (Coming soon)",
