@@ -10,13 +10,12 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip
+from ..ip_utils import validate_ip
 from ..keyboards import get_tasks_keyboard
 from ..runner import run_check
 from ..config import MAX_ATTEMPTS_PER_TASK, get_tasks_needing_ip
 
 router = Router()
-
-IP_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$")
 
 
 class CheckStates(StatesGroup):
@@ -198,11 +197,9 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
     """Handle server IP input, save it, and run the check."""
     ip = message.text.strip() if message.text else ""
 
-    if not IP_RE.match(ip):
-        await message.answer(
-            "That doesn't look like a valid IP address.\n"
-            "Please send just the IP (e.g., <code>10.90.138.42</code>):"
-        )
+    valid, error_msg = validate_ip(ip)
+    if not valid:
+        await message.answer(error_msg)
         return
 
     # Check uniqueness — each student must have their own VM IP
