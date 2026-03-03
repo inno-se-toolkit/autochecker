@@ -1,6 +1,7 @@
 """Web dashboard for viewing students and check results."""
 
 import asyncio
+import base64
 import csv
 import hashlib
 import hmac
@@ -65,7 +66,7 @@ async def auth_middleware(request: Request, call_next):
     if not DASHBOARD_PASSWORD:
         return await call_next(request)
 
-    if request.url.path in ("/login", "/login/") or request.url.path.startswith("/relay/"):
+    if request.url.path in ("/login", "/login/") or request.url.path.startswith("/relay/") or request.url.path.startswith("/api/"):
         return await call_next(request)
 
     cookie = request.cookies.get(COOKIE_NAME, "")
@@ -518,6 +519,184 @@ async def export_csv(lab: Optional[str] = Query(default=None)):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Public API: anonymized data for Lab 5 ETL
+# ---------------------------------------------------------------------------
+
+# Lab titles for /api/items
+_LAB_TITLES = {
+    "lab-01": "Lab 01 – Products, Architecture & Roles",
+    "lab-02": "Lab 02 — Run, Fix, and Deploy a Backend Service",
+    "lab-03": "Lab 03 — Backend API: Explore, Debug, Implement, Deploy",
+    "lab-04": "Lab 04 — Testing, Front-end, and AI Agents",
+}
+
+
+def _anonymize_student(tg_id: int, github_alias: str) -> str:
+    """Generate a stable 8-char anonymous ID for a student."""
+    data = f"{tg_id}:{github_alias}"
+    return hashlib.sha256(data.encode()).hexdigest()[:8]
+
+
+async def _verify_basic_auth(request: Request) -> Optional[str]:
+    """Verify HTTP Basic Auth. Returns email on success, None on failure.
+
+    Expected credentials: email as username, {github_username}{tg_alias} as password.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Basic "):
+        return None
+    try:
+        decoded = base64.b64decode(auth[6:]).decode("utf-8")
+        email, password = decoded.split(":", 1)
+    except Exception:
+        return None
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT github_alias, tg_username FROM users WHERE email = ?", (email,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        expected = f"{row['github_alias']}{row['tg_username']}"
+        if not hmac.compare_digest(password, expected):
+            return None
+    return email
+
+
+@app.get("/api/items")
+async def api_items(request: Request):
+    """Return the lab/task catalog derived from autochecker specs."""
+    email = await _verify_basic_auth(request)
+    if not email:
+        return JSONResponse(
+            {"error": "unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
+        )
+
+    task_meta = load_task_metadata()
+    items = []
+    seen_labs = set()
+    for t in task_meta:
+        lab_id = t["lab_id"]
+        if lab_id not in seen_labs:
+            seen_labs.add(lab_id)
+            items.append({
+                "lab": lab_id,
+                "task": None,
+                "title": _LAB_TITLES.get(lab_id, lab_id),
+                "type": "lab",
+            })
+        items.append({
+            "lab": lab_id,
+            "task": t["task_id"],
+            "title": t["title"],
+            "type": "task",
+        })
+    return JSONResponse(items)
+
+
+@app.get("/api/logs")
+async def api_logs(
+    request: Request,
+    since: Optional[str] = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=5000),
+):
+    """Return anonymized check results for ETL consumption."""
+    email = await _verify_basic_auth(request)
+    if not email:
+        return JSONResponse(
+            {"error": "unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
+        )
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Build student anonymization map
+        anon_map: dict[int, tuple[str, str]] = {}  # tg_id -> (anon_id, group)
+        async with db.execute(
+            "SELECT tg_id, github_alias, student_group FROM users"
+        ) as cur:
+            async for row in cur:
+                anon_map[row["tg_id"]] = (
+                    _anonymize_student(row["tg_id"], row["github_alias"]),
+                    row["student_group"] or "",
+                )
+
+        # Fetch results with optional since filter
+        if since:
+            query = """
+                SELECT id, tg_id, lab_id, task_id, score, passed, failed, total, details, timestamp
+                FROM results WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?
+            """
+            params = (since, limit + 1)
+        else:
+            query = """
+                SELECT id, tg_id, lab_id, task_id, score, passed, failed, total, details, timestamp
+                FROM results ORDER BY timestamp ASC LIMIT ?
+            """
+            params = (limit + 1,)
+
+        logs = []
+        async with db.execute(query, params) as cur:
+            async for row in cur:
+                tg_id = row["tg_id"]
+                anon = anon_map.get(tg_id)
+                if not anon:
+                    continue
+
+                # Parse score from "75%" string to 75.0
+                score_val = None
+                if row["score"]:
+                    try:
+                        score_val = float(row["score"].rstrip("%"))
+                    except (ValueError, AttributeError):
+                        pass
+
+                # Parse check details (drop error messages, keep id/title/passed)
+                checks = []
+                if row["details"]:
+                    try:
+                        raw_checks = json.loads(row["details"])
+                        for c in raw_checks:
+                            checks.append({
+                                "check_id": c.get("id", ""),
+                                "title": c.get("title", ""),
+                                "passed": bool(c.get("passed", False)),
+                            })
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                logs.append({
+                    "id": row["id"],
+                    "student_id": anon[0],
+                    "group": anon[1],
+                    "lab": row["lab_id"],
+                    "task": row["task_id"],
+                    "score": score_val,
+                    "passed": row["passed"],
+                    "failed": row["failed"],
+                    "total": row["total"],
+                    "checks": checks,
+                    "submitted_at": row["timestamp"],
+                })
+
+    has_more = len(logs) > limit
+    if has_more:
+        logs = logs[:limit]
+
+    return JSONResponse({
+        "logs": logs,
+        "count": len(logs),
+        "has_more": has_more,
+    })
 
 
 # ---------------------------------------------------------------------------
