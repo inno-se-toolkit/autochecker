@@ -433,6 +433,23 @@ checks:
       path: "frontend/src/App.tsx"
       pattern: "[Dd]ashboard"
 
+  - id: task3_typecheck_passes
+    task: task-3
+    title: "Frontend passes TypeScript strict type checking"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: true
+    weight: 4
+    hint: >
+      Run 'cd frontend && npm install && npm run typecheck' to check for
+      type errors. Fix any errors — do not use 'any' types. AI agents
+      often generate code that fails strict type checking.
+    params:
+      commands:
+        - "cd frontend && npm install && npm run typecheck"
+      timeout: 120
+
   - id: task3_frontend_deployed
     task: task-3
     title: "Frontend is served on the VM"
