@@ -233,15 +233,23 @@ checks:
     title: "Boundary-value unit test added"
     class: structural
     runner: code
-    type: regex_in_file
+    type: any_of
     is_required: true
     weight: 3
     hint: >
-      Add the test test_filter_excludes_interaction_with_different_learner_id
+      Add the boundary-value test
+      test_filter_includes_interaction_with_different_learner_id
       to backend/tests/unit/test_interactions.py.
     params:
-      path: "backend/tests/unit/test_interactions.py"
-      pattern: "def test_filter_excludes_interaction_with_different_learner_id"
+      checks:
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions.py"
+            pattern: "def test_filter_includes_interaction_with_different_learner_id"
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions.py"
+            pattern: "def test_filter_excludes_interaction_with_different_learner_id"
 
   - id: task2_e2e_test_status
     task: task-2

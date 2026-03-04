@@ -1498,22 +1498,46 @@ class CheckEngine:
                 passed, details = self.check_clone_and_run(commands, timeout)
                 if passed: status = "PASS"
 
+            elif check_type == "any_of":
+                # Composite check: passes if ANY child check passes.
+                child_checks = params.get('checks', [])
+                if not child_checks:
+                    status = "ERROR"
+                    details = "any_of: no child checks defined"
+                else:
+                    child_results = []
+                    for i, child in enumerate(child_checks):
+                        child_type = child.get('type', '')
+                        child_params = child.get('params', {})
+                        child_id = f"{check_id}[{i}]"
+                        result = self.run_check(child_id, child_type, child_params)
+                        child_results.append(result)
+                        if result.get('status') == 'PASS':
+                            status = "PASS"
+                            details = f"Matched alternative {i + 1}/{len(child_checks)}: {result.get('details', '')}"
+                            break
+                    if status != "PASS":
+                        fail_details = "; ".join(
+                            f"alt {i + 1}: {r.get('details', 'FAIL')}"
+                            for i, r in enumerate(child_results)
+                        )
+                        details = f"No alternative passed ({fail_details})"
+
             elif check_type == "llm_judge":
                 # LLM checks are handled separately, not through engine
                 status = "SKIP"
                 details = "LLM check is handled separately"
-            
+
             else:
                 # Unsupported check types
                 status = "ERROR"
                 unsupported_checks = {
                     "branch_protection_enabled": "Branch protection check is not implemented. Requires access to GitHub API for Branch Rulesets.",
-                    "or_check": "Compound check (OR) is not implemented.",
                     "file_min_bytes": "Minimum file size check is not implemented.",
                     "pr_links_issue": "PR-to-issue link check is not implemented.",
                 }
                 details = unsupported_checks.get(
-                    check_type, 
+                    check_type,
                     f"Check type '{check_type}' is not implemented. Please add implementation in engine.py"
                 )
 
