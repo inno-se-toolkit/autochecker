@@ -171,18 +171,27 @@ checks:
 
   - id: task2_bug1_fixed
     task: task-2
-    title: "Bug 1 fixed: filter by item_id instead of learner_id"
+    title: "Part A bug fixed in interactions filter"
     class: structural
     runner: code
-    type: regex_in_file
+    type: any_of
     is_required: true
     weight: 4
     hint: >
-      In backend/app/routers/interactions.py, change the filter from
-      i.learner_id == item_id to i.item_id == item_id.
+      Fix the bug in the interactions filter function in
+      backend/app/routers/interactions.py.
     params:
-      path: "backend/app/routers/interactions.py"
-      pattern: "i\\.item_id\\s*==\\s*item_id"
+      checks:
+        # Current: boundary fix (< to <=)
+        - type: regex_in_file
+          params:
+            path: "backend/app/routers/interactions.py"
+            pattern: "i\\.item_id\\s*<=\\s*max_item_id"
+        # Legacy: wrong-field fix (learner_id to item_id)
+        - type: regex_in_file
+          params:
+            path: "backend/app/routers/interactions.py"
+            pattern: "i\\.item_id\\s*==\\s*item_id"
 
   - id: task2_bug2_fixed
     task: task-2
@@ -202,17 +211,25 @@ checks:
 
   - id: task2_commit_bug1
     task: task-2
-    title: "Commit message for Bug 1 fix"
+    title: "Commit message for Part A fix"
     class: process
     runner: code
-    type: commit_message_regex
+    type: any_of
     is_required: true
     weight: 2
     hint: >
-      Your commit message for Bug 1 should be:
-      fix: filter interactions by item_id instead of learner_id
+      Your commit message for the Part A fix should follow the
+      conventional commit format starting with 'fix:'.
     params:
-      pattern: "^fix:\\s+filter interactions by item_id"
+      checks:
+        # Current: boundary fix commit
+        - type: commit_message_regex
+          params:
+            pattern: "^fix:\\s+use <=? instead of <"
+        # Legacy: wrong-field fix commit
+        - type: commit_message_regex
+          params:
+            pattern: "^fix:\\s+filter interactions by item_id"
 
   - id: task2_commit_bug2
     task: task-2
@@ -237,19 +254,20 @@ checks:
     is_required: true
     weight: 3
     hint: >
-      Add the boundary-value test
-      test_filter_includes_interaction_with_different_learner_id
-      to backend/tests/unit/test_interactions.py.
+      Add the boundary-value unit test to
+      backend/tests/unit/test_interactions.py.
     params:
       checks:
+        # Current: boundary test (item_id at boundary)
         - type: regex_in_file
           params:
             path: "backend/tests/unit/test_interactions.py"
-            pattern: "def test_filter_includes_interaction_with_different_learner_id"
+            pattern: "def test_filter_includes_interaction_at_boundary"
+        # Legacy: wrong-field test
         - type: regex_in_file
           params:
             path: "backend/tests/unit/test_interactions.py"
-            pattern: "def test_filter_excludes_interaction_with_different_learner_id"
+            pattern: "def test_filter_(includes|excludes)_interaction_with_different_learner_id"
 
   - id: task2_e2e_test_status
     task: task-2
@@ -268,18 +286,27 @@ checks:
 
   - id: task2_e2e_test_list
     task: task-2
-    title: "E2E test for response is a list added"
+    title: "E2E test for response structure added"
     class: structural
     runner: code
-    type: regex_in_file
+    type: any_of
     is_required: true
     weight: 3
     hint: >
-      Add the test test_get_interactions_response_is_a_list to
-      backend/tests/e2e/test_interactions.py.
+      Add an end-to-end test that validates the response structure
+      to backend/tests/e2e/test_interactions.py.
     params:
-      path: "backend/tests/e2e/test_interactions.py"
-      pattern: "def test_get_interactions_response_is_a_list"
+      checks:
+        # Current: checks response items have expected fields
+        - type: regex_in_file
+          params:
+            path: "backend/tests/e2e/test_interactions.py"
+            pattern: "def test_get_interactions_response_items_have_expected_fields"
+        # Legacy: checks response is a list
+        - type: regex_in_file
+          params:
+            path: "backend/tests/e2e/test_interactions.py"
+            pattern: "def test_get_interactions_response_is_a_list"
 
   - id: task2_commit_ai_tests
     task: task-2
@@ -297,20 +324,29 @@ checks:
 
   - id: task2_ai_tests_present
     task: task-2
-    title: "At least 6 unit test functions exist (3 original + 1 boundary + 2 AI)"
+    title: "AI-generated unit tests present"
     class: structural
     runner: code
-    type: regex_in_file
+    type: any_of
     is_required: true
     weight: 3
     hint: >
-      After adding the boundary-value test and at least 2 curated
-      AI-generated tests, your unit test file should have at least 6 test
-      functions.
+      Generate AI tests and curate them. Keep at least 2, discard at least 1.
+      Current instructions: write to backend/tests/unit/test_interactions_ai.py.
     params:
-      path: "backend/tests/unit/test_interactions.py"
-      pattern: "^def test_"
-      min_matches: 6
+      checks:
+        # Current: separate AI test file with at least 2 test functions
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions_ai.py"
+            pattern: "^def test_"
+            min_matches: 2
+        # Legacy: all tests in one file (3 original + 1 boundary + 2 AI = 6)
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions.py"
+            pattern: "^def test_"
+            min_matches: 6
 
   - id: task2_unit_tests_pass
     task: task-2
