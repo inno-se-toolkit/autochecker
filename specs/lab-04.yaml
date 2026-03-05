@@ -99,21 +99,43 @@ checks:
 
   - id: task1_issue_has_screenshots
     task: task-1
-    title: "Issue comment has screenshot evidence"
+    title: "Issue comment has required evidence (current or legacy)"
     class: process
     runner: code
-    type: issue_comment_regex
+    type: any_of
     is_required: true
     weight: 3
     depends_on: [task1_issue_exists]
     hint: >
-      Add a comment to the issue with screenshots of the browser developer
-      tools Network tab and pgAdmin query results. Paste the images directly
-      into the comment.
+      Add evidence in issue comments.
+      Current task accepts fetch/JSON/CSV evidence and ERD screenshot.
+      Legacy screenshot-only evidence is also accepted.
     params:
-      title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
-      comment_pattern: "!\\[|<img"
-      state: "closed"
+      checks:
+        # Current: request copied as fetch code block
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "```(?:js|javascript|ts|typescript)?\\s*fetch\\("
+            state: "closed"
+        # Current: response pasted as JSON code block
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "```json\\s*\\{"
+            state: "closed"
+        # Current: data output evidence attached/pasted as CSV/TSV
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "(\\.csv\\)|\\.csv\\]|\\.csv\\s|\\.tsv\\)|\\.tsv\\]|\\.tsv\\s|```csv|```tsv)"
+            state: "closed"
+        # Legacy + current: screenshot evidence (markdown image or HTML image)
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "!\\[|<img"
+            state: "closed"
 
   - id: task1_ssh_connectivity
     task: task-1
@@ -433,62 +455,121 @@ checks:
 
   - id: task3_description_in_interface
     task: task-3
-    title: "Description field added to Item interface"
+    title: "Type filter control added (or legacy description field)"
     class: structural
     runner: code
-    type: regex_in_file
+    type: any_of
     is_required: true
     weight: 3
     hint: >
-      Add a 'description' field to the Item interface in
+      Current task: add a type filter control to
+      frontend/src/App.tsx.
+      Legacy task: add a 'description' field to Item interface in
       frontend/src/App.tsx.
     params:
-      path: "frontend/src/App.tsx"
-      pattern: "description.*string"
+      checks:
+        # Current: filter UI control exists
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<select"
+        # Current: selected filter state exists
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "useState\\(\\s*['\"]all['\"]\\s*\\)|useState\\(\\s*['\"]All['\"]\\s*\\)"
+        # Legacy: description field in interface
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "description.*string"
 
   - id: task3_description_header
     task: task-3
-    title: "Description column header in table"
+    title: "All option exists in type filter (or legacy description header)"
     class: structural
     runner: code
-    type: regex_in_file
+    type: any_of
     is_required: true
     weight: 3
     hint: >
-      Add a <th>Description</th> header to the items table in
+      Current task: include an 'All' option in the type filter dropdown.
+      Legacy task: add a <th>Description</th> header in
       frontend/src/App.tsx.
     params:
-      path: "frontend/src/App.tsx"
-      pattern: "<th>Description</th>"
+      checks:
+        # Current: explicit All option
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<option[^>]*>\\s*All\\s*</option>"
+        # Current: fallback check for All literal near option tags
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<option[^>]*value=['\"]all['\"][^>]*>|['\"]All['\"]\\s*</option>"
+        # Legacy: description table header
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<th>Description</th>"
 
   - id: task3_description_cell
     task: task-3
-    title: "Description value rendered in table rows"
+    title: "Rows filtered by type (or legacy description cell)"
     class: structural
     runner: code
-    type: regex_in_file
+    type: any_of
     is_required: true
     weight: 3
     hint: >
-      Render item.description in a <td> cell for each row in the items
-      table in frontend/src/App.tsx.
+      Current task: filter rows by selected item type in
+      frontend/src/App.tsx.
+      Legacy task: render item.description in table rows.
     params:
-      path: "frontend/src/App.tsx"
-      pattern: "item\\.description"
+      checks:
+        # Current: rows are filtered by type before rendering
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "\\.filter\\([\\s\\S]{0,250}item\\.type"
+        # Current: explicit type comparison in filtering condition
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "item\\.type\\s*===|selected.*type|type.*selected"
+        # Legacy: description value rendered
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "item\\.description"
 
   - id: task3_commit_description
     task: task-3
-    title: "Commit message for description column"
+    title: "Commit message for front-end feature (current or legacy)"
     class: process
     runner: code
-    type: commit_message_regex
+    type: any_of
     is_required: true
     weight: 2
     hint: >
-      Your commit message should be:
-      feat: add description column to the front-end table
+      Current task commit message:
+      feat: add type filter to the front-end table
+      Legacy commit message for description column is also accepted.
     params:
-      pattern: "^feat:\\s+add description column"
+      checks:
+        # Current: type filter commit
+        - type: commit_message_regex
+          params:
+            pattern: "^feat:\\s+add type filter to the front-end table"
+        # Current: slightly different wording (frontend/front-end)
+        - type: commit_message_regex
+          params:
+            pattern: "^feat:\\s+add type filter.*front[\\- ]end"
+        # Legacy: description column commit
+        - type: commit_message_regex
+          params:
+            pattern: "^feat:\\s+add description column"
 
   - id: task3_frontend_deployed
     task: task-3
