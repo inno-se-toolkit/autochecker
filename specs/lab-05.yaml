@@ -23,10 +23,10 @@ tasks:
     prerequisite: setup
   - id: task-2
     title: "Task 2: Analytics Endpoints"
-    prerequisite: task-1
+    prerequisite: setup
   - id: task-3
     title: "Task 3: Dashboard Front-end"
-    prerequisite: task-2
+    prerequisite: setup
   - id: optional-1
     title: "Optional 1: Grafana Dashboard"
     prerequisite: setup
