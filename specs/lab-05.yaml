@@ -237,11 +237,11 @@ checks:
     depends_on: [task1_deployment_docs]
     hint: >
       The /items/ endpoint must be accessible on the VM. It should return
-      403 when accessed without authentication.
+      401 when accessed without authentication.
     params:
       runtime: prod
       path: "/items/"
-      expect_status: 403
+      expect_status: 401
 
   - id: task1_learners_endpoint_deployed
     task: task-1
@@ -254,11 +254,11 @@ checks:
     depends_on: [task1_deployment_docs]
     hint: >
       The /learners/ endpoint must be accessible on the VM. It should return
-      403 when accessed without authentication.
+      401 when accessed without authentication.
     params:
       runtime: prod
       path: "/learners/"
-      expect_status: 403
+      expect_status: 401
 
   - id: task1_interactions_endpoint_deployed
     task: task-1
@@ -275,7 +275,7 @@ checks:
     params:
       runtime: prod
       path: "/interactions/"
-      expect_status: 403
+      expect_status: 401
 
   - id: task1_pipeline_endpoint_deployed
     task: task-1
@@ -287,12 +287,12 @@ checks:
     weight: 2
     depends_on: [task1_deployment_docs]
     hint: >
-      The /pipeline/sync endpoint must be accessible on the VM. It should
-      return 403 when accessed without authentication.
+      The /pipeline/sync endpoint must be accessible on the VM. It only
+      accepts POST, so a GET request returns 405 Method Not Allowed.
     params:
       runtime: prod
       path: "/pipeline/sync"
-      expect_status: 403
+      expect_status: 405
 
   - id: task1_student_called_api
     task: task-1
@@ -423,7 +423,7 @@ checks:
     params:
       runtime: prod
       path: "/analytics/scores?lab=lab-04"
-      expect_status: 403
+      expect_status: 401
 
   - id: task2_analytics_pass_rates_deployed
     task: task-2
@@ -439,7 +439,7 @@ checks:
     params:
       runtime: prod
       path: "/analytics/pass-rates?lab=lab-04"
-      expect_status: 403
+      expect_status: 401
 
   - id: task2_analytics_timeline_deployed
     task: task-2
@@ -455,7 +455,7 @@ checks:
     params:
       runtime: prod
       path: "/analytics/timeline?lab=lab-04"
-      expect_status: 403
+      expect_status: 401
 
   - id: task2_analytics_groups_deployed
     task: task-2
@@ -471,7 +471,7 @@ checks:
     params:
       runtime: prod
       path: "/analytics/groups?lab=lab-04"
-      expect_status: 403
+      expect_status: 401
 
   - id: task2_commit
     task: task-2
