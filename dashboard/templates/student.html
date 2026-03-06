@@ -85,7 +85,10 @@
         .section-title { font-size: 1rem; font-weight: 600; color: #1f2937; margin: 1rem 0 0.6rem; }
         .btn-reset { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; border: 1px solid #fca5a5; background: #fff; color: #b91c1c; cursor: pointer; }
         .btn-reset:hover { background: #fef2f2; }
-        .inline-form { margin: 0; }
+        .btn-add { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; border: 1px solid #86efac; background: #fff; color: #166534; cursor: pointer; }
+        .btn-add:hover { background: #f0fdf4; }
+        .inline-form { margin: 0; display: inline; }
+        .action-btns { display: flex; gap: 0.35rem; }
     </style>
 </head>
 <body>
@@ -100,7 +103,7 @@
         <div class="error-banner">Email or GitHub alias already belongs to another student. No changes were made.</div>
         {% endif %}
         {% if info == "attempts_reset" %}
-        <div class="success-banner">Attempts reset for {{ info_lab }} / {{ info_task }}. Removed {{ info_count or 0 }} attempt record(s).</div>
+        <div class="success-banner">Freed {{ info_count or 0 }} attempt(s) for {{ info_lab }} / {{ info_task }}.</div>
         {% endif %}
 
         <div class="student-info">
@@ -189,11 +192,20 @@
                         </td>
                         <td class="ts">{{ a.last_attempt[:16] | replace("T", " ") if a.last_attempt else "—" }}</td>
                         <td>
-                            <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/reset" onsubmit="return confirm('Reset attempts for this task? Previous check results will stay in history.');">
-                                <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
-                                <input type="hidden" name="task_id" value="{{ a.task_id }}">
-                                <button type="submit" class="btn-reset">Reset attempts</button>
-                            </form>
+                            <div class="action-btns">
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" onsubmit="return confirm('Give +5 attempts for this task?');">
+                                    <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
+                                    <input type="hidden" name="task_id" value="{{ a.task_id }}">
+                                    <input type="hidden" name="amount" value="5">
+                                    <button type="submit" class="btn-add">+5</button>
+                                </form>
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" onsubmit="return confirm('Clear ALL attempts for this task? This cannot be undone.');">
+                                    <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
+                                    <input type="hidden" name="task_id" value="{{ a.task_id }}">
+                                    <input type="hidden" name="amount" value="0">
+                                    <button type="submit" class="btn-reset">Clear all</button>
+                                </form>
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}

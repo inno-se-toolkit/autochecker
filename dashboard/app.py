@@ -471,13 +471,17 @@ async def student_edit(
     return RedirectResponse(f"/student/{new_github_alias}", status_code=302)
 
 
-@app.post("/student/{github_alias}/attempts/reset")
-async def student_reset_attempts(
+@app.post("/student/{github_alias}/attempts/free")
+async def student_free_attempts(
     github_alias: str,
     lab_id: str = Form(...),
     task_id: str = Form(...),
+    amount: int = Form(0),
 ):
-    """Reset attempts counter for a student's specific lab task."""
+    """Free up attempts for a student's specific lab task.
+
+    amount=0 means clear all attempts; amount=N deletes the N oldest records.
+    """
     lab_id = lab_id.strip()
     task_id = task_id.strip()
     if not lab_id or not task_id:
@@ -494,17 +498,30 @@ async def student_reset_attempts(
             return HTMLResponse("<h1>Student not found</h1>", status_code=404)
         tg_id = row["tg_id"]
 
-        async with db.execute(
-            "SELECT COUNT(*) AS cnt FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
-            (tg_id, lab_id, task_id),
-        ) as cur:
-            count_row = await cur.fetchone()
-        deleted_count = int(count_row["cnt"]) if count_row else 0
+        if amount > 0:
+            # Delete the N oldest attempt records
+            await db.execute(
+                """DELETE FROM attempts WHERE rowid IN (
+                    SELECT rowid FROM attempts
+                    WHERE tg_id = ? AND lab_id = ? AND task_id = ?
+                    ORDER BY timestamp ASC LIMIT ?
+                )""",
+                (tg_id, lab_id, task_id, amount),
+            )
+            deleted_count = min(amount, db.total_changes)
+        else:
+            # Delete all attempts
+            async with db.execute(
+                "SELECT COUNT(*) AS cnt FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
+                (tg_id, lab_id, task_id),
+            ) as cur:
+                count_row = await cur.fetchone()
+            deleted_count = int(count_row["cnt"]) if count_row else 0
 
-        await db.execute(
-            "DELETE FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
-            (tg_id, lab_id, task_id),
-        )
+            await db.execute(
+                "DELETE FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
+                (tg_id, lab_id, task_id),
+            )
         await db.commit()
 
     query = urlencode({
