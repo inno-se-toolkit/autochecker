@@ -146,6 +146,21 @@ checks:
       path: "backend/app/etl.py"
       pattern: "httpx\\.AsyncClient|httpx\\.Client"
 
+  - id: task1_etl_uses_basic_auth
+    task: task-1
+    title: "ETL pipeline uses HTTP Basic Auth"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    hint: >
+      The fetch functions must authenticate with the autochecker API
+      using HTTP Basic Auth. Use httpx.BasicAuth or pass auth= parameter.
+    params:
+      path: "backend/app/etl.py"
+      pattern: "BasicAuth|auth\\s*="
+
   - id: task1_etl_has_pagination
     task: task-1
     title: "ETL pipeline handles pagination"
@@ -176,6 +191,41 @@ checks:
       path: "backend/app/etl.py"
       pattern: "external_id"
 
+  - id: task1_etl_maps_items_by_key
+    task: task-1
+    title: "load_items maps labs by short ID, not by title"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      In load_items, build a dict keyed by the lab's short ID (e.g. "lab-01")
+      from the "lab" field — not by title. Tasks use the "lab" field to find
+      their parent. If you key by title, only labs whose title equals the
+      short ID will match.
+    params:
+      path: "backend/app/etl.py"
+      pattern: "\\[\"lab\"\\]|\\bget\\(\"lab\"\\)|\\['lab'\\]|get\\('lab'\\)"
+      min_matches: 2
+
+  - id: task1_etl_passes_items_catalog
+    task: task-1
+    title: "sync passes items catalog to load_logs"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      The sync function must pass the raw items list (from fetch_items)
+      to load_logs so it can map short IDs like "lab-01" and "setup"
+      to the actual item titles stored in the database. Without this,
+      load_logs cannot find the correct items for logs.
+    params:
+      path: "backend/app/etl.py"
+      pattern: "items_catalog|api_items"
+
   - id: task1_items_endpoint_deployed
     task: task-1
     title: "Deployed /items/ endpoint is registered"
@@ -191,6 +241,57 @@ checks:
     params:
       runtime: prod
       path: "/items/"
+      expect_status: 403
+
+  - id: task1_learners_endpoint_deployed
+    task: task-1
+    title: "Deployed /learners/ endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /learners/ endpoint must be accessible on the VM. It should return
+      403 when accessed without authentication.
+    params:
+      runtime: prod
+      path: "/learners/"
+      expect_status: 403
+
+  - id: task1_interactions_endpoint_deployed
+    task: task-1
+    title: "Deployed /interactions/ endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /interactions/ endpoint must be accessible on the VM. It should
+      return 403 when accessed without authentication.
+    params:
+      runtime: prod
+      path: "/interactions/"
+      expect_status: 403
+
+  - id: task1_pipeline_endpoint_deployed
+    task: task-1
+    title: "Deployed /pipeline/sync endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /pipeline/sync endpoint must be accessible on the VM. It should
+      return 403 when accessed without authentication.
+    params:
+      runtime: prod
+      path: "/pipeline/sync"
       expect_status: 403
 
   - id: task1_commit
@@ -305,6 +406,54 @@ checks:
     params:
       runtime: prod
       path: "/analytics/scores?lab=lab-04"
+      expect_status: 403
+
+  - id: task2_analytics_pass_rates_deployed
+    task: task-2
+    title: "Deployed /analytics/pass-rates endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /analytics/pass-rates endpoint must be accessible on the VM.
+    params:
+      runtime: prod
+      path: "/analytics/pass-rates?lab=lab-04"
+      expect_status: 403
+
+  - id: task2_analytics_timeline_deployed
+    task: task-2
+    title: "Deployed /analytics/timeline endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /analytics/timeline endpoint must be accessible on the VM.
+    params:
+      runtime: prod
+      path: "/analytics/timeline?lab=lab-04"
+      expect_status: 403
+
+  - id: task2_analytics_groups_deployed
+    task: task-2
+    title: "Deployed /analytics/groups endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /analytics/groups endpoint must be accessible on the VM.
+    params:
+      runtime: prod
+      path: "/analytics/groups?lab=lab-04"
       expect_status: 403
 
   - id: task2_commit
