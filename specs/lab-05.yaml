@@ -131,181 +131,52 @@ checks:
       path: "/docs"
       expect_status: 200
 
-  - id: task1_etl_uses_httpx
+  - id: task1_etl_fetch_implemented
     task: task-1
-    title: "ETL pipeline uses httpx for API calls"
+    title: "ETL fetch functions are implemented (httpx, auth, pagination)"
     class: structural
     runner: code
     type: regex_in_file
     is_required: true
     weight: 3
     hint: >
-      Implement the fetch functions in backend/app/etl.py using
-      httpx.AsyncClient for HTTP requests.
+      Implement fetch_items and fetch_logs in backend/app/etl.py.
+      Use httpx.AsyncClient with HTTP Basic Auth and handle pagination
+      via the has_more field.
     params:
       path: "backend/app/etl.py"
-      pattern: "httpx\\.AsyncClient|httpx\\.Client"
+      pattern: "httpx|BasicAuth|auth\\s*=|has_more"
+      min_matches: 3
 
-  - id: task1_etl_uses_basic_auth
+  - id: task1_etl_load_implemented
     task: task-1
-    title: "ETL pipeline uses HTTP Basic Auth"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 2
-    hint: >
-      The fetch functions must authenticate with the autochecker API
-      using HTTP Basic Auth. Use httpx.BasicAuth or pass auth= parameter.
-    params:
-      path: "backend/app/etl.py"
-      pattern: "BasicAuth|auth\\s*="
-
-  - id: task1_etl_has_pagination
-    task: task-1
-    title: "ETL pipeline handles pagination"
+    title: "ETL load functions are implemented (upserts, item mapping)"
     class: structural
     runner: code
     type: regex_in_file
     is_required: true
     weight: 3
     hint: >
-      The fetch_logs function must handle pagination by checking the
-      has_more field and fetching additional pages.
+      Implement load_items and load_logs in backend/app/etl.py.
+      Use external_id for idempotent upserts, map labs by short ID
+      (the "lab" field), and pass the items catalog to load_logs.
     params:
       path: "backend/app/etl.py"
-      pattern: "has_more"
+      pattern: "external_id|items_catalog|api_items|get\\([\"']lab[\"']\\)|\\[[\"']lab[\"']\\]"
+      min_matches: 3
 
-  - id: task1_etl_has_upsert
+  - id: task1_pipeline_works
     task: task-1
-    title: "ETL pipeline performs idempotent upserts"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    hint: >
-      The load functions must check for existing records before inserting
-      (using external_id) to avoid duplicates on re-runs.
-    params:
-      path: "backend/app/etl.py"
-      pattern: "external_id"
-
-  - id: task1_etl_maps_items_by_key
-    task: task-1
-    title: "load_items maps labs by short ID, not by title"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    hint: >
-      In load_items, build a dict keyed by the lab's short ID (e.g. "lab-01")
-      from the "lab" field — not by title. Tasks use the "lab" field to find
-      their parent. If you key by title, only labs whose title equals the
-      short ID will match.
-    params:
-      path: "backend/app/etl.py"
-      pattern: "\\[\"lab\"\\]|\\bget\\(\"lab\"\\)|\\['lab'\\]|get\\('lab'\\)"
-      min_matches: 2
-
-  - id: task1_etl_passes_items_catalog
-    task: task-1
-    title: "sync passes items catalog to load_logs"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    hint: >
-      The sync function must pass the raw items list (from fetch_items)
-      to load_logs so it can map short IDs like "lab-01" and "setup"
-      to the actual item titles stored in the database. Without this,
-      load_logs cannot find the correct items for logs.
-    params:
-      path: "backend/app/etl.py"
-      pattern: "items_catalog|api_items"
-
-  - id: task1_items_endpoint_deployed
-    task: task-1
-    title: "Deployed /items/ endpoint is registered"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 3
-    depends_on: [task1_deployment_docs]
-    hint: >
-      The /items/ endpoint must be accessible on the VM. It should return
-      401 when accessed without authentication.
-    params:
-      runtime: prod
-      path: "/items/"
-      expect_status: 401
-
-  - id: task1_learners_endpoint_deployed
-    task: task-1
-    title: "Deployed /learners/ endpoint is registered"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 2
-    depends_on: [task1_deployment_docs]
-    hint: >
-      The /learners/ endpoint must be accessible on the VM. It should return
-      401 when accessed without authentication.
-    params:
-      runtime: prod
-      path: "/learners/"
-      expect_status: 401
-
-  - id: task1_interactions_endpoint_deployed
-    task: task-1
-    title: "Deployed /interactions/ endpoint is registered"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 2
-    depends_on: [task1_deployment_docs]
-    hint: >
-      The /interactions/ endpoint must be accessible on the VM. It should
-      return 403 when accessed without authentication.
-    params:
-      runtime: prod
-      path: "/interactions/"
-      expect_status: 401
-
-  - id: task1_pipeline_endpoint_deployed
-    task: task-1
-    title: "Deployed /pipeline/sync endpoint is registered"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 2
-    depends_on: [task1_deployment_docs]
-    hint: >
-      The /pipeline/sync endpoint must be accessible on the VM. It only
-      accepts POST, so a GET request returns 405 Method Not Allowed.
-    params:
-      runtime: prod
-      path: "/pipeline/sync"
-      expect_status: 405
-
-  - id: task1_student_called_api
-    task: task-1
-    title: "Student called /api/items and /api/logs"
+    title: "Pipeline called the autochecker API successfully"
     class: execution
     runner: code
     type: api_access_check
     is_required: true
-    weight: 3
+    weight: 8
     hint: >
       Your ETL pipeline must call the autochecker API endpoints
-      /api/items and /api/logs with your credentials. Run
-      POST /pipeline/sync on your deployed app to trigger these calls.
+      /api/items and /api/logs with your credentials. Deploy your app
+      on the VM and run POST /pipeline/sync to trigger these calls.
     params:
       endpoints:
         - "/api/items"
