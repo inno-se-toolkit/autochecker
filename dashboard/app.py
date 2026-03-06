@@ -30,6 +30,7 @@ ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "").split(",") if l.s
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 
 RELAY_TOKEN = os.getenv("RELAY_TOKEN", "")
+MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "12"))
 
 COOKIE_NAME = "dash_auth"
 
@@ -393,11 +394,14 @@ async def student_detail(
             async for row in cur:
                 key = f"{row['lab_id']}:{row['task_id']}"
                 latest = latest_by_task.get(key, {})
+                used = row["attempts"] or 0
                 task_attempts_map[key] = {
                     "lab_id": row["lab_id"],
                     "task_id": row["task_id"],
                     "title": title_map.get(key, row["task_id"]),
-                    "attempts": row["attempts"] or 0,
+                    "attempts": used,
+                    "max_attempts": MAX_ATTEMPTS_PER_TASK,
+                    "remaining": max(0, MAX_ATTEMPTS_PER_TASK - used),
                     "last_attempt": row["last_attempt"] or "",
                     "score": latest.get("score") or "—",
                     "status": latest.get("status", "none"),

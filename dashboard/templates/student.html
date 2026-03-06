@@ -160,7 +160,8 @@
                     <tr>
                         <th>Lab</th>
                         <th>Task</th>
-                        <th>Attempts</th>
+                        <th>Used / Max</th>
+                        <th>Remaining</th>
                         <th>Latest Score</th>
                         <th>Status</th>
                         <th>Last Attempt</th>
@@ -172,7 +173,8 @@
                     <tr>
                         <td>{{ a.lab_id }}</td>
                         <td title="{{ a.title }}">{{ a.task_id }}</td>
-                        <td>{{ a.attempts }}</td>
+                        <td>{{ a.attempts }} / {{ a.max_attempts }}</td>
+                        <td>{% if a.remaining == 0 %}<span style="color:#b91c1c;font-weight:600;">0</span>{% else %}{{ a.remaining }}{% endif %}</td>
                         <td>{{ a.score }}</td>
                         <td>
                             {% if a.status == "pass" %}
