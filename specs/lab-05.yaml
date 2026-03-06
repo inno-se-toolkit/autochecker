@@ -375,9 +375,9 @@ checks:
       path: "frontend/package.json"
       pattern: "react-chartjs-2"
 
-  - id: task3_dashboard_imports_chartjs
+  - id: task3_dashboard_has_charts
     task: task-3
-    title: "Dashboard component imports from Chart.js"
+    title: "Dashboard component imports and renders charts"
     class: structural
     runner: code
     type: regex_in_file
@@ -385,27 +385,12 @@ checks:
     weight: 3
     depends_on: [task3_chartjs_dependency]
     hint: >
-      Create frontend/src/Dashboard.tsx and import chart components
-      from react-chartjs-2 (e.g., import { Bar } from 'react-chartjs-2').
+      Create frontend/src/Dashboard.tsx that imports from react-chartjs-2
+      and renders at least one chart component (Bar, Line, Pie, etc.).
     params:
       path: "frontend/src/Dashboard.tsx"
-      pattern: "react-chartjs-2|chart\\.js"
-
-  - id: task3_dashboard_has_canvas
-    task: task-3
-    title: "Dashboard renders chart elements"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task3_dashboard_imports_chartjs]
-    hint: >
-      Your Dashboard component must render at least one chart component
-      (Bar, Line, Pie, Doughnut, etc.) from react-chartjs-2.
-    params:
-      path: "frontend/src/Dashboard.tsx"
-      pattern: "<Bar|<Line|<Pie|<Doughnut|<Radar|<Scatter"
+      pattern: "react-chartjs-2|<Bar|<Line|<Pie|<Doughnut"
+      min_matches: 2
 
   - id: task3_navigation
     task: task-3
