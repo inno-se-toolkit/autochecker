@@ -43,6 +43,26 @@ _relay_jobs: dict[str, asyncio.Future] = {}  # job_id -> Future[dict]
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
 
 
+def _load_allowed_email_groups() -> dict[str, str]:
+    """Load email -> group mapping from bot/allowed_emails.csv."""
+    csv_path = _BASE_DIR / "bot" / "allowed_emails.csv"
+    if not csv_path.exists():
+        return {}
+
+    email_groups: dict[str, str] = {}
+    try:
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                email = (row.get("email") or "").strip().lower()
+                group = (row.get("group") or "").strip()
+                if email and group:
+                    email_groups[email] = group
+    except Exception:
+        logger.exception("Failed to load allowed_emails.csv from %s", csv_path)
+    return email_groups
+
+
 # ---------------------------------------------------------------------------
 # Auth helpers
 # ---------------------------------------------------------------------------
@@ -616,18 +636,25 @@ async def api_logs(
             headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
         )
 
+    email_groups = _load_allowed_email_groups()
+
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
 
         # Build student anonymization map
         anon_map: dict[int, tuple[str, str]] = {}  # tg_id -> (anon_id, group)
         async with db.execute(
-            "SELECT tg_id, github_alias, student_group FROM users"
+            "SELECT tg_id, github_alias, email, student_group FROM users"
         ) as cur:
             async for row in cur:
+                group = (row["student_group"] or "").strip()
+                if not group:
+                    group = email_groups.get((row["email"] or "").strip().lower(), "")
+                if not group:
+                    group = "unknown"
                 anon_map[row["tg_id"]] = (
                     _anonymize_student(row["tg_id"], row["github_alias"]),
-                    row["student_group"] or "",
+                    group,
                 )
 
         # Fetch results with optional since filter
