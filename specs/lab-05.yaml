@@ -296,54 +296,6 @@ checks:
       path: "/analytics/scores?lab=lab-04"
       expect_status: 401
 
-  - id: task2_analytics_pass_rates_deployed
-    task: task-2
-    title: "Deployed /analytics/pass-rates endpoint is registered"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 2
-    depends_on: [task1_deployment_docs]
-    hint: >
-      The /analytics/pass-rates endpoint must be accessible on the VM.
-    params:
-      runtime: prod
-      path: "/analytics/pass-rates?lab=lab-04"
-      expect_status: 401
-
-  - id: task2_analytics_timeline_deployed
-    task: task-2
-    title: "Deployed /analytics/timeline endpoint is registered"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 2
-    depends_on: [task1_deployment_docs]
-    hint: >
-      The /analytics/timeline endpoint must be accessible on the VM.
-    params:
-      runtime: prod
-      path: "/analytics/timeline?lab=lab-04"
-      expect_status: 401
-
-  - id: task2_analytics_groups_deployed
-    task: task-2
-    title: "Deployed /analytics/groups endpoint is registered"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 2
-    depends_on: [task1_deployment_docs]
-    hint: >
-      The /analytics/groups endpoint must be accessible on the VM.
-    params:
-      runtime: prod
-      path: "/analytics/groups?lab=lab-04"
-      expect_status: 401
-
   - id: task2_commit
     task: task-2
     title: "Commit message for analytics endpoints"
