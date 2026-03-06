@@ -294,6 +294,23 @@ checks:
       path: "/pipeline/sync"
       expect_status: 403
 
+  - id: task1_student_called_api
+    task: task-1
+    title: "Student called /api/items and /api/logs"
+    class: execution
+    runner: code
+    type: api_access_check
+    is_required: true
+    weight: 3
+    hint: >
+      Your ETL pipeline must call the autochecker API endpoints
+      /api/items and /api/logs with your credentials. Run
+      POST /pipeline/sync on your deployed app to trigger these calls.
+    params:
+      endpoints:
+        - "/api/items"
+        - "/api/logs"
+
   - id: task1_commit
     task: task-1
     title: "Commit message for ETL pipeline"

@@ -28,7 +28,7 @@ class User:
 #   0 — legacy (users: tg_id, student_name, github_nick, is_admin)
 #   1 — self-registration + results table
 # ---------------------------------------------------------------------------
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 async def _get_table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -77,6 +77,8 @@ async def init_db() -> None:
             await _migrate_to_v3(db)
         if version < 4:
             await _migrate_to_v4(db)
+        if version < 5:
+            await _migrate_to_v5(db)
 
         await _set_schema_version(db, SCHEMA_VERSION)
         await db.commit()
@@ -207,6 +209,49 @@ async def _migrate_to_v4(db: aiosqlite.Connection) -> None:
         logger.info("Migration v4: adding student_group column to users")
         await db.execute("ALTER TABLE users ADD COLUMN student_group TEXT DEFAULT ''")
     logger.info("Migration to v4 complete")
+
+
+async def _migrate_to_v5(db: aiosqlite.Connection) -> None:
+    """Create api_access_log table for tracking student API calls."""
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS api_access_log (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            email     TEXT NOT NULL,
+            endpoint  TEXT NOT NULL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_api_access_email ON api_access_log(email)"
+    )
+    logger.info("Migration to v5 complete")
+
+
+async def log_api_access(email: str, endpoint: str) -> None:
+    """Record that a student called an API endpoint."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO api_access_log (email, endpoint) VALUES (?, ?)",
+            (email, endpoint),
+        )
+        await db.commit()
+
+
+async def get_api_access_summary(email: str) -> list[dict]:
+    """Return distinct endpoints a student has called, with counts and first/last timestamps."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            """
+            SELECT endpoint, COUNT(*) as call_count,
+                   MIN(timestamp) as first_call, MAX(timestamp) as last_call
+            FROM api_access_log
+            WHERE email = ?
+            GROUP BY endpoint
+            """,
+            (email,),
+        ) as cur:
+            return [dict(row) async for row in cur]
 
 
 async def _backfill_groups(db: aiosqlite.Connection) -> None:

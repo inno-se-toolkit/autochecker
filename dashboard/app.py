@@ -35,6 +35,27 @@ COOKIE_NAME = "dash_auth"
 
 app = FastAPI(title="Autochecker Dashboard")
 
+
+@app.on_event("startup")
+async def _ensure_access_log_table():
+    """Create api_access_log table if it doesn't exist (idempotent)."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS api_access_log (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email     TEXT NOT NULL,
+                    endpoint  TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_access_email ON api_access_log(email)"
+            )
+            await db.commit()
+    except Exception:
+        logger.warning("Could not ensure api_access_log table", exc_info=True)
+
 # ---------------------------------------------------------------------------
 # Relay state: one connected worker, pending job futures
 # ---------------------------------------------------------------------------
@@ -588,6 +609,19 @@ async def _verify_basic_auth(request: Request) -> Optional[str]:
     return email
 
 
+async def _log_api_access(email: str, endpoint: str) -> None:
+    """Record an authenticated API call (fire-and-forget, never fails the request)."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO api_access_log (email, endpoint) VALUES (?, ?)",
+                (email, endpoint),
+            )
+            await db.commit()
+    except Exception:
+        logger.warning("Failed to log API access for %s", email, exc_info=True)
+
+
 @app.get("/api/items")
 async def api_items(request: Request):
     """Return the lab/task catalog derived from autochecker specs."""
@@ -598,6 +632,8 @@ async def api_items(request: Request):
             status_code=401,
             headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
         )
+
+    await _log_api_access(email, "/api/items")
 
     task_meta = load_task_metadata()
     items = []
@@ -635,6 +671,8 @@ async def api_logs(
             status_code=401,
             headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
         )
+
+    await _log_api_access(email, "/api/logs")
 
     email_groups = _load_allowed_email_groups()
 
@@ -723,6 +761,47 @@ async def api_logs(
         "logs": logs,
         "count": len(logs),
         "has_more": has_more,
+    })
+
+
+@app.get("/api/access-log/{github_alias}")
+async def api_access_log(request: Request, github_alias: str):
+    """Return API access summary for a student (used by autochecker engine).
+
+    Requires relay token auth (same as relay endpoints).
+    """
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    # Look up email by github_alias
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT email FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return JSONResponse({"error": "user not found"}, status_code=404)
+
+        email = row["email"]
+
+        # Get access summary
+        async with db.execute(
+            """
+            SELECT endpoint, COUNT(*) as call_count,
+                   MIN(timestamp) as first_call, MAX(timestamp) as last_call
+            FROM api_access_log
+            WHERE email = ?
+            GROUP BY endpoint
+            """,
+            (email,),
+        ) as cur:
+            entries = [dict(r) async for r in cur]
+
+    return JSONResponse({
+        "github_alias": github_alias,
+        "endpoints": entries,
     })
 
 

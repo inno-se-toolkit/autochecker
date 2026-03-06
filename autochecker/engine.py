@@ -927,6 +927,45 @@ class CheckEngine:
         except Exception as e:
             return False, f"Request error: {str(e)}"
 
+    def check_api_access(self, required_endpoints: List[str]) -> Tuple[bool, str]:
+        """Check that a student has called all required API endpoints.
+
+        Queries the dashboard's /api/access-log/{github_alias} endpoint.
+        """
+        import os
+        import requests
+
+        github_alias = self._client._owner  # student's github username
+        dashboard_url = os.environ.get("DASHBOARD_URL", "https://auche.namaz.live")
+        relay_token = os.environ.get("RELAY_TOKEN", "")
+
+        if not relay_token:
+            return False, "RELAY_TOKEN not configured — cannot query API access log"
+
+        try:
+            resp = requests.get(
+                f"{dashboard_url}/api/access-log/{github_alias}",
+                headers={"Authorization": f"Bearer {relay_token}"},
+                timeout=10,
+            )
+            if resp.status_code == 404:
+                return False, f"User '{github_alias}' not found in autochecker"
+            if resp.status_code != 200:
+                return False, f"Dashboard returned {resp.status_code}: {resp.text[:200]}"
+
+            data = resp.json()
+            called = {e["endpoint"] for e in data.get("endpoints", [])}
+            missing = [ep for ep in required_endpoints if ep not in called]
+
+            if missing:
+                return False, f"Missing API calls: {', '.join(missing)}. Called: {', '.join(sorted(called)) or 'none'}"
+            return True, f"All required endpoints called: {', '.join(required_endpoints)}"
+
+        except requests.exceptions.ConnectionError:
+            return False, f"Cannot connect to dashboard at {dashboard_url}"
+        except Exception as e:
+            return False, f"Error checking API access: {e}"
+
     def _ssh_check_via_relay(self, host: str, port: int, username: str,
                              command: str, timeout: int) -> Tuple[bool, dict]:
         """Route SSH check through the relay worker for internal IPs.
@@ -1522,6 +1561,11 @@ class CheckEngine:
                             for i, r in enumerate(child_results)
                         )
                         details = f"No alternative passed ({fail_details})"
+
+            elif check_type == "api_access_check":
+                required_endpoints = params.get('endpoints', [])
+                passed, details = self.check_api_access(required_endpoints)
+                if passed: status = "PASS"
 
             elif check_type == "llm_judge":
                 # LLM checks are handled separately, not through engine
