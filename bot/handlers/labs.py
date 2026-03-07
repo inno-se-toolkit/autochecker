@@ -72,14 +72,23 @@ async def callback_change_ip(callback: CallbackQuery, db_user: User, state: FSMC
 @router.message(ChangeIPStates.waiting_for_new_ip)
 async def process_change_ip(message: Message, db_user: User, state: FSMContext) -> None:
     """Validate and save the new VM IP, then return to labs menu."""
-    ip = message.text.strip() if message.text else ""
+    text = message.text.strip() if message.text else ""
 
-    valid, error_msg = validate_ip(ip)
+    if text.startswith("/"):
+        await state.clear()
+        server_ip = await get_server_ip(db_user.tg_id)
+        await message.answer(
+            "Cancelled.\n\nChoose a lab:",
+            reply_markup=get_labs_keyboard(server_ip=server_ip),
+        )
+        return
+
+    valid, error_msg = validate_ip(text)
     if not valid:
         await message.answer(error_msg)
         return
 
-    existing_owner = await get_server_ip_owner(ip, db_user.tg_id)
+    existing_owner = await get_server_ip_owner(text, db_user.tg_id)
     if existing_owner:
         await message.answer(
             "This IP is already registered to another student.\n"
@@ -87,10 +96,10 @@ async def process_change_ip(message: Message, db_user: User, state: FSMContext) 
         )
         return
 
-    await set_server_ip(db_user.tg_id, ip)
+    await set_server_ip(db_user.tg_id, text)
     await state.clear()
 
     await message.answer(
-        f"VM IP updated to <code>{ip}</code>\n\nChoose a lab:",
-        reply_markup=get_labs_keyboard(server_ip=ip),
+        f"VM IP updated to <code>{text}</code>\n\nChoose a lab:",
+        reply_markup=get_labs_keyboard(server_ip=text),
     )

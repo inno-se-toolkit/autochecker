@@ -11,7 +11,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip
 from ..ip_utils import validate_ip
-from ..keyboards import get_tasks_keyboard
+from ..keyboards import get_labs_keyboard, get_tasks_keyboard
 from ..runner import run_check
 from ..config import MAX_ATTEMPTS_PER_TASK, get_tasks_needing_ip
 
@@ -195,15 +195,24 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
 @router.message(CheckStates.waiting_for_server_ip)
 async def process_server_ip(message: Message, db_user: User, state: FSMContext) -> None:
     """Handle server IP input, save it, and run the check."""
-    ip = message.text.strip() if message.text else ""
+    text = message.text.strip() if message.text else ""
 
-    valid, error_msg = validate_ip(ip)
+    if text.startswith("/"):
+        await state.clear()
+        server_ip = await get_server_ip(db_user.tg_id)
+        await message.answer(
+            "Cancelled.\n\nChoose a lab:",
+            reply_markup=get_labs_keyboard(server_ip=server_ip),
+        )
+        return
+
+    valid, error_msg = validate_ip(text)
     if not valid:
         await message.answer(error_msg)
         return
 
     # Check uniqueness — each student must have their own VM IP
-    existing_owner = await get_server_ip_owner(ip, db_user.tg_id)
+    existing_owner = await get_server_ip_owner(text, db_user.tg_id)
     if existing_owner:
         await message.answer(
             f"This IP is already registered to another student.\n"
@@ -212,7 +221,7 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
         return
 
     # Save IP and clear FSM state
-    await set_server_ip(db_user.tg_id, ip)
+    await set_server_ip(db_user.tg_id, text)
     data = await state.get_data()
     await state.clear()
 
