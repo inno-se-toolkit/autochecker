@@ -7,13 +7,24 @@
 
 ---
 
+## Students involved
+
+| GitHub alias | Email | Group |
+|---|---|---|
+| AleksKornilov07 | a.kornilov@innopolis.university | B25-DSAI-02 |
+| venimu | i.kazantcev@innopolis.university | B25-CSE-05 |
+| Mad2726 | m.valetova@innopolis.university | B25-DSAI-02 |
+| kadambaevsanzhar | s.kadambaev@innopolis.university | B25-DSAI-03 |
+| vya4eslav1k | m.slavik@innopolis.university | B25-CSE-01 |
+| whateverwillbewillbe | v.verbovetc@innopolis.university | B25-CSE-01 |
+
 ## Summary
 
 | # | Students | Labs affected | Signal | Verdict |
 |---|----------|--------------|--------|---------|
-| 1 | AleksKornilov07 ↔ venimu | Lab 4 | 3 shared commit SHAs, 96% file similarity | **Confirmed** |
-| 2 | Mad2726 ↔ kadambaevsanzhar | Lab 3, Lab 4 | 8 shared SHAs (Lab 3), 1 shared SHA (Lab 4) | **Confirmed** |
-| 3 | vya4eslav1k ↔ whateverwillbewillbe | Lab 4 | 2 shared commit SHAs, merged branch from other student | **Confirmed** |
+| 1 | AleksKornilov07 (B25-DSAI-02) ↔ venimu (B25-CSE-05) | Lab 4 | 3 shared commit SHAs, 96% file similarity | **Confirmed** |
+| 2 | Mad2726 (B25-DSAI-02) ↔ kadambaevsanzhar (B25-DSAI-03) | Lab 3, Lab 4 | 8 shared SHAs (Lab 3), 1 shared SHA (Lab 4) | **Confirmed** |
+| 3 | vya4eslav1k (B25-CSE-01) ↔ whateverwillbewillbe (B25-CSE-01) | Lab 4 | 2 shared commit SHAs, merged branch from other student | **Confirmed** |
 
 ---
 
