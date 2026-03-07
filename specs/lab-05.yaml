@@ -81,21 +81,6 @@ checks:
   # TASK 1: Build the Data Pipeline
   # =====================================================
 
-  - id: task1_issue_exists
-    task: task-1
-    title: "Task issue exists"
-    class: process
-    runner: code
-    type: issue_exists
-    is_required: true
-    weight: 2
-    hint: >
-      Create a GitHub issue with the title:
-      [Task] Build the Data Pipeline.
-    params:
-      title_regex: "\\[Task\\]\\s+Build the Data Pipeline"
-      state: "all"
-
   - id: task1_ssh_connectivity
     task: task-1
     title: "SSH login as autochecker works"
@@ -114,6 +99,24 @@ checks:
       expect_exit: 0
       expect_regex: "ok"
 
+  - id: task1_app_reachable
+    task: task-1
+    title: "Application is reachable on the VM"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task1_ssh_connectivity]
+    hint: >
+      Your application must be running on the VM at http://<vm-ip>:42002.
+      If you get a connection error, make sure Docker Compose services are up:
+      'docker compose --env-file .env.docker.secret up --build -d'.
+    params:
+      runtime: prod
+      path: "/docs"
+      expect_status: [200, 401, 403, 404]
+
   - id: task1_deployment_docs
     task: task-1
     title: "Deployed /docs returns 200"
@@ -121,11 +124,12 @@ checks:
     runner: code
     type: http_check
     is_required: true
-    weight: 4
-    depends_on: [task1_ssh_connectivity]
+    weight: 3
+    depends_on: [task1_app_reachable]
     hint: >
-      The Swagger UI at http://<vm-ip>:42002/docs should be accessible.
-      Make sure your Docker Compose services are running on the VM.
+      The Swagger UI at http://<vm-ip>:42002/docs should return 200.
+      If the app is reachable but /docs fails, check that FastAPI's
+      docs endpoint is not disabled.
     params:
       runtime: prod
       path: "/docs"
@@ -204,9 +208,9 @@ checks:
     type: issue_has_linked_pr
     is_required: true
     weight: 2
-    depends_on: [task1_issue_exists]
     hint: >
-      Create a PR that closes this issue using 'Closes #<issue-number>'
+      Create a GitHub issue titled "[Task] Build the Data Pipeline", then
+      create a PR that closes it using 'Closes #<issue-number>'
       in the PR description.
     params:
       title_regex: "\\[Task\\]\\s+Build the Data Pipeline"
@@ -220,7 +224,6 @@ checks:
     type: issue_pr_approved
     is_required: true
     weight: 2
-    depends_on: [task1_issue_exists]
     hint: >
       Ask your partner to review and approve your PR.
     params:
@@ -230,21 +233,6 @@ checks:
   # =====================================================
   # TASK 2: Analytics Endpoints
   # =====================================================
-
-  - id: task2_issue_exists
-    task: task-2
-    title: "Task issue exists"
-    class: process
-    runner: code
-    type: issue_exists
-    is_required: true
-    weight: 2
-    hint: >
-      Create a GitHub issue with the title:
-      [Task] Analytics Endpoints.
-    params:
-      title_regex: "\\[Task\\]\\s+Analytics Endpoints"
-      state: "all"
 
   - id: task2_analytics_has_queries
     task: task-2
@@ -279,18 +267,37 @@ checks:
         - "API_KEY=test uv run --python-preference only-system poe test"
       timeout: 180
 
-  - id: task2_analytics_scores_deployed
+  - id: task2_scores_reachable
     task: task-2
-    title: "Deployed /analytics/scores endpoint is registered"
+    title: "Deployed /analytics/scores endpoint is reachable"
     class: execution
     runner: code
     type: http_check
     is_required: true
-    weight: 3
+    weight: 2
     depends_on: [task1_deployment_docs]
     hint: >
-      The /analytics/scores endpoint must be accessible on the VM.
-      Deploy and rebuild your containers.
+      The /analytics/scores endpoint must be reachable on the VM.
+      Deploy and rebuild your containers with
+      'docker compose --env-file .env.docker.secret up --build -d'.
+      If you get a connection error or 404, your router is not registered.
+    params:
+      runtime: prod
+      path: "/analytics/scores?lab=lab-04"
+      expect_status: [200, 401, 403]
+
+  - id: task2_scores_auth
+    task: task-2
+    title: "Unauthenticated /analytics/scores returns 401"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 2
+    depends_on: [task2_scores_reachable]
+    hint: >
+      An unauthenticated request to /analytics/scores must return 401.
+      Make sure the endpoint requires an API key via the auth dependency.
     params:
       runtime: prod
       path: "/analytics/scores?lab=lab-04"
@@ -318,9 +325,9 @@ checks:
     type: issue_has_linked_pr
     is_required: true
     weight: 2
-    depends_on: [task2_issue_exists]
     hint: >
-      Create a PR that closes this issue using 'Closes #<issue-number>'
+      Create a GitHub issue titled "[Task] Analytics Endpoints", then
+      create a PR that closes it using 'Closes #<issue-number>'
       in the PR description.
     params:
       title_regex: "\\[Task\\]\\s+Analytics Endpoints"
@@ -334,7 +341,6 @@ checks:
     type: issue_pr_approved
     is_required: true
     weight: 2
-    depends_on: [task2_issue_exists]
     hint: >
       Ask your partner to review and approve your PR.
     params:
@@ -344,21 +350,6 @@ checks:
   # =====================================================
   # TASK 3: Dashboard Front-end
   # =====================================================
-
-  - id: task3_issue_exists
-    task: task-3
-    title: "Task issue exists"
-    class: process
-    runner: code
-    type: issue_exists
-    is_required: true
-    weight: 2
-    hint: >
-      Create a GitHub issue with the title:
-      [Task] Dashboard Front-end.
-    params:
-      title_regex: "\\[Task\\]\\s+Dashboard Front-end"
-      state: "all"
 
   - id: task3_chartjs_dependency
     task: task-3
@@ -424,19 +415,38 @@ checks:
         - "cd frontend && npm install && npm run typecheck"
       timeout: 120
 
-  - id: task3_frontend_deployed
+  - id: task3_frontend_reachable
     task: task-3
-    title: "Frontend is served on the VM"
+    title: "Frontend root URL is reachable on the VM"
     class: execution
     runner: code
     type: http_check
     is_required: true
-    weight: 4
+    weight: 2
     depends_on: [task1_deployment_docs]
     hint: >
-      Rebuild the Caddy container on your VM with
+      The root URL http://<vm-ip>:42002/ must be reachable.
+      Rebuild the Caddy container:
       'docker compose --env-file .env.docker.secret up --build caddy -d'.
-      Caddy serves the frontend at the root URL (http://<vm-ip>:42002/).
+      If you get a connection error, Caddy is not running or misconfigured.
+    params:
+      runtime: prod
+      path: "/"
+      expect_status: [200, 301, 302, 304]
+
+  - id: task3_frontend_serves_html
+    task: task-3
+    title: "Frontend serves an HTML page"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    depends_on: [task3_frontend_reachable]
+    hint: >
+      The root URL must return an HTML page (status 200 with <html> content).
+      If the URL is reachable but returns no HTML, check that your frontend
+      build output is in the right directory for Caddy to serve.
     params:
       runtime: prod
       path: "/"
@@ -465,9 +475,9 @@ checks:
     type: issue_has_linked_pr
     is_required: true
     weight: 2
-    depends_on: [task3_issue_exists]
     hint: >
-      Create a PR that closes this issue using 'Closes #<issue-number>'
+      Create a GitHub issue titled "[Task] Dashboard Front-end", then
+      create a PR that closes it using 'Closes #<issue-number>'
       in the PR description.
     params:
       title_regex: "\\[Task\\]\\s+Dashboard Front-end"
@@ -481,7 +491,6 @@ checks:
     type: issue_pr_approved
     is_required: true
     weight: 2
-    depends_on: [task3_issue_exists]
     hint: >
       Ask your partner to review and approve your PR.
     params:

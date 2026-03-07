@@ -59,15 +59,22 @@ class CheckEngine:
     def check_file_exists(self, path: str) -> bool:
         return self._reader.file_exists(path)
 
-    def check_commit_message_regex(self, pattern: str) -> bool:
+    def check_commit_message_regex(self, pattern: str) -> Tuple[bool, str]:
         commits = self._get_commits()
         if not commits:
-            return False
+            return False, "No commits found in the repository."
         # Check that ANY commit matches the pattern
         for commit in commits:
             if re.search(pattern, commit['commit']['message']):
-                return True
-        return False
+                msg = commit['commit']['message'].split('\n')[0]
+                return True, f"Found matching commit: \"{msg}\""
+        recent = [c['commit']['message'].split('\n')[0] for c in commits[:5]]
+        recent_list = "; ".join(f'"{m}"' for m in recent)
+        return False, (
+            f"No commit message matches pattern: {pattern}. "
+            f"Recent commits: {recent_list}. "
+            f"Make sure your commit message follows the required format."
+        )
 
     def check_issues_count(self, title_regex: str, min_count: int) -> bool:
         issues = self._get_issues()
@@ -616,14 +623,20 @@ class CheckEngine:
     def check_issue_exists(self, title_regex: str, state: str = "all") -> Tuple[bool, str]:
         """Checks the existence of an issue with the given pattern."""
         issues = self._get_issues()
-        
+
         for issue in issues:
             if state != "all" and issue.get('state') != state:
                 continue
             if re.search(title_regex, issue.get('title', ''), re.IGNORECASE):
                 return True, f"Found issue: {issue.get('title')}"
-        
-        return False, f"Issue matching pattern '{title_regex}' not found"
+
+        state_info = f" (state: {state})" if state != "all" else ""
+        issue_count = len(issues)
+        return False, (
+            f"No issue found matching title pattern: {title_regex}{state_info}. "
+            f"Searched {issue_count} issue(s). "
+            f"Create a GitHub issue with the correct title."
+        )
 
     def check_commit_message_regex_count(self, pattern: str, min_count: int) -> Tuple[bool, str]:
         """Checks the number of commits matching the pattern."""
@@ -823,7 +836,7 @@ class CheckEngine:
         a, b = int(m.group(1)), int(m.group(2))
         return a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168)
 
-    def _http_check_via_relay(self, url: str, expect_status: int,
+    def _http_check_via_relay(self, url: str, expect_status,
                               expect_body_regex: str, timeout: int) -> Tuple[bool, str]:
         """Route HTTP check through the relay worker for internal IPs.
 
@@ -867,14 +880,24 @@ class CheckEngine:
                 status_code = data.get("status_code", 0)
                 body = data.get("body", "")
 
-                if status_code != expect_status:
-                    return False, f"Expected status {expect_status}, got {status_code}"
+                allowed = expect_status if isinstance(expect_status, list) else [expect_status]
+                if status_code not in allowed:
+                    body_preview = body[:200].strip() if body else "(empty body)"
+                    return False, (
+                        f"GET {url} → {status_code} (expected {allowed}). "
+                        f"Response: {body_preview}"
+                    )
 
                 if expect_body_regex:
                     if not re.search(expect_body_regex, body, re.IGNORECASE):
-                        return False, f"Response body does not match pattern '{expect_body_regex}'"
+                        body_preview = body[:200].strip() if body else "(empty body)"
+                        return False, (
+                            f"GET {url} → {status_code} but response body "
+                            f"does not match pattern '{expect_body_regex}'. "
+                            f"Body preview: {body_preview}"
+                        )
 
-                return True, f"Endpoint accessible (via relay), status {status_code}"
+                return True, f"GET {url} → {status_code} (via relay)"
 
             except requests.exceptions.Timeout:
                 if attempt < max_attempts - 1:
@@ -887,7 +910,7 @@ class CheckEngine:
 
         return False, f"Relay failed after retries: {last_error}"
 
-    def check_http_check(self, base_url: str, path: str, expect_status: int = 200,
+    def check_http_check(self, base_url: str, path: str, expect_status = 200,
                         expect_body_regex: str = None, timeout: int = 10) -> Tuple[bool, str]:
         """Checks an HTTP endpoint. Routes internal IPs through the relay worker."""
         import os
@@ -909,23 +932,45 @@ class CheckEngine:
             response = requests.get(url, timeout=timeout)
 
             # Check status
-            if response.status_code != expect_status:
-                return False, f"Expected status {expect_status}, got {response.status_code}"
+            allowed = expect_status if isinstance(expect_status, list) else [expect_status]
+            if response.status_code not in allowed:
+                body_preview = response.text[:200].strip() if response.text else "(empty body)"
+                return False, (
+                    f"GET {url} → {response.status_code} (expected {allowed}). "
+                    f"Response: {body_preview}"
+                )
 
             # Check body_regex if specified
             if expect_body_regex:
                 body = response.text
                 if not re.search(expect_body_regex, body, re.IGNORECASE):
-                    return False, f"Response body does not match pattern '{expect_body_regex}'"
+                    body_preview = body[:200].strip() if body else "(empty body)"
+                    return False, (
+                        f"GET {url} → {response.status_code} but response body "
+                        f"does not match pattern '{expect_body_regex}'. "
+                        f"Body preview: {body_preview}"
+                    )
 
-            return True, f"Endpoint accessible, status {response.status_code}"
+            return True, f"GET {url} → {response.status_code}"
 
         except requests.exceptions.Timeout:
-            return False, f"Timeout requesting {url}"
-        except requests.exceptions.ConnectionError:
-            return False, f"Connection error to {url}"
+            return False, (
+                f"GET {url} timed out after {timeout}s. "
+                f"Check that your VM is running and the port is open."
+            )
+        except requests.exceptions.ConnectionError as e:
+            err = str(e)
+            if "Name or service not known" in err or "getaddrinfo" in err:
+                hint = "DNS resolution failed — check the hostname/IP."
+            elif "Connection refused" in err:
+                hint = "Connection refused — is the service running and listening on the right port?"
+            elif "Network is unreachable" in err:
+                hint = "Network unreachable — check your VM's network configuration."
+            else:
+                hint = f"Details: {err[:200]}"
+            return False, f"Connection error to {url}. {hint}"
         except Exception as e:
-            return False, f"Request error: {str(e)}"
+            return False, f"GET {url} failed: {str(e)[:200]}"
 
     def check_api_access(self, required_endpoints: List[str]) -> Tuple[bool, str]:
         """Check that a student has called all required API endpoints.
@@ -1069,9 +1114,12 @@ class CheckEngine:
                     "error": "",
                 }
             except subprocess.TimeoutExpired:
-                return False, f"SSH connection timed out after {timeout}s"
+                return False, (
+                    f"SSH {username}@{host} timed out after {timeout}s. "
+                    f"Check that the VM is running and port {port} is open."
+                )
             except Exception as e:
-                return False, f"SSH error: {str(e)}"
+                return False, f"SSH {username}@{host} failed: {str(e)[:200]}"
 
         exit_code = data.get("exit_code", -1)
         stdout = data.get("stdout", "").strip()
@@ -1080,16 +1128,27 @@ class CheckEngine:
         if expect_exit == -1:
             # Expect any non-zero
             if exit_code == 0:
-                return False, f"Expected non-zero exit code, got 0. Output: {stdout[:200]}"
+                return False, (
+                    f"SSH {username}@{host}: expected non-zero exit code, got 0. "
+                    f"Output: {stdout[:200]}"
+                )
         elif exit_code != expect_exit:
-            return False, f"Expected exit code {expect_exit}, got {exit_code}. Output: {stdout[:200]}"
+            stderr = data.get("stderr", "").strip()
+            output_info = stderr[:200] if stderr else stdout[:200]
+            return False, (
+                f"SSH {username}@{host}: command exited with {exit_code} "
+                f"(expected {expect_exit}). Output: {output_info}"
+            )
 
         # Validate output regex
         if expect_regex:
             if not re.search(expect_regex, stdout):
-                return False, f"Output does not match '{expect_regex}'. Got: {stdout[:200]}"
+                return False, (
+                    f"SSH {username}@{host}: output does not match "
+                    f"expected pattern '{expect_regex}'. Got: {stdout[:200]}"
+                )
 
-        return True, f"SSH check passed (exit={exit_code}, output={stdout[:100]})"
+        return True, f"SSH {username}@{host} → OK (exit={exit_code})"
 
     def check_clone_and_run(self, commands: List[str], timeout: int = 120) -> Tuple[bool, str]:
         """Clones the repo and runs commands in a sandboxed Docker container.
@@ -1212,7 +1271,10 @@ class CheckEngine:
                 break
 
         if not issue:
-            return None, f"Issue with pattern '{title_regex}' not found"
+            return None, (
+                f"No issue found matching the required title pattern. "
+                f"Create a GitHub issue whose title matches: {title_regex}"
+            )
 
         issue_number = issue.get('number')
         if not issue_number:
@@ -1226,7 +1288,15 @@ class CheckEngine:
             if re.search(close_pattern, body):
                 return pr, f"Found PR #{pr.get('number')}: {pr.get('title', '')}"
 
-        return None, f"No PR found that closes issue #{issue_number}"
+        pr_count = len(prs)
+        return None, (
+            f"No PR found that closes issue #{issue_number} "
+            f"(\"{issue.get('title', '')}\"). "
+            f"Searched {pr_count} PR(s). "
+            f"Add one of these keywords to your PR description: "
+            f"'Closes #{issue_number}', 'Fixes #{issue_number}', or "
+            f"'Resolves #{issue_number}'."
+        )
 
     def check_issue_has_linked_pr(self, title_regex: str, merged: bool = True) -> Tuple[bool, str]:
         """Checks that there is a PR closing the issue found by title_regex."""
@@ -1234,8 +1304,14 @@ class CheckEngine:
         if not pr:
             return False, details
 
+        pr_num = pr.get('number')
         if merged and not pr.get('merged_at'):
-            return False, f"PR #{pr.get('number')} exists but is not merged"
+            state = pr.get('state', 'unknown')
+            return False, (
+                f"PR #{pr_num} (\"{pr.get('title', '')}\") links to the issue "
+                f"but is not merged (state: {state}). "
+                f"Merge the PR on GitHub to close the issue."
+            )
 
         return True, details
 
@@ -1331,7 +1407,8 @@ class CheckEngine:
                     passed, details = self.check_commit_message_regex_count(pattern, min_count)
                     if passed: status = "PASS"
                 else:
-                    if self.check_commit_message_regex(pattern): status = "PASS"
+                    passed, details = self.check_commit_message_regex(pattern)
+                    if passed: status = "PASS"
             
             elif check_type == "issues_count":
                 title_regex = params.get('title_regex', '')
