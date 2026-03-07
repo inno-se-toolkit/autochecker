@@ -275,8 +275,8 @@ checks:
       There should be 17 analytics tests + 3 interaction tests = 20 total.
     params:
       commands:
-        - "uv sync"
-        - "API_KEY=test uv run poe test"
+        - "uv sync --python-preference only-system"
+        - "API_KEY=test uv run --python-preference only-system poe test"
       timeout: 180
 
   - id: task2_analytics_scores_deployed
