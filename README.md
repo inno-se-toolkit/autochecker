@@ -208,6 +208,42 @@ plagiarism:
     - ".js"
 ```
 
+### Deep investigation of flagged pairs
+
+After the automated screening, investigate critical/high pairs with:
+
+```bash
+python scripts/investigate_pair.py \
+  --student-a AleksKornilov07 --student-b venimu \
+  --repo se-toolkit-lab-4 \
+  --template inno-se-toolkit/se-toolkit-lab-4
+```
+
+This clones both repos + template and produces a structured report:
+
+- **File comparison against template** — categorizes every file as template-unchanged, identical-modified (suspicious), or different
+- **Git timeline** — who committed what, when (establishes who did the work first)
+- **Cross-author analysis** — does student A's email appear as author of commits in student B's repo?
+- **Shared commit SHAs** — same as batch but with full context
+- **Source file diffs** — actual code differences for files that aren't identical
+- **Non-ASCII scan** — flags unusual Unicode characters in source files (e.g. homoglyphs from keyboard layout switching)
+
+Output: JSON report in `reports/investigations/`.
+
+### Interpreting investigation results
+
+| Evidence | Verdict |
+|----------|---------|
+| Shared commit SHAs + identical modified files + cross-author emails | **Confirmed** — one repo forked/merged from the other |
+| `Merge pull request from <other-student>` in git log | **Confirmed** — direct merge |
+| Many identical modified files, no shared SHAs, code diffs are trivial | **Probable** — manual copy, needs timeline review |
+| Only shared commit messages + identical prescribed fixes | **Not plagiarism** — lab instructions produce identical output |
+| Shared author email from merge commits only | **PR reviewer** — expected workflow |
+
+### Known limitations
+
+The automated screening catches students who fork, clone, or merge each other's repos (shared commit SHAs). It does **not** catch manual copy-paste where the student retypes code and commits under their own identity — those cases produce different commit SHAs and may produce slightly different file hashes. The investigation script helps with these via timeline analysis and file diffing, but they must be flagged through other means (TA reports, suspicious score patterns, etc).
+
 ### Reports directory
 
 Analysis reports are saved in `reports/` with date-stamped directories (e.g. `reports/lab3-plagiarism-2026-02-27/`). These are not auto-generated — save them manually after review.
