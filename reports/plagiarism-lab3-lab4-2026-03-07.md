@@ -1,7 +1,7 @@
-# Plagiarism Report — Labs 3 & 4
+# Plagiarism Report — Lab 4
 
 **Date:** 2026-03-07
-**Labs:** Lab 03 (Backend API), Lab 04 (Testing, Front-end, AI Agents)
+**Lab:** Lab 04 (Testing, Front-end, AI Agents)
 **Students screened:** 258
 **Method:** Automated git history analysis (shared commit SHAs, commit messages, author emails) followed by manual repo investigation (file comparison against template, git timeline, source diffs)
 
@@ -13,24 +13,20 @@
 |---|---|---|
 | AleksKornilov07 | a.kornilov@innopolis.university | B25-DSAI-02 |
 | venimu | i.kazantcev@innopolis.university | B25-CSE-05 |
-| Mad2726 | m.valetova@innopolis.university | B25-DSAI-02 |
-| kadambaevsanzhar | s.kadambaev@innopolis.university | B25-DSAI-03 |
 | vya4eslav1k | m.slavik@innopolis.university | B25-CSE-01 |
 | whateverwillbewillbe | v.verbovetc@innopolis.university | B25-CSE-01 |
 
 ## Summary
 
-| # | Students | Labs affected | Signal | Verdict |
-|---|----------|--------------|--------|---------|
-| 1 | AleksKornilov07 (B25-DSAI-02) ↔ venimu (B25-CSE-05) | Lab 4 | 3 shared commit SHAs, 96% file similarity | **Confirmed** |
-| 2 | Mad2726 (B25-DSAI-02) ↔ kadambaevsanzhar (B25-DSAI-03) | Lab 3 | 8 shared commit SHAs | **Confirmed** |
-| 3 | vya4eslav1k (B25-CSE-01) ↔ whateverwillbewillbe (B25-CSE-01) | Lab 4 | 2 shared commit SHAs, merged branch from other student | **Confirmed** |
+| # | Students | Signal | Verdict |
+|---|----------|--------|---------|
+| 1 | AleksKornilov07 (B25-DSAI-02) ↔ venimu (B25-CSE-05) | 3 shared commit SHAs, 96% file similarity | **Confirmed** |
+| 2 | vya4eslav1k (B25-CSE-01) ↔ whateverwillbewillbe (B25-CSE-01) | 2 shared commit SHAs, merged branch from other student | **Confirmed** |
 
 ---
 
 ## Case 1: AleksKornilov07 ↔ venimu
 
-**Lab:** 4
 **Conclusion:** venimu did the work; AleksKornilov07's repo contains venimu's commits.
 
 ### Evidence
@@ -66,30 +62,8 @@ AleksKornilov07's earliest task commits are venimu's commits (same SHA, same tim
 
 ---
 
-## Case 2: Mad2726 ↔ kadambaevsanzhar
+## Case 2: vya4eslav1k ↔ whateverwillbewillbe
 
-**Lab:** 3
-**Conclusion:** kadambaevsanzhar authored commits in Mad2726's repo.
-
-### Evidence
-
-**Shared commit SHAs (8):**
-
-Eight commit objects authored by `s.kadambaev@innopolis.university` (kadambaevsanzhar's email) exist in Mad2726's repo. This means kadambaevsanzhar pushed code directly to Mad2726's repository.
-
-**Shared author email:**
-
-`s.kadambaev@innopolis.university` appears as the author of non-merge commits in Mad2726's repo.
-
-### Lab 4 (not confirmed)
-
-In Lab 4 the pair mostly diverged — 77 files differ between the repos, only 1 modified file is identical (a prescribed e2e test fix). kadambaevsanzhar helped merge Mad2726's PRs but the code itself is independent.
-
----
-
-## Case 3: vya4eslav1k ↔ whateverwillbewillbe
-
-**Lab:** 4
 **Conclusion:** whateverwillbewillbe forked vya4eslav1k's work via a direct branch merge.
 
 ### Evidence
@@ -144,7 +118,7 @@ whateverwillbewillbe's earliest task-relevant commits are vya4eslav1k's (inherit
 
 ### Automated screening
 
-Ran `autochecker batch --plagiarism` for all 258 students on both labs with template baseline (`inno-se-toolkit/se-toolkit-lab-3`, `inno-se-toolkit/se-toolkit-lab-4`). The checker compares:
+Ran `autochecker batch --plagiarism` for all 258 students with template baseline (`inno-se-toolkit/se-toolkit-lab-4`). The checker compares:
 
 1. **Commit SHAs** across all student repos — if the same SHA exists in two repos (excluding template commits), it means one repo's git history was pushed to or merged into the other.
 2. **Commit messages** — identical non-trivial messages shared by few students. Messages shared by >10% of students are filtered (lab-instructed).
@@ -161,7 +135,7 @@ For each flagged pair, cloned both repos and the upstream template, then:
 
 ### Noise filtered
 
-- **Lab-instructed commit messages** shared by 30-114 students (e.g. `"docs: fill in the API exploration questionnaire"`, `"fix: rename timestamp to created_at"`)
+- **Lab-instructed commit messages** shared by 30-114 students (e.g. `"fix: rename timestamp to created_at"`)
 - **AI tool commit messages** shared by 5-8 students (e.g. `"Co-authored-by: Qwen-Coder"`, `"Made-with: Cursor"`)
 - **PR reviewer emails** appearing via merge commits (expected lab workflow)
 - **Prescribed bug fixes** producing identical file hashes across 50+ students
