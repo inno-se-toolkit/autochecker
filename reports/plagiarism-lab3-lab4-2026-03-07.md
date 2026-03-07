@@ -23,7 +23,7 @@
 | # | Students | Labs affected | Signal | Verdict |
 |---|----------|--------------|--------|---------|
 | 1 | AleksKornilov07 (B25-DSAI-02) ↔ venimu (B25-CSE-05) | Lab 4 | 3 shared commit SHAs, 96% file similarity | **Confirmed** |
-| 2 | Mad2726 (B25-DSAI-02) ↔ kadambaevsanzhar (B25-DSAI-03) | Lab 3, Lab 4 | 8 shared SHAs (Lab 3), 1 shared SHA (Lab 4) | **Confirmed** |
+| 2 | Mad2726 (B25-DSAI-02) ↔ kadambaevsanzhar (B25-DSAI-03) | Lab 3 | 8 shared commit SHAs | **Confirmed** |
 | 3 | vya4eslav1k (B25-CSE-01) ↔ whateverwillbewillbe (B25-CSE-01) | Lab 4 | 2 shared commit SHAs, merged branch from other student | **Confirmed** |
 
 ---
@@ -68,10 +68,10 @@ AleksKornilov07's earliest task commits are venimu's commits (same SHA, same tim
 
 ## Case 2: Mad2726 ↔ kadambaevsanzhar
 
-**Labs:** 3 and 4
-**Conclusion:** kadambaevsanzhar authored commits in Mad2726's repo. Collaboration confirmed in Lab 3; weaker in Lab 4.
+**Lab:** 3
+**Conclusion:** kadambaevsanzhar authored commits in Mad2726's repo.
 
-### Lab 3 evidence
+### Evidence
 
 **Shared commit SHAs (8):**
 
@@ -81,27 +81,9 @@ Eight commit objects authored by `s.kadambaev@innopolis.university` (kadambaevsa
 
 `s.kadambaev@innopolis.university` appears as the author of non-merge commits in Mad2726's repo.
 
-### Lab 4 evidence
+### Lab 4 (not confirmed)
 
-**Shared commit SHA (1):**
-
-| SHA | Message |
-|-----|---------|
-| `715bf671` | feat: add description column to the front-end table |
-
-This commit by kadambaevsanzhar exists in Mad2726's repo.
-
-**Cross-author involvement:**
-
-Mad2726's merge PRs were merged by `kadambaevsanzhar@gmail.com`, and kadambaevsanzhar's email appears as author in Mad2726's repo.
-
-**File comparison (Lab 4, against template):**
-
-- Only 1 modified file is byte-identical (e2e test — a prescribed fix)
-- 77 files differ between the two repos
-- They forked from different template versions (Mad2726 has an older fork with more wiki files)
-
-Lab 4 shows they mostly diverged — kadambaevsanzhar still helped with merging but Mad2726 did more independent work compared to Lab 3.
+In Lab 4 the pair mostly diverged — 77 files differ between the repos, only 1 modified file is identical (a prescribed e2e test fix). kadambaevsanzhar helped merge Mad2726's PRs but the code itself is independent.
 
 ---
 
