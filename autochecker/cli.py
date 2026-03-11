@@ -47,10 +47,10 @@ LAB_CONFIG = {
         "ready": True,
     },
     "lab-06": {
-        "name": "Lab 06 – (Coming soon)",
-        "repo_suffix": "lab-06-tbd",
+        "name": "Lab 06 — Build Your Own Agent",
+        "repo_suffix": "se-toolkit-lab-6",
         "spec": "specs/lab-06.yaml",
-        "ready": False,
+        "ready": True,
     },
     "lab-07": {
         "name": "Lab 07 – (Coming soon)",

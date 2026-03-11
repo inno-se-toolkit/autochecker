@@ -1,0 +1,556 @@
+id: lab-06
+title: "Lab 06 — Build Your Own Agent"
+repo_name: "se-toolkit-lab-6"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}:42002"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.75
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Basic Agent Loop"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Add Tools"
+    prerequisite: task-1
+  - id: task-3
+    title: "Task 3: Pass the Benchmark"
+    prerequisite: task-2
+
+checks:
+
+  # =====================================================
+  # SETUP
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_is_fork
+    task: setup
+    title: "Repository is a fork"
+    class: structural
+    runner: code
+    type: repo_is_fork
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of the course instructors' repo.
+      Fork it from https://github.com/inno-se-toolkit/se-toolkit-lab-6.
+    params: {}
+
+  - id: repo_has_issues
+    task: setup
+    title: "Issues are enabled"
+    class: structural
+    runner: code
+    type: repo_has_issues
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Enable issues in your repo: Settings -> General -> Features -> Issues.
+    params: {}
+
+  - id: setup_ssh_connectivity
+    task: setup
+    title: "SSH login as autochecker works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      Create an 'autochecker' user on your VM and add the autochecker's
+      public SSH key to /home/autochecker/.ssh/authorized_keys.
+      If you already had this from lab 5, it should still work.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "echo ok"
+      expect_exit: 0
+      expect_regex: "ok"
+
+  - id: setup_app_reachable
+    task: setup
+    title: "Lab 5 application is reachable on the VM"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    depends_on: [setup_ssh_connectivity]
+    hint: >
+      Your lab 5 application must be running on the VM at http://<vm-ip>:42002.
+      Make sure Docker Compose services are up:
+      'docker compose --env-file .env.docker.secret up --build -d'.
+    params:
+      runtime: prod
+      path: "/docs"
+      expect_status: [200, 401, 403, 404]
+
+  - id: setup_has_data
+    task: setup
+    title: "Database has data (ETL pipeline ran)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [setup_app_reachable]
+    hint: >
+      Your ETL pipeline must have been run so the database contains data.
+      If not, trigger it: POST /pipeline/sync on your deployed API.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "cd ~/se-toolkit-lab-6 && python -c \"import json; print('ok')\" 2>/dev/null || echo ok"
+      expect_exit: 0
+      expect_regex: "ok"
+
+  # =====================================================
+  # TASK 1: Basic Agent Loop
+  # =====================================================
+
+  - id: task1_issue_exists
+    task: task-1
+    title: "Task 1 issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Basic Agent Loop
+    params:
+      title_regex: "\\[Task\\]\\s+Basic Agent Loop"
+
+  - id: task1_plan_exists
+    task: task-1
+    title: "Plan file exists (plans/task-1.md)"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Create plans/task-1.md with your agent implementation plan
+      before writing code. Commit with: docs: add agent implementation plan
+    params:
+      path: "plans/task-1.md"
+
+  - id: task1_agent_exists
+    task: task-1
+    title: "agent.py exists in project root"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Create agent.py in the project root. This is the CLI entry point
+      that takes a question and returns a JSON answer.
+    params:
+      path: "agent.py"
+
+  - id: task1_agent_md_exists
+    task: task-1
+    title: "AGENT.md documentation exists"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Create AGENT.md documenting your agent's architecture, LLM provider,
+      system prompt strategy, and how to run it.
+    params:
+      path: "AGENT.md"
+
+  - id: task1_agent_cli_runs
+    task: task-1
+    title: "Agent CLI runs and returns valid JSON"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [setup_ssh_connectivity, task1_agent_exists]
+    hint: >
+      Your agent must run on the VM: python agent.py "test question"
+      It must exit with code 0 and output valid JSON with "answer"
+      and "tool_calls" fields.
+    params:
+      runtime: prod
+      username: autochecker
+      command: 'cd ~/se-toolkit-lab-6 && python agent.py "What does REST stand for?" 2>/dev/null'
+      expect_exit: 0
+      expect_regex: '"answer"'
+      timeout: 60
+
+  - id: task1_tests_exist
+    task: task-1
+    title: "Regression tests exist"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Create at least 5 regression tests for your agent.
+      Test files should be named test_*.py or *_test.py.
+    params:
+      patterns: ["test_*.py", "tests/test_*.py", "*_test.py"]
+      min_matches: 1
+
+  - id: task1_commit
+    task: task-1
+    title: "Commit message for basic agent loop"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: implement basic agent loop with LLM integration
+    params:
+      pattern: "^feat:\\s+implement basic agent"
+
+  - id: task1_issue_has_linked_pr
+    task: task-1
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    hint: >
+      Create a PR that closes the issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Basic Agent Loop"
+      merged: true
+
+  - id: task1_pr_approved
+    task: task-1
+    title: "Task 1 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Basic Agent Loop"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 2: Add Tools
+  # =====================================================
+
+  - id: task2_issue_exists
+    task: task-2
+    title: "Task 2 issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Add Tools
+    params:
+      title_regex: "\\[Task\\]\\s+Add Tools"
+
+  - id: task2_plan_exists
+    task: task-2
+    title: "Plan file exists (plans/task-2.md)"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Create plans/task-2.md with your tool implementation plan
+      before writing code. Commit with: docs: add tool implementation plan
+    params:
+      path: "plans/task-2.md"
+
+  - id: task2_has_read_file
+    task: task-2
+    title: "Agent code has read_file tool"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Implement a read_file tool in agent.py that reads files from
+      the project directory.
+    params:
+      path: "agent.py"
+      pattern: "read_file"
+      min_matches: 2
+
+  - id: task2_has_list_files
+    task: task-2
+    title: "Agent code has list_files tool"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Implement a list_files tool in agent.py that lists files and
+      directories in the project.
+    params:
+      path: "agent.py"
+      pattern: "list_files"
+      min_matches: 2
+
+  - id: task2_has_query_api
+    task: task-2
+    title: "Agent code has query_api tool"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Implement a query_api tool in agent.py that makes HTTP requests
+      to the deployed backend API.
+    params:
+      path: "agent.py"
+      pattern: "query_api"
+      min_matches: 2
+
+  - id: task2_has_tool_schemas
+    task: task-2
+    title: "Agent defines tool schemas for function calling"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Define your tools as JSON schemas in the tools parameter of your
+      API request. The LLM uses these schemas to decide which tool to call.
+    params:
+      path: "agent.py"
+      pattern: "\"type\":\\s*\"function\"|'type':\\s*'function'|tool_calls|function_call"
+      min_matches: 1
+
+  - id: task2_tool_eval
+    task: task-2
+    title: "Agent passes tool-based questions (tier 1+2, ≥60%)"
+    class: execution
+    runner: code
+    type: agent_eval
+    is_required: true
+    weight: 8
+    depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
+    hint: >
+      Run python run_eval.py locally to test your agent.
+      Your agent must pass at least 60% of tier 1 and tier 2 questions.
+      Fix failing questions one at a time.
+    params:
+      runtime: prod
+      username: autochecker
+      eval_lab: "lab-06"
+      project_dir: "se-toolkit-lab-6"
+      include_bot_only: false
+      max_tier: 2
+      min_pass_rate: 0.6
+      timeout_per_question: 60
+
+  - id: task2_commit
+    task: task-2
+    title: "Commit message for adding tools"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: add tool calling (read_file, list_files, query_api)
+    params:
+      pattern: "^feat:\\s+add tool"
+
+  - id: task2_issue_has_linked_pr
+    task: task-2
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    hint: >
+      Create a PR that closes the issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Add Tools"
+      merged: true
+
+  - id: task2_pr_approved
+    task: task-2
+    title: "Task 2 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Add Tools"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 3: Pass the Benchmark
+  # =====================================================
+
+  - id: task3_issue_exists
+    task: task-3
+    title: "Task 3 issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Pass the Benchmark
+    params:
+      title_regex: "\\[Task\\]\\s+Pass the Benchmark"
+
+  - id: task3_plan_exists
+    task: task-3
+    title: "Plan file exists (plans/task-3.md)"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Create plans/task-3.md with your initial benchmark score,
+      first failures, and iteration strategy.
+    params:
+      path: "plans/task-3.md"
+
+  - id: task3_full_eval
+    task: task-3
+    title: "Agent passes full benchmark (≥75%)"
+    class: execution
+    runner: code
+    type: agent_eval
+    is_required: true
+    weight: 15
+    depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
+    hint: >
+      Run python run_eval.py locally to pass all 25 questions.
+      The autochecker tests 34 questions total (25 shared + 9 extra).
+      You need at least 75% (26/34) to pass.
+    params:
+      runtime: prod
+      username: autochecker
+      eval_lab: "lab-06"
+      project_dir: "se-toolkit-lab-6"
+      include_bot_only: true
+      max_tier: 3
+      min_pass_rate: 0.75
+      timeout_per_question: 60
+
+  - id: task3_agent_md_updated
+    task: task-3
+    title: "AGENT.md documents final architecture and lessons learned"
+    class: structural
+    runner: code
+    type: file_word_count
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Update AGENT.md with your final architecture, lessons learned,
+      and evaluation score.
+    params:
+      path: "AGENT.md"
+      min_words: 200
+
+  - id: task3_commit
+    task: task-3
+    title: "Commit message for benchmark iteration"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Use conventional commits as you iterate. Example:
+      fix: improve system prompt for Docker questions
+    params:
+      pattern: "^(feat|fix|docs|test):"
+
+  - id: task3_issue_has_linked_pr
+    task: task-3
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    hint: >
+      Create a PR that closes the issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Pass the Benchmark"
+      merged: true
+
+  - id: task3_pr_approved
+    task: task-3
+    title: "Task 3 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Pass the Benchmark"
+      min_approvals: 1

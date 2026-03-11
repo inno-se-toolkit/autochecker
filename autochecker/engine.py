@@ -1150,6 +1150,206 @@ class CheckEngine:
 
         return True, f"SSH {username}@{host} → OK (exit={exit_code})"
 
+    def _ssh_exec_raw(self, host: str, username: str, command: str,
+                      port: int = 22, timeout: int = 60) -> Tuple[bool, dict]:
+        """Execute a command via SSH and return raw output.
+
+        Returns (success, data) where data has {exit_code, stdout, stderr, error}.
+        Uses relay for internal IPs when RELAY_TOKEN is set.
+        """
+        import os
+        import subprocess
+
+        is_internal = re.match(r'^(10\.\d|172\.(1[6-9]|2\d|3[01])\.|192\.168\.)', host)
+
+        if is_internal and os.environ.get('RELAY_TOKEN'):
+            return self._ssh_check_via_relay(host, port, username, command, timeout)
+
+        key_path = os.environ.get('SSH_KEY_PATH', '/app/ssh_key')
+        if not os.path.exists(key_path):
+            return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                           "error": f"SSH key not found at {key_path}"}
+
+        try:
+            result = subprocess.run(
+                ["ssh", "-i", key_path,
+                 "-o", "StrictHostKeyChecking=no",
+                 "-o", "UserKnownHostsFile=/dev/null",
+                 "-o", f"ConnectTimeout={min(timeout, 10)}",
+                 "-o", "LogLevel=ERROR",
+                 "-p", str(port),
+                 f"{username}@{host}", command],
+                capture_output=True, text=True, timeout=timeout + 5,
+            )
+            return True, {
+                "exit_code": result.returncode,
+                "stdout": result.stdout[:8192],
+                "stderr": result.stderr[:4096],
+                "error": "",
+            }
+        except subprocess.TimeoutExpired:
+            return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                           "error": f"SSH {username}@{host} timed out after {timeout}s"}
+        except Exception as e:
+            return False, {"exit_code": -1, "stdout": "", "stderr": "",
+                           "error": f"SSH {username}@{host} failed: {str(e)[:200]}"}
+
+    def check_agent_eval(self, host: str, username: str, eval_lab: str,
+                         project_dir: str = "se-toolkit-lab-6",
+                         include_bot_only: bool = True, max_tier: int = 3,
+                         min_pass_rate: float = 0.75,
+                         timeout_per_question: int = 60,
+                         port: int = 22) -> Tuple[bool, str]:
+        """Run agent evaluation over SSH.
+
+        Loads questions from the eval YAML, SSHes into the student VM to run
+        each question through the agent, and checks answers locally.
+
+        Returns (passed, details) where passed is True if the pass rate
+        meets min_pass_rate.
+        """
+        import os
+        import json
+        import yaml
+
+        # Load eval questions
+        specs_dir = os.path.join(os.path.dirname(__file__), '..', 'specs')
+        eval_file = os.path.join(specs_dir, f"{eval_lab}-eval.yaml")
+        if not os.path.exists(eval_file):
+            return False, f"Eval file not found: {eval_lab}-eval.yaml"
+
+        with open(eval_file) as f:
+            all_questions = yaml.safe_load(f) or []
+
+        # Filter questions
+        questions = []
+        for q in all_questions:
+            if not include_bot_only and q.get("bot_only", False):
+                continue
+            if q.get("tier", 1) > max_tier:
+                continue
+            questions.append(q)
+        questions.sort(key=lambda q: q["index"])
+
+        if not questions:
+            return False, "No questions matched the filter criteria"
+
+        passed_count = 0
+        total = len(questions)
+        results = []
+
+        for q in questions:
+            question_text = q["question"]
+            expected = q.get("expected", {})
+
+            # Escape single quotes in question for shell
+            escaped_q = question_text.replace("'", "'\\''")
+            cmd = f"cd ~/{project_dir} && python agent.py '{escaped_q}'"
+
+            success, data = self._ssh_exec_raw(host, username, cmd, port, timeout_per_question)
+
+            if not success:
+                results.append(f"  x [{q['index']}] SSH error: {data.get('error', 'unknown')}")
+                continue
+
+            exit_code = data.get("exit_code", -1)
+            stdout = data.get("stdout", "").strip()
+
+            if exit_code != 0:
+                stderr_preview = data.get("stderr", "").strip()[:100]
+                results.append(f"  x [{q['index']}] Agent exited with code {exit_code}: {stderr_preview}")
+                continue
+
+            if not stdout:
+                results.append(f"  x [{q['index']}] Agent produced no output")
+                continue
+
+            try:
+                output = json.loads(stdout)
+            except json.JSONDecodeError:
+                results.append(f"  x [{q['index']}] Invalid JSON: {stdout[:100]}")
+                continue
+
+            answer = output.get("answer", "")
+            if not answer:
+                results.append(f"  x [{q['index']}] Missing 'answer' field")
+                continue
+
+            # Match answer against expected
+            if self._match_answer(answer, expected):
+                passed_count += 1
+                results.append(f"  + [{q['index']}] {question_text[:60]}...")
+            else:
+                results.append(
+                    f"  x [{q['index']}] {question_text[:60]}...\n"
+                    f"      Answer: {answer[:100]}\n"
+                    f"      Expected: {self._format_expected(expected)}"
+                )
+
+            # Check tool usage for questions that require tools
+            requires_tool = q.get("requires_tool")
+            if requires_tool:
+                tool_calls = output.get("tool_calls", [])
+                tool_used = any(
+                    tc.get("tool") == requires_tool for tc in tool_calls
+                ) if tool_calls else False
+                if not tool_used and self._match_answer(answer, expected):
+                    # Answer was correct but tool wasn't used — still counts
+                    # but we note it
+                    results.append(f"      (note: expected tool '{requires_tool}' was not used)")
+
+        pass_rate = passed_count / total if total > 0 else 0
+        summary = f"{passed_count}/{total} passed ({pass_rate:.0%})"
+        detail_text = "\n".join(results)
+        full_details = f"Agent eval: {summary}\n{detail_text}"
+
+        return pass_rate >= min_pass_rate, full_details
+
+    @staticmethod
+    def _match_answer(answer: str, expected: dict) -> bool:
+        """Check if the answer satisfies the expected matching rule."""
+        answer_lower = answer.lower()
+
+        if "contains" in expected:
+            return expected["contains"].lower() in answer_lower
+
+        if "contains_all" in expected:
+            return all(kw.lower() in answer_lower for kw in expected["contains_all"])
+
+        if "any_of" in expected:
+            return any(kw.lower() in answer_lower for kw in expected["any_of"])
+
+        if "regex" in expected:
+            return bool(re.search(expected["regex"], answer, re.IGNORECASE))
+
+        if "numeric_gt" in expected:
+            numbers = re.findall(r"[\d.]+", answer)
+            return any(float(n) > expected["numeric_gt"] for n in numbers if n)
+
+        if "numeric_range" in expected:
+            lo, hi = expected["numeric_range"]
+            numbers = re.findall(r"[\d.]+", answer)
+            return any(lo <= float(n) <= hi for n in numbers if n)
+
+        return False
+
+    @staticmethod
+    def _format_expected(expected: dict) -> str:
+        """Human-readable description of the expected match."""
+        if "contains" in expected:
+            return f"contains \"{expected['contains']}\""
+        if "contains_all" in expected:
+            return f"contains all of {expected['contains_all']}"
+        if "any_of" in expected:
+            return f"any of {expected['any_of']}"
+        if "regex" in expected:
+            return f"matches /{expected['regex']}/"
+        if "numeric_gt" in expected:
+            return f"number > {expected['numeric_gt']}"
+        if "numeric_range" in expected:
+            return f"number in {expected['numeric_range']}"
+        return str(expected)
+
     def check_clone_and_run(self, commands: List[str], timeout: int = 120) -> Tuple[bool, str]:
         """Clones the repo and runs commands in a sandboxed Docker container.
 
@@ -1642,6 +1842,29 @@ class CheckEngine:
             elif check_type == "api_access_check":
                 required_endpoints = params.get('endpoints', [])
                 passed, details = self.check_api_access(required_endpoints)
+                if passed: status = "PASS"
+
+            elif check_type == "agent_eval":
+                import os
+                # Resolve SSH host from runtime config
+                runtime = params.get('runtime', 'prod')
+                ssh_host = os.environ.get('SERVER_IP', 'localhost')
+
+                eval_lab = params.get('eval_lab', 'lab-06')
+                username = params.get('username', 'autochecker')
+                project_dir = params.get('project_dir', 'se-toolkit-lab-6')
+                include_bot_only = params.get('include_bot_only', True)
+                max_tier = params.get('max_tier', 3)
+                min_pass_rate = params.get('min_pass_rate', 0.75)
+                timeout_per_q = params.get('timeout_per_question', 60)
+                port = params.get('port', 22)
+
+                passed, details = self.check_agent_eval(
+                    host=ssh_host, username=username, eval_lab=eval_lab,
+                    project_dir=project_dir, include_bot_only=include_bot_only,
+                    max_tier=max_tier, min_pass_rate=min_pass_rate,
+                    timeout_per_question=timeout_per_q, port=port,
+                )
                 if passed: status = "PASS"
 
             elif check_type == "llm_judge":
