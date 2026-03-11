@@ -155,7 +155,10 @@ async def login_submit(password: str = Form(...)):
 def load_task_metadata() -> list[dict]:
     """Load task id+title from spec files for active labs."""
     tasks: list[dict] = []
-    discovered_labs = sorted(path.stem for path in SPECS_DIR.glob("lab-*.yaml"))
+    discovered_labs = sorted(
+        path.stem for path in SPECS_DIR.glob("lab-*.yaml")
+        if path.stem.count("-") == 1  # exclude lab-06-eval.yaml etc.
+    )
     lab_ids = ACTIVE_LABS + [lab for lab in discovered_labs if lab not in ACTIVE_LABS]
 
     for lab_id in lab_ids:
