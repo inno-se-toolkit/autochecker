@@ -1,0 +1,231 @@
+# Lab 06 — Agent Evaluation Question Bank
+#
+# 25 script questions (served via /api/eval/question)
+# 9 bot-only questions (only in autochecker SSH eval)
+#
+# Matching strategies:
+#   contains: answer contains substring (case-insensitive)
+#   contains_all: answer contains ALL substrings
+#   any_of: answer contains ANY substring
+#   regex: answer matches pattern
+#   numeric_gt: answer contains a number > N
+#   numeric_range: answer contains a number in [min, max]
+#
+# requires_tool: tool name(s) the agent should use (for bot verification)
+
+# =============================================================================
+# SCRIPT QUESTIONS (0-24) — served by the API, ordered by difficulty
+# =============================================================================
+
+# --- Git (lab 1) ---
+
+- index: 0
+  question: "What does the command 'git checkout -b feature' do?"
+  expected: {contains_all: ["create", "branch"]}
+  tier: 1
+
+- index: 1
+  question: "What is a pull request?"
+  expected: {any_of: ["review", "merge", "propose changes", "code review"]}
+  tier: 1
+
+- index: 2
+  question: "What is the purpose of a .gitignore file?"
+  expected: {any_of: ["ignore", "exclude", "untracked", "not track"]}
+  tier: 1
+
+- index: 3
+  question: "What are conventional commits? Give an example prefix."
+  expected: {any_of: ["feat:", "fix:", "docs:", "test:", "chore:", "refactor:"]}
+  tier: 1
+
+# --- HTTP & REST (labs 2-3) ---
+
+- index: 4
+  question: "What does REST stand for?"
+  expected: {contains: "Representational State Transfer"}
+  tier: 1
+
+- index: 5
+  question: "Which HTTP method is idempotent: PUT or POST?"
+  expected: {contains: "PUT"}
+  tier: 1
+
+- index: 6
+  question: "What HTTP status code means 'Not Found'?"
+  expected: {contains: "404"}
+  tier: 1
+
+- index: 7
+  question: "What HTTP status code means 'Unauthorized'?"
+  expected: {contains: "401"}
+  tier: 1
+
+- index: 8
+  question: "What is the difference between authentication and authorization?"
+  expected: {contains_all: ["who", "permission"]}
+  tier: 1
+  # Acceptable: authentication = who you are, authorization = what you're allowed to do
+
+- index: 9
+  question: "What is a Bearer token in the context of HTTP authentication?"
+  expected: {any_of: ["token", "Authorization header", "credential", "access"]}
+  tier: 1
+
+# --- Docker (lab 2) ---
+
+- index: 10
+  question: "What is the difference between a Docker image and a container?"
+  expected: {any_of: ["running instance", "runtime", "image is a template", "container is a running"]}
+  tier: 1
+
+- index: 11
+  question: "What is Docker Compose used for?"
+  expected: {any_of: ["multi-container", "multiple container", "multiple services", "define and run", "orchestrat"]}
+  tier: 1
+
+- index: 12
+  question: "What is the purpose of a Docker volume?"
+  expected: {any_of: ["persist", "storage", "data", "survive"]}
+  tier: 1
+
+# --- SQL & Databases (lab 3) ---
+
+- index: 13
+  question: "What does a SQL JOIN operation do?"
+  expected: {any_of: ["combine", "rows from two", "multiple tables", "related", "match"]}
+  tier: 1
+
+- index: 14
+  question: "What is the difference between WHERE and HAVING in SQL?"
+  expected: {any_of: ["group", "aggregate", "before grouping", "after grouping", "WHERE filters rows", "HAVING filters groups"]}
+  tier: 1
+
+# --- Testing (lab 4) ---
+
+- index: 15
+  question: "What is the difference between unit tests and end-to-end tests?"
+  expected: {any_of: ["individual", "isolation", "whole system", "full system", "single function", "component"]}
+  tier: 1
+
+- index: 16
+  question: "What is regression testing?"
+  expected: {any_of: ["previously working", "existing functionality", "broke", "still works", "unchanged"]}
+  tier: 1
+
+# --- ETL (lab 5) ---
+
+- index: 17
+  question: "What does ETL stand for?"
+  expected: {contains_all: ["Extract", "Transform", "Load"]}
+  tier: 1
+
+- index: 18
+  question: "What does it mean for an operation to be idempotent?"
+  expected: {any_of: ["same result", "multiple times", "no additional effect", "repeated", "without changing"]}
+  tier: 1
+
+# --- Agents (lab 6) ---
+
+- index: 19
+  question: "What is an agent loop in the context of LLM-based agents?"
+  expected: {any_of: ["tool", "observe", "act", "loop", "iterate", "call", "execute", "repeat"]}
+  tier: 1
+
+- index: 20
+  question: "What is tool calling (function calling) in LLMs?"
+  expected: {any_of: ["structured", "function", "execute", "external", "JSON", "schema", "invoke"]}
+  tier: 1
+
+# --- System-specific (require tools) ---
+
+- index: 21
+  question: "What Python web framework does the backend of this project use?"
+  expected: {any_of: ["FastAPI", "fastapi"]}
+  requires_tool: read_file
+  tier: 2
+
+- index: 22
+  question: "What ORM or database library does this project use?"
+  expected: {any_of: ["SQLModel", "sqlmodel"]}
+  requires_tool: read_file
+  tier: 2
+
+- index: 23
+  question: "List all API router filenames in the backend (just the filenames, without extensions)."
+  expected: {contains_all: ["items", "interactions", "analytics", "pipeline"]}
+  requires_tool: list_files
+  tier: 2
+
+- index: 24
+  question: "How many items are currently stored in the database? Answer with just the number."
+  expected: {numeric_gt: 0}
+  requires_tool: query_api
+  tier: 2
+
+# =============================================================================
+# BOT-ONLY QUESTIONS (25-33) — only in autochecker SSH eval, never served by API
+# =============================================================================
+
+- index: 25
+  question: "What database system does this project use?"
+  expected: {any_of: ["PostgreSQL", "postgres", "Postgres"]}
+  requires_tool: read_file
+  tier: 2
+  bot_only: true
+
+- index: 26
+  question: "What reverse proxy serves the frontend in production?"
+  expected: {any_of: ["Caddy", "caddy"]}
+  requires_tool: read_file
+  tier: 2
+  bot_only: true
+
+- index: 27
+  question: "What port does the backend application listen on inside its Docker container?"
+  expected: {contains: "8000"}
+  requires_tool: read_file
+  tier: 2
+  bot_only: true
+
+- index: 28
+  question: "What testing framework does the backend use?"
+  expected: {any_of: ["pytest", "Pytest"]}
+  requires_tool: read_file
+  tier: 2
+  bot_only: true
+
+- index: 29
+  question: "What async HTTP client library does the ETL pipeline use?"
+  expected: {any_of: ["httpx", "HTTPX"]}
+  requires_tool: read_file
+  tier: 2
+  bot_only: true
+
+- index: 30
+  question: "What HTTP status code does your API return for a GET request to /items/ without authentication?"
+  expected: {any_of: ["401", "403"]}
+  requires_tool: query_api
+  tier: 3
+  bot_only: true
+
+- index: 31
+  question: "What HTTP status code does your API return for GET /nonexistent-endpoint?"
+  expected: {contains: "404"}
+  requires_tool: query_api
+  tier: 3
+  bot_only: true
+
+- index: 32
+  question: "How does the backend API authenticate requests? Describe the mechanism."
+  expected: {any_of: ["Bearer", "bearer", "API key", "api_key", "header"]}
+  requires_tool: read_file
+  tier: 3
+  bot_only: true
+
+- index: 33
+  question: "What database tables are defined in the project's init.sql file? List their names."
+  expected: {contains_all: ["item", "learner", "interact"]}
+  requires_tool: read_file
+  tier: 3
+  bot_only: true
