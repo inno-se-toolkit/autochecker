@@ -965,3 +965,57 @@ async def relay_status(request: Request):
     if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
     return JSONResponse({"worker_connected": _relay_worker is not None})
+
+
+# ---------------------------------------------------------------------------
+# Agent eval API
+# ---------------------------------------------------------------------------
+
+_eval_cache: dict[str, list[dict]] = {}
+
+
+def _load_eval_questions(lab: str) -> list[dict]:
+    """Load non-bot-only questions from the eval YAML for a given lab."""
+    if lab in _eval_cache:
+        return _eval_cache[lab]
+    eval_file = SPECS_DIR / f"{lab}-eval.yaml"
+    if not eval_file.exists():
+        return []
+    with open(eval_file) as f:
+        all_questions = yaml.safe_load(f) or []
+    questions = [q for q in all_questions if not q.get("bot_only", False)]
+    questions.sort(key=lambda q: q["index"])
+    _eval_cache[lab] = questions
+    return questions
+
+
+@app.get("/api/eval/question")
+async def api_eval_question(
+    request: Request,
+    lab: str = Query(..., description="Lab identifier, e.g. lab-06"),
+    index: int = Query(..., ge=0, description="Question index"),
+):
+    """Serve a single eval question by index. Used by run_eval.py for local testing."""
+    email = await _verify_basic_auth(request)
+    if not email:
+        return JSONResponse(
+            {"error": "unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
+        )
+
+    await _log_api_access(email, f"/api/eval/question?lab={lab}&index={index}")
+
+    questions = _load_eval_questions(lab)
+    if not questions:
+        return JSONResponse({"error": f"no eval set found for {lab}"}, status_code=404)
+    if index >= len(questions):
+        return JSONResponse({"error": "index out of range"}, status_code=404)
+
+    q = questions[index]
+    return JSONResponse({
+        "index": q["index"],
+        "total": len(questions),
+        "question": q["question"],
+        "expected": q.get("expected", {}),
+    })
