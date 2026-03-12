@@ -1385,8 +1385,12 @@ class CheckEngine:
                          if k not in ("VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME")}
 
             # Inject our LLM credentials
+            # LLM_API_URL may include /chat/completions (used by our llm_analyzer),
+            # but students expect a base URL (OpenAI SDK appends the path itself)
             llm_api_key = os.environ.get("LLM_API_KEY", "")
             llm_api_base = os.environ.get("LLM_API_URL", "")
+            if llm_api_base.endswith("/chat/completions"):
+                llm_api_base = llm_api_base[: -len("/chat/completions")]
             llm_model = os.environ.get("LLM_MODEL", "")
 
             agent_env["LLM_API_KEY"] = llm_api_key
