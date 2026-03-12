@@ -19,7 +19,7 @@ tasks:
   - id: setup
     title: "Lab setup"
   - id: task-1
-    title: "Task 1: Basic Agent Loop"
+    title: "Task 1: Call an LLM from Code"
     prerequisite: setup
   - id: task-2
     title: "Task 2: Add Tools"
@@ -131,7 +131,7 @@ checks:
       expect_regex: "ok"
 
   # =====================================================
-  # TASK 1: Basic Agent Loop
+  # TASK 1: Call an LLM from Code
   # =====================================================
 
   - id: task1_issue_exists
@@ -144,9 +144,9 @@ checks:
     weight: 2
     hint: >
       Create a GitHub issue with the title:
-      [Task] Basic Agent Loop
+      [Task] Call an LLM from Code
     params:
-      title_regex: "\\[Task\\]\\s+Basic Agent Loop"
+      title_regex: "\\[Task\\]\\s+Call an LLM from Code"
 
   - id: task1_plan_exists
     task: task-1
@@ -232,7 +232,7 @@ checks:
 
   - id: task1_commit
     task: task-1
-    title: "Commit message for basic agent loop"
+    title: "Commit message for LLM agent CLI"
     class: process
     runner: code
     type: commit_message_regex
@@ -240,9 +240,9 @@ checks:
     weight: 2
     hint: >
       Your commit message should be:
-      feat: implement basic agent loop with LLM integration
+      feat: implement LLM-powered agent CLI
     params:
-      pattern: "^feat:\\s+implement basic agent"
+      pattern: "^feat:\\s+implement (LLM|basic agent|agent)"
 
   - id: task1_issue_has_linked_pr
     task: task-1
@@ -256,7 +256,7 @@ checks:
       Create a PR that closes the issue using 'Closes #<issue-number>'
       in the PR description.
     params:
-      title_regex: "\\[Task\\]\\s+Basic Agent Loop"
+      title_regex: "\\[Task\\]\\s+Call an LLM from Code"
       merged: true
 
   - id: task1_pr_approved
@@ -270,7 +270,7 @@ checks:
     hint: >
       Ask your partner to review and approve your PR.
     params:
-      title_regex: "\\[Task\\]\\s+Basic Agent Loop"
+      title_regex: "\\[Task\\]\\s+Call an LLM from Code"
       min_approvals: 1
 
   # =====================================================
