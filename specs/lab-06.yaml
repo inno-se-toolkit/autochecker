@@ -203,13 +203,13 @@ checks:
     weight: 5
     depends_on: [setup_ssh_connectivity, task1_agent_exists]
     hint: >
-      Your agent must run on the VM: python agent.py "test question"
+      Your agent must run on the VM: uv run --python-preference only-system agent.py "test question"
       It must exit with code 0 and output valid JSON with "answer"
       and "tool_calls" fields.
     params:
       runtime: prod
       username: autochecker
-      command: 'cd ~/se-toolkit-lab-6 && python agent.py "What does REST stand for?" 2>/dev/null'
+      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What does REST stand for?" 2>/dev/null'
       expect_exit: 0
       expect_regex: '"answer"'
       timeout: 60
@@ -384,7 +384,7 @@ checks:
     weight: 8
     depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
     hint: >
-      Run python run_eval.py locally to test your agent.
+      Run uv run --python-preference only-system run_eval.py locally to test your agent.
       Your agent must pass at least 60% of tier 1 and tier 2 questions.
       Fix failing questions one at a time.
     params:
@@ -483,7 +483,7 @@ checks:
     weight: 15
     depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
     hint: >
-      Run python run_eval.py locally to pass all 25 questions.
+      Run uv run --python-preference only-system run_eval.py locally to pass all 25 questions.
       The autochecker tests 34 questions total (25 shared + 9 extra).
       You need at least 75% (26/34) to pass.
     params:

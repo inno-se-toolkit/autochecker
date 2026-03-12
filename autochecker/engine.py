@@ -1244,7 +1244,11 @@ class CheckEngine:
 
             # Escape single quotes in question for shell
             escaped_q = question_text.replace("'", "'\\''")
-            cmd = f"cd ~/{project_dir} && python agent.py '{escaped_q}'"
+            cmd = (
+                f"cd ~/{project_dir} && "
+                f"(uv run --python-preference only-system agent.py '{escaped_q}' "
+                f"|| python agent.py '{escaped_q}')"
+            )
 
             success, data = self._ssh_exec_raw(host, username, cmd, port, timeout_per_question)
 
