@@ -81,7 +81,7 @@ def check_student(
         raise RuntimeError("No API token found. Set GITHUB_TOKEN or GITLAB_TOKEN.")
 
     if not openrouter_api_key:
-        openrouter_api_key = os.environ.get("OPENROUTER_API_KEY")
+        openrouter_api_key = os.environ.get("LLM_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
 
     lab_spec = load_spec(str(spec_path))
     lab_spec.repo_name = repo_name
