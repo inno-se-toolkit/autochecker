@@ -19,14 +19,17 @@ tasks:
   - id: setup
     title: "Lab setup"
   - id: task-1
-    title: "Task 1: The Documentation Agent"
+    title: "Task 1: Call an LLM from Code"
     prerequisite: setup
   - id: task-2
-    title: "Task 2: The System Agent"
+    title: "Task 2: The Documentation Agent"
     prerequisite: task-1
   - id: task-3
-    title: "Task 3: Pass the Benchmark"
+    title: "Task 3: The System Agent"
     prerequisite: task-2
+  - id: task-4
+    title: "Task 4: Pass the Benchmark"
+    prerequisite: task-3
 
 checks:
 
@@ -131,7 +134,7 @@ checks:
       expect_regex: "ok"
 
   # =====================================================
-  # TASK 1: The Documentation Agent
+  # TASK 1: Call an LLM from Code
   # =====================================================
 
   - id: task1_issue_exists
@@ -144,9 +147,9 @@ checks:
     weight: 2
     hint: >
       Create a GitHub issue with the title:
-      [Task] The Documentation Agent
+      [Task] Call an LLM from Code
     params:
-      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
+      title_regex: "\\[Task\\]\\s+Call an LLM"
 
   - id: task1_plan_exists
     task: task-1
@@ -177,57 +180,6 @@ checks:
       that takes a question and returns a JSON answer.
     params:
       path: "agent.py"
-
-  - id: task1_has_read_file
-    task: task-1
-    title: "Agent code has read_file tool"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Implement a read_file tool in agent.py that reads files from
-      the project directory (especially wiki files).
-    params:
-      path: "agent.py"
-      pattern: "read_file"
-      min_matches: 2
-
-  - id: task1_has_list_files
-    task: task-1
-    title: "Agent code has list_files tool"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Implement a list_files tool in agent.py that lists files and
-      directories in the project (to discover wiki files).
-    params:
-      path: "agent.py"
-      pattern: "list_files"
-      min_matches: 2
-
-  - id: task1_has_tool_schemas
-    task: task-1
-    title: "Agent defines tool schemas for function calling"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Define your tools as JSON schemas in the tools parameter of your
-      API request. The LLM uses these schemas to decide which tool to call.
-    params:
-      path: "agent.py"
-      pattern: "\"type\":\\s*\"function\"|'type':\\s*'function'|tool_calls|function_call"
-      min_matches: 1
 
   - id: task1_agent_md_exists
     task: task-1
@@ -260,7 +212,7 @@ checks:
     params:
       runtime: prod
       username: autochecker
-      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What is a Docker volume used for?" 2>/dev/null'
+      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What does REST stand for?" 2>/dev/null'
       expect_exit: 0
       expect_regex: '"answer"'
       timeout: 60
@@ -283,7 +235,7 @@ checks:
 
   - id: task1_commit
     task: task-1
-    title: "Commit message for documentation agent"
+    title: "Commit message for LLM agent"
     class: process
     runner: code
     type: commit_message_regex
@@ -291,9 +243,9 @@ checks:
     weight: 2
     hint: >
       Your commit message should be:
-      feat: implement documentation agent with wiki tools
+      feat: implement LLM-powered agent CLI
     params:
-      pattern: "^feat:\\s+implement.*(agent|documentation|wiki)"
+      pattern: "^feat:\\s+implement.*(agent|llm|cli)"
 
   - id: task1_issue_has_linked_pr
     task: task-1
@@ -307,7 +259,7 @@ checks:
       Create a PR that closes the issue using 'Closes #<issue-number>'
       in the PR description.
     params:
-      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
+      title_regex: "\\[Task\\]\\s+Call an LLM"
       merged: true
 
   - id: task1_pr_approved
@@ -321,11 +273,11 @@ checks:
     hint: >
       Ask your partner to review and approve your PR.
     params:
-      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
+      title_regex: "\\[Task\\]\\s+Call an LLM"
       min_approvals: 1
 
   # =====================================================
-  # TASK 2: The System Agent
+  # TASK 2: The Documentation Agent
   # =====================================================
 
   - id: task2_issue_exists
@@ -338,9 +290,9 @@ checks:
     weight: 2
     hint: >
       Create a GitHub issue with the title:
-      [Task] The System Agent
+      [Task] The Documentation Agent
     params:
-      title_regex: "\\[Task\\]\\s+(The )?System Agent"
+      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
 
   - id: task2_plan_exists
     task: task-2
@@ -352,13 +304,161 @@ checks:
     weight: 2
     depends_on: [repo_exists]
     hint: >
-      Create plans/task-2.md with your system agent implementation plan
+      Create plans/task-2.md with your documentation agent implementation plan
       before writing code.
     params:
       path: "plans/task-2.md"
 
-  - id: task2_has_query_api
+  - id: task2_has_read_file
     task: task-2
+    title: "Agent code has read_file tool"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Implement a read_file tool in agent.py that reads files from
+      the project directory (especially wiki files).
+    params:
+      path: "agent.py"
+      pattern: "read_file"
+      min_matches: 2
+
+  - id: task2_has_list_files
+    task: task-2
+    title: "Agent code has list_files tool"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Implement a list_files tool in agent.py that lists files and
+      directories in the project (to discover wiki files).
+    params:
+      path: "agent.py"
+      pattern: "list_files"
+      min_matches: 2
+
+  - id: task2_has_tool_schemas
+    task: task-2
+    title: "Agent defines tool schemas for function calling"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Define your tools as JSON schemas in the tools parameter of your
+      API request. The LLM uses these schemas to decide which tool to call.
+    params:
+      path: "agent.py"
+      pattern: "\"type\":\\s*\"function\"|'type':\\s*'function'|tool_calls|function_call"
+      min_matches: 1
+
+  - id: task2_agent_cli_with_tools
+    task: task-2
+    title: "Agent CLI uses tools and returns valid JSON"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [setup_ssh_connectivity, task1_agent_exists]
+    hint: >
+      Your agent must use tools to answer wiki questions:
+      uv run --python-preference only-system agent.py "What is a Docker volume used for?"
+      Output must include non-empty tool_calls.
+    params:
+      runtime: prod
+      username: autochecker
+      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What is a Docker volume used for?" 2>/dev/null'
+      expect_exit: 0
+      expect_regex: '"tool_calls"'
+      timeout: 60
+
+  - id: task2_commit
+    task: task-2
+    title: "Commit message for documentation agent"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message should be:
+      feat: implement documentation agent with wiki tools
+    params:
+      pattern: "^feat:\\s+implement.*(agent|documentation|wiki)"
+
+  - id: task2_issue_has_linked_pr
+    task: task-2
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    hint: >
+      Create a PR that closes the issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
+      merged: true
+
+  - id: task2_pr_approved
+    task: task-2
+    title: "Task 2 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 3: The System Agent
+  # =====================================================
+
+  - id: task3_issue_exists
+    task: task-3
+    title: "Task 3 issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] The System Agent
+    params:
+      title_regex: "\\[Task\\]\\s+(The )?System Agent"
+
+  - id: task3_plan_exists
+    task: task-3
+    title: "Plan file exists (plans/task-3.md)"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Create plans/task-3.md with your system agent implementation plan
+      before writing code.
+    params:
+      path: "plans/task-3.md"
+
+  - id: task3_has_query_api
+    task: task-3
     title: "Agent code has query_api tool"
     class: structural
     runner: code
@@ -374,8 +474,8 @@ checks:
       pattern: "query_api"
       min_matches: 2
 
-  - id: task2_tool_eval
-    task: task-2
+  - id: task3_tool_eval
+    task: task-3
     title: "Agent passes wiki + system questions (tier 1+2, ≥60%)"
     class: execution
     runner: code
@@ -397,8 +497,8 @@ checks:
       min_pass_rate: 0.6
       timeout_per_question: 60
 
-  - id: task2_commit
-    task: task-2
+  - id: task3_commit
+    task: task-3
     title: "Commit message for system agent"
     class: process
     runner: code
@@ -411,8 +511,8 @@ checks:
     params:
       pattern: "^feat:\\s+add.*(query_api|system|api tool)"
 
-  - id: task2_issue_has_linked_pr
-    task: task-2
+  - id: task3_issue_has_linked_pr
+    task: task-3
     title: "Task issue is closed by a PR"
     class: process
     runner: code
@@ -426,9 +526,9 @@ checks:
       title_regex: "\\[Task\\]\\s+(The )?System Agent"
       merged: true
 
-  - id: task2_pr_approved
-    task: task-2
-    title: "Task 2 PR has at least 1 approval"
+  - id: task3_pr_approved
+    task: task-3
+    title: "Task 3 PR has at least 1 approval"
     class: process
     runner: code
     type: issue_pr_approved
@@ -441,12 +541,12 @@ checks:
       min_approvals: 1
 
   # =====================================================
-  # TASK 3: Pass the Benchmark
+  # TASK 4: Pass the Benchmark
   # =====================================================
 
-  - id: task3_issue_exists
-    task: task-3
-    title: "Task 3 issue exists"
+  - id: task4_issue_exists
+    task: task-4
+    title: "Task 4 issue exists"
     class: process
     runner: code
     type: issue_exists
@@ -458,9 +558,9 @@ checks:
     params:
       title_regex: "\\[Task\\]\\s+Pass the Benchmark"
 
-  - id: task3_plan_exists
-    task: task-3
-    title: "Plan file exists (plans/task-3.md)"
+  - id: task4_plan_exists
+    task: task-4
+    title: "Plan file exists (plans/task-4.md)"
     class: structural
     runner: code
     type: file_nonempty
@@ -468,13 +568,13 @@ checks:
     weight: 2
     depends_on: [repo_exists]
     hint: >
-      Create plans/task-3.md with your initial benchmark score,
+      Create plans/task-4.md with your initial benchmark score,
       first failures, and iteration strategy.
     params:
-      path: "plans/task-3.md"
+      path: "plans/task-4.md"
 
-  - id: task3_full_eval
-    task: task-3
+  - id: task4_full_eval
+    task: task-4
     title: "Agent passes full benchmark (≥75%)"
     class: execution
     runner: code
@@ -496,8 +596,8 @@ checks:
       min_pass_rate: 0.75
       timeout_per_question: 60
 
-  - id: task3_agent_md_updated
-    task: task-3
+  - id: task4_agent_md_updated
+    task: task-4
     title: "AGENT.md documents final architecture and lessons learned"
     class: structural
     runner: code
@@ -512,8 +612,8 @@ checks:
       path: "AGENT.md"
       min_words: 200
 
-  - id: task3_commit
-    task: task-3
+  - id: task4_commit
+    task: task-4
     title: "Commit message for benchmark iteration"
     class: process
     runner: code
@@ -526,8 +626,8 @@ checks:
     params:
       pattern: "^(feat|fix|docs|test):"
 
-  - id: task3_issue_has_linked_pr
-    task: task-3
+  - id: task4_issue_has_linked_pr
+    task: task-4
     title: "Task issue is closed by a PR"
     class: process
     runner: code
@@ -541,9 +641,9 @@ checks:
       title_regex: "\\[Task\\]\\s+Pass the Benchmark"
       merged: true
 
-  - id: task3_pr_approved
-    task: task-3
-    title: "Task 3 PR has at least 1 approval"
+  - id: task4_pr_approved
+    task: task-4
+    title: "Task 4 PR has at least 1 approval"
     class: process
     runner: code
     type: issue_pr_approved
