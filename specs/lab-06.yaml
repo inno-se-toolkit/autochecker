@@ -19,10 +19,10 @@ tasks:
   - id: setup
     title: "Lab setup"
   - id: task-1
-    title: "Task 1: Call an LLM from Code"
+    title: "Task 1: The Documentation Agent"
     prerequisite: setup
   - id: task-2
-    title: "Task 2: Add Tools"
+    title: "Task 2: The System Agent"
     prerequisite: task-1
   - id: task-3
     title: "Task 3: Pass the Benchmark"
@@ -95,7 +95,7 @@ checks:
 
   - id: setup_app_reachable
     task: setup
-    title: "Lab 5 application is reachable on the VM"
+    title: "Application is reachable on the VM"
     class: execution
     runner: code
     type: http_check
@@ -103,7 +103,7 @@ checks:
     weight: 3
     depends_on: [setup_ssh_connectivity]
     hint: >
-      Your lab 5 application must be running on the VM at http://<vm-ip>:42002.
+      Your application must be running on the VM at http://<vm-ip>:42002.
       Make sure Docker Compose services are up:
       'docker compose --env-file .env.docker.secret up --build -d'.
     params:
@@ -131,7 +131,7 @@ checks:
       expect_regex: "ok"
 
   # =====================================================
-  # TASK 1: Call an LLM from Code
+  # TASK 1: The Documentation Agent
   # =====================================================
 
   - id: task1_issue_exists
@@ -144,9 +144,9 @@ checks:
     weight: 2
     hint: >
       Create a GitHub issue with the title:
-      [Task] Call an LLM from Code
+      [Task] The Documentation Agent
     params:
-      title_regex: "\\[Task\\]\\s+Call an LLM from Code"
+      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
 
   - id: task1_plan_exists
     task: task-1
@@ -159,7 +159,7 @@ checks:
     depends_on: [repo_exists]
     hint: >
       Create plans/task-1.md with your agent implementation plan
-      before writing code. Commit with: docs: add agent implementation plan
+      before writing code.
     params:
       path: "plans/task-1.md"
 
@@ -178,6 +178,57 @@ checks:
     params:
       path: "agent.py"
 
+  - id: task1_has_read_file
+    task: task-1
+    title: "Agent code has read_file tool"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Implement a read_file tool in agent.py that reads files from
+      the project directory (especially wiki files).
+    params:
+      path: "agent.py"
+      pattern: "read_file"
+      min_matches: 2
+
+  - id: task1_has_list_files
+    task: task-1
+    title: "Agent code has list_files tool"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Implement a list_files tool in agent.py that lists files and
+      directories in the project (to discover wiki files).
+    params:
+      path: "agent.py"
+      pattern: "list_files"
+      min_matches: 2
+
+  - id: task1_has_tool_schemas
+    task: task-1
+    title: "Agent defines tool schemas for function calling"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [task1_agent_exists]
+    hint: >
+      Define your tools as JSON schemas in the tools parameter of your
+      API request. The LLM uses these schemas to decide which tool to call.
+    params:
+      path: "agent.py"
+      pattern: "\"type\":\\s*\"function\"|'type':\\s*'function'|tool_calls|function_call"
+      min_matches: 1
+
   - id: task1_agent_md_exists
     task: task-1
     title: "AGENT.md documentation exists"
@@ -189,7 +240,7 @@ checks:
     depends_on: [repo_exists]
     hint: >
       Create AGENT.md documenting your agent's architecture, LLM provider,
-      system prompt strategy, and how to run it.
+      tools, system prompt strategy, and how to run it.
     params:
       path: "AGENT.md"
 
@@ -209,7 +260,7 @@ checks:
     params:
       runtime: prod
       username: autochecker
-      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What does REST stand for?" 2>/dev/null'
+      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What is a Docker volume used for?" 2>/dev/null'
       expect_exit: 0
       expect_regex: '"answer"'
       timeout: 60
@@ -232,7 +283,7 @@ checks:
 
   - id: task1_commit
     task: task-1
-    title: "Commit message for LLM agent CLI"
+    title: "Commit message for documentation agent"
     class: process
     runner: code
     type: commit_message_regex
@@ -240,9 +291,9 @@ checks:
     weight: 2
     hint: >
       Your commit message should be:
-      feat: implement LLM-powered agent CLI
+      feat: implement documentation agent with wiki tools
     params:
-      pattern: "^feat:\\s+implement (LLM|basic agent|agent)"
+      pattern: "^feat:\\s+implement.*(agent|documentation|wiki)"
 
   - id: task1_issue_has_linked_pr
     task: task-1
@@ -256,7 +307,7 @@ checks:
       Create a PR that closes the issue using 'Closes #<issue-number>'
       in the PR description.
     params:
-      title_regex: "\\[Task\\]\\s+Call an LLM from Code"
+      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
       merged: true
 
   - id: task1_pr_approved
@@ -270,11 +321,11 @@ checks:
     hint: >
       Ask your partner to review and approve your PR.
     params:
-      title_regex: "\\[Task\\]\\s+Call an LLM from Code"
+      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
       min_approvals: 1
 
   # =====================================================
-  # TASK 2: Add Tools
+  # TASK 2: The System Agent
   # =====================================================
 
   - id: task2_issue_exists
@@ -287,9 +338,9 @@ checks:
     weight: 2
     hint: >
       Create a GitHub issue with the title:
-      [Task] Add Tools
+      [Task] The System Agent
     params:
-      title_regex: "\\[Task\\]\\s+Add Tools"
+      title_regex: "\\[Task\\]\\s+(The )?System Agent"
 
   - id: task2_plan_exists
     task: task-2
@@ -301,44 +352,10 @@ checks:
     weight: 2
     depends_on: [repo_exists]
     hint: >
-      Create plans/task-2.md with your tool implementation plan
-      before writing code. Commit with: docs: add tool implementation plan
+      Create plans/task-2.md with your system agent implementation plan
+      before writing code.
     params:
       path: "plans/task-2.md"
-
-  - id: task2_has_read_file
-    task: task-2
-    title: "Agent code has read_file tool"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Implement a read_file tool in agent.py that reads files from
-      the project directory.
-    params:
-      path: "agent.py"
-      pattern: "read_file"
-      min_matches: 2
-
-  - id: task2_has_list_files
-    task: task-2
-    title: "Agent code has list_files tool"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Implement a list_files tool in agent.py that lists files and
-      directories in the project.
-    params:
-      path: "agent.py"
-      pattern: "list_files"
-      min_matches: 2
 
   - id: task2_has_query_api
     task: task-2
@@ -357,26 +374,9 @@ checks:
       pattern: "query_api"
       min_matches: 2
 
-  - id: task2_has_tool_schemas
-    task: task-2
-    title: "Agent defines tool schemas for function calling"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Define your tools as JSON schemas in the tools parameter of your
-      API request. The LLM uses these schemas to decide which tool to call.
-    params:
-      path: "agent.py"
-      pattern: "\"type\":\\s*\"function\"|'type':\\s*'function'|tool_calls|function_call"
-      min_matches: 1
-
   - id: task2_tool_eval
     task: task-2
-    title: "Agent passes tool-based questions (tier 1+2, ≥60%)"
+    title: "Agent passes wiki + system questions (tier 1+2, ≥60%)"
     class: execution
     runner: code
     type: agent_eval
@@ -399,7 +399,7 @@ checks:
 
   - id: task2_commit
     task: task-2
-    title: "Commit message for adding tools"
+    title: "Commit message for system agent"
     class: process
     runner: code
     type: commit_message_regex
@@ -407,9 +407,9 @@ checks:
     weight: 2
     hint: >
       Your commit message should be:
-      feat: add tool calling (read_file, list_files, query_api)
+      feat: add query_api tool for system queries
     params:
-      pattern: "^feat:\\s+add tool"
+      pattern: "^feat:\\s+add.*(query_api|system|api tool)"
 
   - id: task2_issue_has_linked_pr
     task: task-2
@@ -423,7 +423,7 @@ checks:
       Create a PR that closes the issue using 'Closes #<issue-number>'
       in the PR description.
     params:
-      title_regex: "\\[Task\\]\\s+Add Tools"
+      title_regex: "\\[Task\\]\\s+(The )?System Agent"
       merged: true
 
   - id: task2_pr_approved
@@ -437,7 +437,7 @@ checks:
     hint: >
       Ask your partner to review and approve your PR.
     params:
-      title_regex: "\\[Task\\]\\s+Add Tools"
+      title_regex: "\\[Task\\]\\s+(The )?System Agent"
       min_approvals: 1
 
   # =====================================================
@@ -483,9 +483,9 @@ checks:
     weight: 15
     depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
     hint: >
-      Run uv run --python-preference only-system run_eval.py locally to pass all 25 questions.
-      The autochecker tests 34 questions total (25 shared + 9 extra).
-      You need at least 75% (26/34) to pass.
+      Run uv run --python-preference only-system run_eval.py locally to pass all local questions.
+      The autochecker tests additional hidden questions.
+      You need at least 75% to pass.
     params:
       runtime: prod
       username: autochecker
