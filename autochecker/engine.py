@@ -1279,8 +1279,12 @@ class CheckEngine:
                 results.append(f"  x [{q['index']}] Missing 'answer' field")
                 continue
 
-            # Match answer against expected
-            answer_ok = self._match_answer(answer, expected)
+            # Match answer against expected (or use LLM judge for rubric-based questions)
+            rubric = q.get("rubric")
+            if rubric and not expected:
+                answer_ok = self._llm_judge(answer, rubric)
+            else:
+                answer_ok = self._match_answer(answer, expected)
 
             # Check source field if expected_source is defined
             source_ok = True
@@ -1338,6 +1342,34 @@ class CheckEngine:
         full_details = f"Agent eval: {summary}\n{detail_text}"
 
         return pass_rate >= min_pass_rate, full_details
+
+    @staticmethod
+    def _llm_judge(answer: str, rubric: str) -> bool:
+        """Use an LLM to judge an open-ended answer against a rubric.
+
+        Returns True if the answer scores >= 3/5.
+        Requires OPENROUTER_API_KEY env var.
+        """
+        import os
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            return False  # Can't judge without API key — fail gracefully
+
+        try:
+            from .llm_analyzer import _call_llm_api
+            prompt = (
+                "You are a strict grader. Score the following answer 0-5 against the rubric.\n\n"
+                f"### RUBRIC\n{rubric}\n\n"
+                f"### ANSWER\n{answer}\n\n"
+                "Return ONLY JSON: {\"score\": <0-5>, \"reason\": \"<brief reason>\"}"
+            )
+            result = _call_llm_api(
+                api_key, prompt,
+                model=os.environ.get("LLM_JUDGE_MODEL", "google/gemini-2.5-flash-lite"),
+            )
+            return result.get("score", 0) >= 3
+        except Exception:
+            return False  # On error, fail gracefully
 
     @staticmethod
     def _match_answer(answer: str, expected: dict) -> bool:

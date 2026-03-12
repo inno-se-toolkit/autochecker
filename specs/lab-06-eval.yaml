@@ -1,7 +1,7 @@
 # Lab 06 — Agent Evaluation Question Bank (v2)
 #
 # 25 script questions (index 0-24) — served via GET /api/eval/question
-# 11 bot-only questions (index 25-35) — only in autochecker SSH eval
+# 14 bot-only questions (index 25-38) — only in autochecker SSH eval
 #
 # Every question maps to a learning outcome from labs 1-6.
 # Every question is something a software engineer should genuinely know.
@@ -324,3 +324,35 @@
   tier: 3
   bot_only: true
   # Class D: Bug diagnosis — TypeError sorting None scores
+
+# =============================================================================
+# CLASS E: LLM-judged reasoning (bot-only, tier 3)
+# Agent must read code and reason about it. Checked by LLM judge, not keywords.
+# =============================================================================
+
+- index: 36
+  question: "Compare how the ETL pipeline handles failures vs how the API endpoints handle failures. Which approach is more robust and why?"
+  rubric: "Answer must: (1) describe ETL error handling (e.g., raise_for_status, pagination retry), (2) describe API endpoint error handling (e.g., returns empty list, no try/except), (3) compare them, (4) give a reasoned judgment about which is more robust."
+  feedback: "Read both the ETL code (etl.py) and the API router code (routers/), then compare their error handling strategies."
+  check_tools: [read_file]
+  tier: 3
+  bot_only: true
+  # Class E: LLM-judged — ETL vs API error handling comparison
+
+- index: 37
+  question: "Read the docker-compose.yml and the backend Dockerfile. Explain the full journey of an HTTP request from the browser to the database and back."
+  rubric: "Answer must trace the path through: (1) Caddy reverse proxy, (2) FastAPI app inside Docker container, (3) authentication middleware, (4) router/endpoint, (5) SQLModel/SQLAlchemy ORM, (6) PostgreSQL database. At least 4 of these 6 hops must be mentioned."
+  feedback: "Read docker-compose.yml, Caddyfile, the Dockerfile, and main.py to trace the request path."
+  check_tools: [read_file]
+  tier: 3
+  bot_only: true
+  # Class E: LLM-judged — request lifecycle through the stack
+
+- index: 38
+  question: "Read the ETL pipeline code. Explain how it ensures idempotency — what happens if the same data is loaded twice?"
+  rubric: "Answer must: (1) identify the idempotency mechanism (checking external_id before inserting), (2) explain that duplicate records are skipped, (3) mention the upsert-like pattern. Mentioning 'external_id' or 'existing check' is essential."
+  feedback: "Read etl.py carefully, especially the load_logs function. Look for how it handles duplicates."
+  check_tools: [read_file]
+  tier: 3
+  bot_only: true
+  # Class E: LLM-judged — ETL idempotency explanation
