@@ -1441,12 +1441,18 @@ class CheckEngine:
                     results.append(f"  x [{q['index']}] Missing 'answer' field")
                     continue
 
-                # Match answer
+                # Match answer — prefer LLM judge (rubric) when available,
+                # fall back to keyword matching (expected) otherwise
                 rubric = q.get("rubric")
-                if rubric and not expected:
+                if rubric:
                     answer_ok = self._llm_judge(answer, rubric)
-                else:
+                    if not answer_ok and expected:
+                        # LLM judge failed or unavailable — try keyword fallback
+                        answer_ok = self._match_answer(answer, expected)
+                elif expected:
                     answer_ok = self._match_answer(answer, expected)
+                else:
+                    answer_ok = False
 
                 # Check source
                 source_ok = True

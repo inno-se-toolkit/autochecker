@@ -1016,9 +1016,18 @@ async def api_eval_question(
         return JSONResponse({"error": "index out of range"}, status_code=404)
 
     q = questions[index]
-    return JSONResponse({
+    response = {
         "index": q["index"],
         "total": len(questions),
         "question": q["question"],
         "expected": q.get("expected", {}),
-    })
+    }
+    if q.get("expected_source"):
+        response["expected_source"] = q["expected_source"]
+    if q.get("check_tools"):
+        response["check_tools"] = q["check_tools"]
+    if q.get("feedback"):
+        response["feedback"] = q["feedback"]
+    if q.get("rubric"):
+        response["has_rubric"] = True  # flag only, don't expose rubric text
+    return JSONResponse(response)

@@ -6,19 +6,22 @@
 # Classes:
 #   A — Wiki lookup (read_file/list_files on wiki/ directory)
 #   B — Static system facts (read_file/list_files on code)
-#   C — Data-dependent queries (query_api to student VM)
+#   C — Data-dependent queries (query_api to cloned backend)
 #   D — Bug diagnosis chain (query_api → error → read_file → explain)
 #   E — LLM-judged reasoning (read code, synthesize, explain)
 #
-# Eval runs on dev server with student's cloned repo.
-# query_api routes to student VM through relay.
+# Eval runs via clone_and_run on Hetzner dev server:
+#   1. Clone student repo, start their Docker Compose with random ports
+#   2. Populate DB via POST /pipeline/sync
+#   3. Run agent.py with injected Groq LLM creds and AGENT_API_BASE_URL
+#   4. Tear down after eval
 #
 # Matching strategies:
 #   contains / contains_all / any_of / regex / numeric_gt / numeric_range
 #
 # Tiers:
 #   1 — Class A + B (file reading, no API needed)
-#   2 — Class C + D + E (needs running API on student VM)
+#   2 — Class C + D + E (needs running backend via clone_and_run)
 
 # =============================================================================
 # LOCAL QUESTIONS (0-9) — served via run_eval.py, student can test locally
@@ -104,6 +107,7 @@
 
 - index: 8
   question: "Read the docker-compose.yml and the backend Dockerfile. Explain the full journey of an HTTP request from the browser to the database and back."
+  expected: {contains_all: ["caddy", "fastapi", "postgres"]}
   rubric: "Answer must trace the path through: (1) Caddy reverse proxy, (2) FastAPI app inside Docker container, (3) authentication middleware, (4) router/endpoint, (5) SQLModel/SQLAlchemy ORM, (6) PostgreSQL database. At least 4 of these 6 hops must be mentioned."
   check_tools: [read_file]
   feedback: "Read docker-compose.yml, Caddyfile, the Dockerfile, and main.py to trace the request path."
@@ -112,6 +116,7 @@
 
 - index: 9
   question: "Read the ETL pipeline code. Explain how it ensures idempotency — what happens if the same data is loaded twice?"
+  expected: {any_of: ["external_id", "existing", "duplicate", "upsert", "skip"]}
   rubric: "Answer must: (1) identify the idempotency mechanism (checking external_id before inserting), (2) explain that duplicate records are skipped, (3) mention the upsert-like pattern. Mentioning 'external_id' or 'existing check' is essential."
   check_tools: [read_file]
   feedback: "Read etl.py carefully, especially the load function. Look for how it handles duplicates."
@@ -209,6 +214,7 @@
 
 - index: 18
   question: "Compare how the ETL pipeline handles failures vs how the API endpoints handle failures. Which approach is more robust and why?"
+  expected: {contains_all: ["etl", "error"]}
   rubric: "Answer must: (1) describe ETL error handling (e.g., raise_for_status, pagination retry), (2) describe API endpoint error handling (e.g., returns empty list, no try/except), (3) compare them, (4) give a reasoned judgment about which is more robust."
   check_tools: [read_file]
   feedback: "Read both the ETL code (etl.py) and the API router code (routers/), then compare their error handling strategies."
@@ -218,6 +224,7 @@
 
 - index: 19
   question: "Read the authentication code and docker-compose.yml. Explain how the LMS_API_KEY flows from the .env file to the point where it validates a request. Trace every step."
+  expected: {contains_all: ["docker-compose", "LMS_API_KEY"]}
   rubric: "Answer must trace: (1) .env.docker.secret file, (2) docker-compose.yml environment variable mapping, (3) app settings/config loading, (4) FastAPI dependency injection or middleware, (5) comparison with the request header. At least 4 of these 5 steps must be mentioned."
   check_tools: [read_file]
   feedback: "Start from docker-compose.yml environment section, follow the variable into the app config, then into the auth dependency."
