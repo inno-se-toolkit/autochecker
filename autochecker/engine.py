@@ -1290,7 +1290,17 @@ class CheckEngine:
                 if not source or not self._match_answer(source, expected_source):
                     source_ok = False
 
-            if answer_ok and source_ok:
+            # Check tool chain if check_tools is defined (all must be used)
+            tools_ok = True
+            check_tools = q.get("check_tools")
+            if check_tools:
+                tool_calls = output.get("tool_calls", [])
+                tools_used = {tc.get("tool") for tc in tool_calls} if tool_calls else set()
+                missing_tools = set(check_tools) - tools_used
+                if missing_tools:
+                    tools_ok = False
+
+            if answer_ok and source_ok and tools_ok:
                 passed_count += 1
                 results.append(f"  + [{q['index']}] {question_text[:60]}...")
             else:
@@ -1302,22 +1312,24 @@ class CheckEngine:
                         f"      Answer: {answer[:100]}\n"
                         f"      Expected: {self._format_expected(expected)}"
                     )
-                else:
+                elif not source_ok:
                     reason = f"      Source: {output.get('source', '(missing)')}"
+                elif not tools_ok:
+                    reason = f"      Missing tools: {', '.join(missing_tools)}"
+                else:
+                    reason = "      Unknown failure"
                 results.append(
                     f"  x [{q['index']}] {question_text[:60]}...\n{reason}"
                 )
 
-            # Check tool usage for questions that require tools
+            # Informational note for single-tool check (requires_tool)
             requires_tool = q.get("requires_tool")
-            if requires_tool:
+            if requires_tool and not check_tools:
                 tool_calls = output.get("tool_calls", [])
                 tool_used = any(
                     tc.get("tool") == requires_tool for tc in tool_calls
                 ) if tool_calls else False
-                if not tool_used and self._match_answer(answer, expected):
-                    # Answer was correct but tool wasn't used — still counts
-                    # but we note it
+                if not tool_used and answer_ok:
                     results.append(f"      (note: expected tool '{requires_tool}' was not used)")
 
         pass_rate = passed_count / total if total > 0 else 0

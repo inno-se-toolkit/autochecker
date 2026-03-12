@@ -1,7 +1,7 @@
 # Lab 06 — Agent Evaluation Question Bank (v2)
 #
 # 25 script questions (index 0-24) — served via GET /api/eval/question
-# 9 bot-only questions (index 25-33) — only in autochecker SSH eval
+# 11 bot-only questions (index 25-35) — only in autochecker SSH eval
 #
 # Every question maps to a learning outcome from labs 1-6.
 # Every question is something a software engineer should genuinely know.
@@ -299,3 +299,28 @@
   tier: 3
   bot_only: true
   # LO (lab 2): Run a web server
+
+# =============================================================================
+# CLASS D: Bug diagnosis chain (bot-only, tier 3)
+# Agent must: query API → get error → read source → explain bug
+# =============================================================================
+
+- index: 34
+  question: "Query the /analytics/completion-rate endpoint for a lab that has no data (e.g., lab-99). What error do you get, and what is the bug in the source code?"
+  expected: {any_of: ["ZeroDivisionError", "division by zero", "divide by zero"]}
+  expected_source: {any_of: ["analytics.py", "analytics"]}
+  feedback: "Try GET /analytics/completion-rate?lab=lab-99. Read the error, then look at the source code in the analytics router."
+  check_tools: [query_api, read_file]
+  tier: 3
+  bot_only: true
+  # Class D: Bug diagnosis — division by zero when no learners exist
+
+- index: 35
+  question: "The /analytics/top-learners endpoint crashes for some labs. Query it, find the error, and read the source code to explain what went wrong."
+  expected: {any_of: ["TypeError", "None", "NoneType", "sorted", "comparison"]}
+  expected_source: {any_of: ["analytics.py", "analytics"]}
+  feedback: "Try GET /analytics/top-learners?lab=lab-01. If it works, try other labs. Read the analytics router source to find the sorting bug."
+  check_tools: [query_api, read_file]
+  tier: 3
+  bot_only: true
+  # Class D: Bug diagnosis — TypeError sorting None scores
