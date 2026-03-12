@@ -1343,6 +1343,328 @@ class CheckEngine:
 
         return pass_rate >= min_pass_rate, full_details
 
+    def check_agent_eval_clone_and_run(
+        self, eval_lab: str,
+        include_bot_only: bool = True, max_tier: int = 3,
+        min_pass_rate: float = 0.75,
+        timeout_per_question: int = 60,
+    ) -> Tuple[bool, str]:
+        """Run agent evaluation via clone_and_run.
+
+        Clones the student repo, starts their Docker Compose backend,
+        populates the database, then runs agent.py for each eval question
+        with injected LLM credentials (Groq). Tears down afterwards.
+
+        This avoids SSH to student VMs (unreachable or LLM-blocked)
+        and uses the autochecker's own LLM key for evaluation.
+        """
+        import json
+        import os
+        import random
+        import shutil
+        import subprocess
+        import tempfile
+        import time
+        import yaml
+
+        # Load eval questions
+        specs_dir = os.path.join(os.path.dirname(__file__), '..', 'specs')
+        eval_file = os.path.join(specs_dir, f"{eval_lab}-eval.yaml")
+        if not os.path.exists(eval_file):
+            return False, f"Eval file not found: {eval_lab}-eval.yaml"
+
+        with open(eval_file) as f:
+            all_questions = yaml.safe_load(f) or []
+
+        questions = []
+        for q in all_questions:
+            if not include_bot_only and q.get("bot_only", False):
+                continue
+            if q.get("tier", 1) > max_tier:
+                continue
+            questions.append(q)
+        questions.sort(key=lambda q: q["index"])
+
+        if not questions:
+            return False, "No questions matched the filter criteria"
+
+        # Clone student repo
+        owner = self._client._owner
+        repo = self._client._repo_name
+        clone_url = f"https://github.com/{owner}/{repo}.git"
+        branch = self._branch or "main"
+
+        sandbox_dir = os.environ.get("SANDBOX_DIR", "/tmp/autochecker-sandbox")
+        os.makedirs(sandbox_dir, exist_ok=True)
+        tmpdir = tempfile.mkdtemp(prefix="eval_", dir=sandbox_dir)
+
+        # Use random high ports to avoid conflicts between concurrent evals
+        base_port = random.randint(43000, 49000)
+        app_port = base_port
+        caddy_port = base_port + 1
+        pg_port = base_port + 2
+        pgadmin_port = base_port + 3
+        lms_api_key = f"autochecker-eval-{base_port}"
+
+        # Compose project name to isolate from other docker compose instances
+        compose_project = f"eval-{owner}-{base_port}"
+
+        try:
+            # 1. Shallow clone
+            result = subprocess.run(
+                ["git", "clone", "--depth", "1", "--branch", branch, clone_url, tmpdir],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.returncode != 0:
+                return False, f"git clone failed: {result.stderr.strip()[:200]}"
+
+            # 2. Fix harbor proxy references (not reachable from Hetzner)
+            for root, _dirs, files in os.walk(tmpdir):
+                for fname in files:
+                    if fname in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml"):
+                        fpath = os.path.join(root, fname)
+                        with open(fpath) as f:
+                            content = f.read()
+                        if "harbor.pg.innopolis.university" in content:
+                            content = content.replace(
+                                "harbor.pg.innopolis.university/docker-hub-cache/", ""
+                            )
+                            with open(fpath, "w") as f:
+                                f.write(content)
+
+            # 3. Create .env.docker.secret
+            autochecker_email = os.environ.get("AUTOCHECKER_EMAIL", "")
+            autochecker_password = os.environ.get("AUTOCHECKER_PASSWORD", "")
+            autochecker_api_url = os.environ.get(
+                "AUTOCHECKER_API_URL", "https://auche.namaz.live"
+            )
+
+            env_content = (
+                f'APP_NAME="Learning Management Service"\n'
+                f"APP_DEBUG=false\n"
+                f"APP_RELOAD=false\n"
+                f"APP_CONTAINER_ADDRESS=0.0.0.0\n"
+                f"APP_CONTAINER_PORT=8000\n"
+                f"APP_HOST_ADDRESS=127.0.0.1\n"
+                f"APP_HOST_PORT={app_port}\n"
+                f"APP_ENABLE_INTERACTIONS=true\n"
+                f"APP_ENABLE_LEARNERS=true\n"
+                f"LMS_API_KEY={lms_api_key}\n"
+                f"AUTOCHECKER_API_URL={autochecker_api_url}\n"
+                f"AUTOCHECKER_EMAIL={autochecker_email}\n"
+                f"AUTOCHECKER_PASSWORD={autochecker_password}\n"
+                f"POSTGRES_DB=db-eval-{base_port}\n"
+                f"POSTGRES_USER=postgres\n"
+                f"POSTGRES_PASSWORD=postgres\n"
+                f"POSTGRES_HOST_ADDRESS=127.0.0.1\n"
+                f"POSTGRES_HOST_PORT={pg_port}\n"
+                f"PGADMIN_EMAIL=admin@example.com\n"
+                f"PGADMIN_PASSWORD=admin\n"
+                f"PGADMIN_HOST_ADDRESS=127.0.0.1\n"
+                f"PGADMIN_HOST_PORT={pgadmin_port}\n"
+                f"CADDY_CONTAINER_PORT=80\n"
+                f"CADDY_HOST_ADDRESS=127.0.0.1\n"
+                f"CADDY_HOST_PORT={caddy_port}\n"
+                f"CONST_POSTGRESQL_SERVICE_NAME=postgres\n"
+                f"CONST_POSTGRESQL_SERVER_NAME=postgres-eval-{base_port}\n"
+                f"CONST_POSTGRESQL_DEFAULT_PORT=5432\n"
+            )
+            env_path = os.path.join(tmpdir, ".env.docker.secret")
+            with open(env_path, "w") as f:
+                f.write(env_content)
+
+            # 4. Docker compose up
+            compose_up = subprocess.run(
+                [
+                    "docker", "compose",
+                    "-p", compose_project,
+                    "--env-file", ".env.docker.secret",
+                    "up", "--build", "-d",
+                ],
+                capture_output=True, text=True, timeout=300, cwd=tmpdir,
+            )
+            if compose_up.returncode != 0:
+                return False, f"docker compose up failed: {compose_up.stderr.strip()[:300]}"
+
+            # 5. Wait for backend to be healthy
+            backend_url = f"http://127.0.0.1:{caddy_port}"
+            healthy = False
+            for attempt in range(30):
+                try:
+                    import urllib.request
+                    req = urllib.request.Request(f"{backend_url}/docs")
+                    with urllib.request.urlopen(req, timeout=3) as resp:
+                        if resp.status in (200, 401, 403):
+                            healthy = True
+                            break
+                except Exception:
+                    pass
+                time.sleep(2)
+
+            if not healthy:
+                return False, "Backend did not become healthy within 60s"
+
+            # 6. Populate database (POST /pipeline/sync)
+            try:
+                import urllib.request
+                sync_req = urllib.request.Request(
+                    f"{backend_url}/pipeline/sync",
+                    method="POST",
+                    headers={
+                        "Authorization": f"Bearer {lms_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    data=b"{}",
+                )
+                with urllib.request.urlopen(sync_req, timeout=60) as resp:
+                    sync_result = resp.read().decode()
+            except Exception as e:
+                return False, f"ETL sync failed: {e}"
+
+            # 7. Install Python dependencies for agent
+            uv_sync = subprocess.run(
+                ["uv", "sync", "--dev"],
+                capture_output=True, text=True, timeout=120, cwd=tmpdir,
+            )
+            # Not fatal if uv sync fails — agent might not need extra deps
+
+            # 8. Run eval questions
+            # Build environment for agent execution
+            agent_env = {k: v for k, v in os.environ.items()
+                         if k not in ("VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME")}
+
+            # Inject our LLM credentials
+            llm_api_key = os.environ.get("LLM_API_KEY", "")
+            llm_api_base = os.environ.get("LLM_API_URL", "")
+            llm_model = os.environ.get("LLM_MODEL", "")
+
+            agent_env["LLM_API_KEY"] = llm_api_key
+            agent_env["LLM_API_BASE"] = llm_api_base
+            agent_env["LLM_MODEL"] = llm_model
+            agent_env["LMS_API_KEY"] = lms_api_key
+            agent_env["AGENT_API_BASE_URL"] = backend_url
+
+            passed_count = 0
+            total = len(questions)
+            results = []
+
+            for q in questions:
+                question_text = q["question"]
+                expected = q.get("expected", {})
+
+                escaped_q = question_text.replace("'", "'\\''")
+                cmd = f"uv run agent.py '{escaped_q}'"
+
+                try:
+                    agent_result = subprocess.run(
+                        cmd, shell=True, cwd=tmpdir,
+                        capture_output=True, text=True,
+                        timeout=timeout_per_question,
+                        env=agent_env,
+                    )
+                except subprocess.TimeoutExpired:
+                    results.append(f"  x [{q['index']}] Agent timed out ({timeout_per_question}s)")
+                    continue
+
+                if agent_result.returncode != 0:
+                    stderr_preview = agent_result.stderr.strip()[:100]
+                    results.append(
+                        f"  x [{q['index']}] Agent exited with code "
+                        f"{agent_result.returncode}: {stderr_preview}"
+                    )
+                    continue
+
+                stdout = agent_result.stdout.strip()
+                if not stdout:
+                    results.append(f"  x [{q['index']}] Agent produced no output")
+                    continue
+
+                try:
+                    output = json.loads(stdout)
+                except json.JSONDecodeError:
+                    results.append(f"  x [{q['index']}] Invalid JSON: {stdout[:100]}")
+                    continue
+
+                answer = output.get("answer", "")
+                if not answer:
+                    results.append(f"  x [{q['index']}] Missing 'answer' field")
+                    continue
+
+                # Match answer
+                rubric = q.get("rubric")
+                if rubric and not expected:
+                    answer_ok = self._llm_judge(answer, rubric)
+                else:
+                    answer_ok = self._match_answer(answer, expected)
+
+                # Check source
+                source_ok = True
+                expected_source = q.get("expected_source")
+                if expected_source:
+                    source = output.get("source", "")
+                    if not source or not self._match_answer(source, expected_source):
+                        source_ok = False
+
+                # Check tools
+                tools_ok = True
+                check_tools = q.get("check_tools")
+                missing_tools = set()
+                if check_tools:
+                    tool_calls = output.get("tool_calls", [])
+                    tools_used = {tc.get("tool") for tc in tool_calls} if tool_calls else set()
+                    missing_tools = set(check_tools) - tools_used
+                    if missing_tools:
+                        tools_ok = False
+
+                if answer_ok and source_ok and tools_ok:
+                    passed_count += 1
+                    results.append(f"  + [{q['index']}] {question_text[:60]}...")
+                else:
+                    feedback = q.get("feedback")
+                    if feedback:
+                        reason = f"      Hint: {feedback}"
+                    elif not answer_ok:
+                        reason = (
+                            f"      Answer: {answer[:100]}\n"
+                            f"      Expected: {self._format_expected(expected)}"
+                        )
+                    elif not source_ok:
+                        reason = f"      Source: {output.get('source', '(missing)')}"
+                    elif not tools_ok:
+                        reason = f"      Missing tools: {', '.join(missing_tools)}"
+                    else:
+                        reason = "      Unknown failure"
+                    results.append(
+                        f"  x [{q['index']}] {question_text[:60]}...\n{reason}"
+                    )
+
+            pass_rate = passed_count / total if total > 0 else 0
+            summary = f"{passed_count}/{total} passed ({pass_rate:.0%})"
+            detail_text = "\n".join(results)
+            full_details = f"Agent eval (clone_and_run): {summary}\n{detail_text}"
+
+            return pass_rate >= min_pass_rate, full_details
+
+        except subprocess.TimeoutExpired:
+            return False, "Clone/build timed out"
+        except Exception as e:
+            return False, f"Clone_and_run eval error: {str(e)}"
+        finally:
+            # Tear down docker compose
+            try:
+                subprocess.run(
+                    [
+                        "docker", "compose",
+                        "-p", compose_project,
+                        "--env-file", ".env.docker.secret",
+                        "down", "-v", "--remove-orphans",
+                    ],
+                    capture_output=True, text=True, timeout=60, cwd=tmpdir,
+                )
+            except Exception:
+                pass
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
     @staticmethod
     def _llm_judge(answer: str, rubric: str) -> bool:
         """Use an LLM to judge an open-ended answer against a rubric.
@@ -1915,25 +2237,35 @@ class CheckEngine:
 
             elif check_type == "agent_eval":
                 import os
-                # Resolve SSH host from runtime config
-                runtime = params.get('runtime', 'prod')
-                ssh_host = os.environ.get('SERVER_IP', 'localhost')
-
+                mode = params.get('mode', 'ssh')
                 eval_lab = params.get('eval_lab', 'lab-06')
-                username = params.get('username', 'autochecker')
-                project_dir = params.get('project_dir', 'se-toolkit-lab-6')
                 include_bot_only = params.get('include_bot_only', True)
                 max_tier = params.get('max_tier', 3)
                 min_pass_rate = params.get('min_pass_rate', 0.75)
                 timeout_per_q = params.get('timeout_per_question', 60)
-                port = params.get('port', 22)
 
-                passed, details = self.check_agent_eval(
-                    host=ssh_host, username=username, eval_lab=eval_lab,
-                    project_dir=project_dir, include_bot_only=include_bot_only,
-                    max_tier=max_tier, min_pass_rate=min_pass_rate,
-                    timeout_per_question=timeout_per_q, port=port,
-                )
+                if mode == 'clone_and_run':
+                    passed, details = self.check_agent_eval_clone_and_run(
+                        eval_lab=eval_lab,
+                        include_bot_only=include_bot_only,
+                        max_tier=max_tier,
+                        min_pass_rate=min_pass_rate,
+                        timeout_per_question=timeout_per_q,
+                    )
+                else:
+                    # Legacy SSH mode
+                    runtime = params.get('runtime', 'prod')
+                    ssh_host = os.environ.get('SERVER_IP', 'localhost')
+                    username = params.get('username', 'autochecker')
+                    project_dir = params.get('project_dir', 'se-toolkit-lab-6')
+                    port = params.get('port', 22)
+
+                    passed, details = self.check_agent_eval(
+                        host=ssh_host, username=username, eval_lab=eval_lab,
+                        project_dir=project_dir, include_bot_only=include_bot_only,
+                        max_tier=max_tier, min_pass_rate=min_pass_rate,
+                        timeout_per_question=timeout_per_q, port=port,
+                    )
                 if passed: status = "PASS"
 
             elif check_type == "llm_judge":
