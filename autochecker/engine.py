@@ -1194,155 +1194,6 @@ class CheckEngine:
             return False, {"exit_code": -1, "stdout": "", "stderr": "",
                            "error": f"SSH {username}@{host} failed: {str(e)[:200]}"}
 
-    def check_agent_eval(self, host: str, username: str, eval_lab: str,
-                         project_dir: str = "se-toolkit-lab-6",
-                         include_bot_only: bool = True, max_tier: int = 3,
-                         min_pass_rate: float = 0.75,
-                         timeout_per_question: int = 60,
-                         port: int = 22) -> Tuple[bool, str]:
-        """Run agent evaluation over SSH.
-
-        Loads questions from the eval YAML, SSHes into the student VM to run
-        each question through the agent, and checks answers locally.
-
-        Returns (passed, details) where passed is True if the pass rate
-        meets min_pass_rate.
-        """
-        import os
-        import json
-        import yaml
-
-        # Load eval questions
-        specs_dir = os.path.join(os.path.dirname(__file__), '..', 'specs')
-        eval_file = os.path.join(specs_dir, f"{eval_lab}-eval.yaml")
-        if not os.path.exists(eval_file):
-            return False, f"Eval file not found: {eval_lab}-eval.yaml"
-
-        with open(eval_file) as f:
-            all_questions = yaml.safe_load(f) or []
-
-        # Filter questions
-        questions = []
-        for q in all_questions:
-            if not include_bot_only and q.get("bot_only", False):
-                continue
-            if q.get("tier", 1) > max_tier:
-                continue
-            questions.append(q)
-        questions.sort(key=lambda q: q["index"])
-
-        if not questions:
-            return False, "No questions matched the filter criteria"
-
-        passed_count = 0
-        total = len(questions)
-        results = []
-
-        for q in questions:
-            question_text = q["question"]
-            expected = q.get("expected", {})
-
-            # Escape single quotes in question for shell
-            escaped_q = question_text.replace("'", "'\\''")
-            cmd = (
-                f"cd ~/{project_dir} && "
-                f"(uv run --python-preference only-system agent.py '{escaped_q}' "
-                f"|| python agent.py '{escaped_q}')"
-            )
-
-            success, data = self._ssh_exec_raw(host, username, cmd, port, timeout_per_question)
-
-            if not success:
-                results.append(f"  x [{q['index']}] SSH error: {data.get('error', 'unknown')}")
-                continue
-
-            exit_code = data.get("exit_code", -1)
-            stdout = data.get("stdout", "").strip()
-
-            if exit_code != 0:
-                stderr_preview = data.get("stderr", "").strip()[:100]
-                results.append(f"  x [{q['index']}] Agent exited with code {exit_code}: {stderr_preview}")
-                continue
-
-            if not stdout:
-                results.append(f"  x [{q['index']}] Agent produced no output")
-                continue
-
-            try:
-                output = json.loads(stdout)
-            except json.JSONDecodeError:
-                results.append(f"  x [{q['index']}] Invalid JSON: {stdout[:100]}")
-                continue
-
-            answer = output.get("answer", "")
-            if not answer:
-                results.append(f"  x [{q['index']}] Missing 'answer' field")
-                continue
-
-            # Match answer against expected (or use LLM judge for rubric-based questions)
-            rubric = q.get("rubric")
-            if rubric and not expected:
-                answer_ok = self._llm_judge(answer, rubric)
-            else:
-                answer_ok = self._match_answer(answer, expected)
-
-            # Check source field if expected_source is defined
-            source_ok = True
-            expected_source = q.get("expected_source")
-            if expected_source:
-                source = output.get("source", "")
-                if not source or not self._match_answer(source, expected_source):
-                    source_ok = False
-
-            # Check tool chain if check_tools is defined (all must be used)
-            tools_ok = True
-            check_tools = q.get("check_tools")
-            if check_tools:
-                tool_calls = output.get("tool_calls", [])
-                tools_used = {tc.get("tool") for tc in tool_calls} if tool_calls else set()
-                missing_tools = set(check_tools) - tools_used
-                if missing_tools:
-                    tools_ok = False
-
-            if answer_ok and source_ok and tools_ok:
-                passed_count += 1
-                results.append(f"  + [{q['index']}] {question_text[:60]}...")
-            else:
-                feedback = q.get("feedback")
-                if feedback:
-                    reason = f"      Hint: {feedback}"
-                elif not answer_ok:
-                    reason = (
-                        f"      Answer: {answer[:100]}\n"
-                        f"      Expected: {self._format_expected(expected)}"
-                    )
-                elif not source_ok:
-                    reason = f"      Source: {output.get('source', '(missing)')}"
-                elif not tools_ok:
-                    reason = f"      Missing tools: {', '.join(missing_tools)}"
-                else:
-                    reason = "      Unknown failure"
-                results.append(
-                    f"  x [{q['index']}] {question_text[:60]}...\n{reason}"
-                )
-
-            # Informational note for single-tool check (requires_tool)
-            requires_tool = q.get("requires_tool")
-            if requires_tool and not check_tools:
-                tool_calls = output.get("tool_calls", [])
-                tool_used = any(
-                    tc.get("tool") == requires_tool for tc in tool_calls
-                ) if tool_calls else False
-                if not tool_used and answer_ok:
-                    results.append(f"      (note: expected tool '{requires_tool}' was not used)")
-
-        pass_rate = passed_count / total if total > 0 else 0
-        summary = f"{passed_count}/{total} passed ({pass_rate:.0%})"
-        detail_text = "\n".join(results)
-        full_details = f"Agent eval: {summary}\n{detail_text}"
-
-        return pass_rate >= min_pass_rate, full_details
-
     def check_agent_eval_clone_and_run(
         self, eval_lab: str,
         include_bot_only: bool = True, max_tier: int = 3,
@@ -2236,35 +2087,18 @@ class CheckEngine:
                 if passed: status = "PASS"
 
             elif check_type == "agent_eval":
-                import os
-                mode = params.get('mode', 'ssh')
                 eval_lab = params.get('eval_lab', 'lab-06')
                 include_bot_only = params.get('include_bot_only', True)
                 max_tier = params.get('max_tier', 3)
                 min_pass_rate = params.get('min_pass_rate', 0.75)
                 timeout_per_q = params.get('timeout_per_question', 60)
 
-                if mode == 'clone_and_run':
-                    passed, details = self.check_agent_eval_clone_and_run(
-                        eval_lab=eval_lab,
-                        include_bot_only=include_bot_only,
-                        max_tier=max_tier,
-                        min_pass_rate=min_pass_rate,
-                        timeout_per_question=timeout_per_q,
-                    )
-                else:
-                    # Legacy SSH mode
-                    runtime = params.get('runtime', 'prod')
-                    ssh_host = os.environ.get('SERVER_IP', 'localhost')
-                    username = params.get('username', 'autochecker')
-                    project_dir = params.get('project_dir', 'se-toolkit-lab-6')
-                    port = params.get('port', 22)
-
-                    passed, details = self.check_agent_eval(
-                        host=ssh_host, username=username, eval_lab=eval_lab,
-                        project_dir=project_dir, include_bot_only=include_bot_only,
-                        max_tier=max_tier, min_pass_rate=min_pass_rate,
-                        timeout_per_question=timeout_per_q, port=port,
+                passed, details = self.check_agent_eval_clone_and_run(
+                    eval_lab=eval_lab,
+                    include_bot_only=include_bot_only,
+                    max_tier=max_tier,
+                    min_pass_rate=min_pass_rate,
+                    timeout_per_question=timeout_per_q,
                     )
                 if passed: status = "PASS"
 

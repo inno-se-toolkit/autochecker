@@ -391,7 +391,6 @@ checks:
       Your agent must pass at least 60%.
       Fix failing questions one at a time.
     params:
-      mode: clone_and_run
       eval_lab: "lab-06"
       include_bot_only: false
       min_pass_rate: 0.6
@@ -411,7 +410,6 @@ checks:
       The autochecker tests 10 additional hidden questions.
       You need at least 75% overall to pass.
     params:
-      mode: clone_and_run
       eval_lab: "lab-06"
       include_bot_only: true
       min_pass_rate: 0.75
