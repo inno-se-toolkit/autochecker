@@ -6,10 +6,6 @@ discovery:
   mode: "alias_repo_name"
   default_branch: "main"
 
-runtime:
-  prod:
-    base_url: "http://{server_ip}:42002"
-
 scoring:
   mode: "weighted"
   pass_threshold: 0.75
@@ -31,7 +27,7 @@ tasks:
 checks:
 
   # =====================================================
-  # SETUP
+  # SETUP — repo-level checks only (no VM, no SSH)
   # =====================================================
 
   - id: repo_exists
@@ -74,64 +70,8 @@ checks:
       Enable issues in your repo: Settings -> General -> Features -> Issues.
     params: {}
 
-  - id: setup_ssh_connectivity
-    task: setup
-    title: "SSH login as autochecker works"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    hint: >
-      Create an 'autochecker' user on your VM and add the autochecker's
-      public SSH key to /home/autochecker/.ssh/authorized_keys.
-      If you already had this from lab 5, it should still work.
-    params:
-      runtime: prod
-      username: autochecker
-      command: "echo ok"
-      expect_exit: 0
-      expect_regex: "ok"
-
-  - id: setup_app_reachable
-    task: setup
-    title: "Application is reachable on the VM"
-    class: execution
-    runner: code
-    type: http_check
-    is_required: true
-    weight: 3
-    depends_on: [setup_ssh_connectivity]
-    hint: >
-      Your application must be running on the VM at http://<vm-ip>:42002.
-      Make sure Docker Compose services are up:
-      'docker compose --env-file .env.docker.secret up --build -d'.
-    params:
-      runtime: prod
-      path: "/docs"
-      expect_status: [200, 401, 403, 404]
-
-  - id: setup_has_data
-    task: setup
-    title: "Database has data (ETL pipeline ran)"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [setup_app_reachable]
-    hint: >
-      Your ETL pipeline must have been run so the database contains data.
-      If not, trigger it: POST /pipeline/sync on your deployed API.
-    params:
-      runtime: prod
-      username: autochecker
-      command: "cd ~/se-toolkit-lab-6 && python -c \"import json; print('ok')\" 2>/dev/null || echo ok"
-      expect_exit: 0
-      expect_regex: "ok"
-
   # =====================================================
-  # TASK 1: Call an LLM from Code
+  # TASK 1: Call an LLM from Code — repo checks only
   # =====================================================
 
   - id: task1_issue_exists
@@ -193,26 +133,23 @@ checks:
     params:
       path: "AGENT.md"
 
-  - id: task1_agent_cli_runs
+  - id: task1_reads_env_vars
     task: task-1
-    title: "Agent CLI runs and returns valid JSON"
-    class: execution
+    title: "Agent reads LLM config from environment variables"
+    class: structural
     runner: code
-    type: ssh_check
+    type: regex_in_file
     is_required: true
-    weight: 5
-    depends_on: [setup_ssh_connectivity, task1_agent_exists]
+    weight: 3
+    depends_on: [task1_agent_exists]
     hint: >
-      Your agent must run on the VM: uv run --python-preference only-system agent.py "test question"
-      It must exit with code 0 and output valid JSON with "answer"
-      and "tool_calls" fields.
+      Your agent must read LLM_API_KEY, LLM_API_BASE, and LLM_MODEL
+      from environment variables (not hardcoded). The autochecker will
+      inject its own LLM credentials when evaluating your agent.
     params:
-      runtime: prod
-      username: autochecker
-      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What does REST stand for?" 2>/dev/null'
-      expect_exit: 0
-      expect_regex: '"answer"'
-      timeout: 60
+      path: "agent.py"
+      pattern: "LLM_API_KEY|LLM_API_BASE|LLM_MODEL"
+      min_matches: 2
 
   - id: task1_tests_exist
     task: task-1
@@ -224,25 +161,11 @@ checks:
     weight: 2
     depends_on: [repo_exists]
     hint: >
-      Create at least 5 regression tests for your agent.
+      Create at least 1 regression test for your agent.
       Test files should be named test_*.py or *_test.py.
     params:
       patterns: ["test_*.py", "tests/test_*.py", "*_test.py"]
       min_matches: 1
-
-  - id: task1_commit
-    task: task-1
-    title: "Commit message for LLM agent"
-    class: process
-    runner: code
-    type: commit_message_regex
-    is_required: true
-    weight: 2
-    hint: >
-      Your commit message should be:
-      feat: implement LLM-powered agent CLI
-    params:
-      pattern: "^feat:\\s+implement.*(agent|llm|cli)"
 
   - id: task1_issue_has_linked_pr
     task: task-1
@@ -274,7 +197,7 @@ checks:
       min_approvals: 1
 
   # =====================================================
-  # TASK 2: The Documentation Agent
+  # TASK 2: The Documentation Agent — repo checks only
   # =====================================================
 
   - id: task2_issue_exists
@@ -357,41 +280,6 @@ checks:
       pattern: "\"type\":\\s*\"function\"|'type':\\s*'function'|tool_calls|function_call"
       min_matches: 1
 
-  - id: task2_agent_cli_with_tools
-    task: task-2
-    title: "Agent CLI uses tools and returns valid JSON"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [setup_ssh_connectivity, task1_agent_exists]
-    hint: >
-      Your agent must use tools to answer wiki questions:
-      uv run --python-preference only-system agent.py "What is a Docker volume used for?"
-      Output must include non-empty tool_calls.
-    params:
-      runtime: prod
-      username: autochecker
-      command: 'cd ~/se-toolkit-lab-6 && uv run --python-preference only-system agent.py "What is a Docker volume used for?" 2>/dev/null'
-      expect_exit: 0
-      expect_regex: '"tool_calls"'
-      timeout: 60
-
-  - id: task2_commit
-    task: task-2
-    title: "Commit message for documentation agent"
-    class: process
-    runner: code
-    type: commit_message_regex
-    is_required: true
-    weight: 2
-    hint: >
-      Your commit message should be:
-      feat: implement documentation agent with wiki tools
-    params:
-      pattern: "^feat:\\s+implement.*(agent|documentation|wiki)"
-
   - id: task2_issue_has_linked_pr
     task: task-2
     title: "Task issue is closed by a PR"
@@ -422,7 +310,7 @@ checks:
       min_approvals: 1
 
   # =====================================================
-  # TASK 3: The System Agent + Pass the Benchmark
+  # TASK 3: The System Agent — clone_and_run eval
   # =====================================================
 
   - id: task3_issue_exists
@@ -465,11 +353,29 @@ checks:
     depends_on: [task1_agent_exists]
     hint: >
       Implement a query_api tool in agent.py that makes HTTP requests
-      to the deployed backend API.
+      to the backend API.
     params:
       path: "agent.py"
       pattern: "query_api"
       min_matches: 2
+
+  - id: task3_reads_api_base_url
+    task: task-3
+    title: "Agent reads AGENT_API_BASE_URL from environment"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 2
+    depends_on: [task1_agent_exists]
+    hint: >
+      Your query_api tool must read the backend base URL from the
+      AGENT_API_BASE_URL environment variable (default: http://localhost:42002).
+      The autochecker injects its own URL when evaluating.
+    params:
+      path: "agent.py"
+      pattern: "AGENT_API_BASE_URL"
+      min_matches: 1
 
   - id: task3_local_eval
     task: task-3
@@ -479,16 +385,14 @@ checks:
     type: agent_eval
     is_required: true
     weight: 8
-    depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
+    depends_on: [task1_agent_exists, task3_has_query_api]
     hint: >
       Run run_eval.py locally to test your agent against the 10 local questions.
       Your agent must pass at least 60%.
       Fix failing questions one at a time.
     params:
-      runtime: prod
-      username: autochecker
+      mode: clone_and_run
       eval_lab: "lab-06"
-      project_dir: "se-toolkit-lab-6"
       include_bot_only: false
       min_pass_rate: 0.6
       timeout_per_question: 60
@@ -501,16 +405,14 @@ checks:
     type: agent_eval
     is_required: true
     weight: 15
-    depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
+    depends_on: [task1_agent_exists, task3_has_query_api]
     hint: >
       Run run_eval.py locally to pass all 10 local questions.
       The autochecker tests 10 additional hidden questions.
       You need at least 75% overall to pass.
     params:
-      runtime: prod
-      username: autochecker
+      mode: clone_and_run
       eval_lab: "lab-06"
-      project_dir: "se-toolkit-lab-6"
       include_bot_only: true
       min_pass_rate: 0.75
       timeout_per_question: 60
@@ -530,20 +432,6 @@ checks:
     params:
       path: "AGENT.md"
       min_words: 200
-
-  - id: task3_commit
-    task: task-3
-    title: "Commit message for system agent"
-    class: process
-    runner: code
-    type: commit_message_regex
-    is_required: true
-    weight: 2
-    hint: >
-      Use conventional commits. Example:
-      feat: add query_api tool for system queries
-    params:
-      pattern: "^(feat|fix|docs|test):"
 
   - id: task3_issue_has_linked_pr
     task: task-3
