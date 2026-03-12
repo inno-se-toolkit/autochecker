@@ -471,9 +471,9 @@ checks:
       pattern: "query_api"
       min_matches: 2
 
-  - id: task3_tool_eval
+  - id: task3_local_eval
     task: task-3
-    title: "Agent passes wiki + system questions (tier 1+2, ≥60%)"
+    title: "Agent passes local questions (≥60%)"
     class: execution
     runner: code
     type: agent_eval
@@ -481,8 +481,8 @@ checks:
     weight: 8
     depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
     hint: >
-      Run uv run --python-preference only-system run_eval.py locally to test your agent.
-      Your agent must pass at least 60% of tier 1 and tier 2 questions.
+      Run run_eval.py locally to test your agent against the 10 local questions.
+      Your agent must pass at least 60%.
       Fix failing questions one at a time.
     params:
       runtime: prod
@@ -490,7 +490,6 @@ checks:
       eval_lab: "lab-06"
       project_dir: "se-toolkit-lab-6"
       include_bot_only: false
-      max_tier: 2
       min_pass_rate: 0.6
       timeout_per_question: 60
 
@@ -504,16 +503,15 @@ checks:
     weight: 15
     depends_on: [setup_ssh_connectivity, task1_agent_cli_runs]
     hint: >
-      Run uv run --python-preference only-system run_eval.py locally to pass all local questions.
-      The autochecker tests additional hidden questions.
-      You need at least 75% to pass.
+      Run run_eval.py locally to pass all 10 local questions.
+      The autochecker tests 10 additional hidden questions.
+      You need at least 75% overall to pass.
     params:
       runtime: prod
       username: autochecker
       eval_lab: "lab-06"
       project_dir: "se-toolkit-lab-6"
       include_bot_only: true
-      max_tier: 3
       min_pass_rate: 0.75
       timeout_per_question: 60
 

@@ -1,358 +1,226 @@
-# Lab 06 — Agent Evaluation Question Bank (v2)
+# Lab 06 — Agent Evaluation Question Bank (v3)
 #
-# 25 script questions (index 0-24) — served via GET /api/eval/question
-# 14 bot-only questions (index 25-38) — only in autochecker SSH eval
+# 20 questions: 10 local (index 0-9) + 10 bot-only (index 10-19)
+# 5 classes × 4 questions (2 local + 2 bot-only)
 #
-# Every question maps to a learning outcome from labs 1-6.
-# Every question is something a software engineer should genuinely know.
-# No trivia, no "read file X and tell me what's there" filler.
+# Classes:
+#   A — Wiki lookup (read_file/list_files on wiki/ directory)
+#   B — Static system facts (read_file/list_files on code)
+#   C — Data-dependent queries (query_api to student VM)
+#   D — Bug diagnosis chain (query_api → error → read_file → explain)
+#   E — LLM-judged reasoning (read code, synthesize, explain)
+#
+# Eval runs on dev server with student's cloned repo.
+# query_api routes to student VM through relay.
 #
 # Matching strategies:
-#   contains: answer contains substring (case-insensitive)
-#   contains_all: answer contains ALL substrings
-#   any_of: answer contains ANY substring
-#   regex: answer matches regex
-#   numeric_gt: answer contains a number > N
-#   numeric_range: answer contains a number in [min, max]
+#   contains / contains_all / any_of / regex / numeric_gt / numeric_range
 #
-# requires_tool: tool name the agent must use (verified by bot eval)
-# expected_source: optional source field check (same matching strategies)
-# feedback: hint shown on failure instead of expected value (for tier 2+)
+# Tiers:
+#   1 — Class A + B (file reading, no API needed)
+#   2 — Class C + D + E (needs running API on student VM)
 
 # =============================================================================
-# SCRIPT QUESTIONS (0-24)
+# LOCAL QUESTIONS (0-9) — served via run_eval.py, student can test locally
 # =============================================================================
 
-# --- Tier 1: Conceptual / scenario questions (no tools) ---
-
-# Lab 1 — Git workflow, collaboration
+# --- Class A: Wiki lookup (local) ---
 
 - index: 0
-  question: "A teammate pushes broken code directly to main and the production server goes down. What Git workflow practice would have prevented this?"
-  expected: {any_of: ["pull request", "branch", "code review", "PR", "feature branch"]}
+  question: "According to the project wiki, what steps are needed to protect a branch on GitHub? Find the answer in the wiki directory."
+  expected: {contains_all: ["branch", "protect"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Use list_files to find GitHub-related wiki pages, then read the section about branch protection."
   tier: 1
-  # LO: Use branches, PRs, and reviews to collaborate
+  # LO (lab 1): Use branches and PRs to collaborate
 
 - index: 1
-  question: "You see a commit message that just says 'fix'. Why is this a problem, and what should a good commit message include instead?"
-  expected: {any_of: ["why", "what changed", "context", "descriptive", "purpose", "understand"]}
+  question: "What does the project wiki say about connecting to your VM via SSH? Summarize the key steps."
+  expected: {any_of: ["ssh", "SSH", "key", "connect"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Look in the wiki/ directory for a file about VMs, then read the SSH connection section."
   tier: 1
-  # LO: Commits with clear messages
+  # LO (lab 2): Deploy to a VM
+
+# --- Class B: Static system facts (local) ---
 
 - index: 2
-  question: "Your teammate and you both edited the same line in the same file on different branches. What happens when you try to merge, and how do you resolve it?"
-  expected: {any_of: ["conflict", "merge conflict", "manually", "resolve", "choose", "both changes"]}
-  tier: 1
-  # LO: Collaboration via Git
-
-# Lab 2 — Backend, Docker, deployment
-
-- index: 3
-  question: "You change your Python code and run 'docker compose up -d', but the API still serves the old version. What went wrong?"
-  expected: {any_of: ["--build", "build", "rebuild", "image", "cached"]}
-  tier: 1
-  # LO: Run a web server using Docker Compose
-
-- index: 4
-  question: "Your Docker container stores uploaded files in /app/uploads. After redeploying, all files are gone. Why, and how do you fix this?"
-  expected: {any_of: ["volume", "persist", "mount", "ephemeral", "not persistent"]}
-  tier: 1
-  # LO: Understand containers, volumes, deployment
-
-- index: 5
-  question: "What is the difference between running a React app with 'npm run dev' and serving it through a reverse proxy like Caddy in production?"
-  expected: {any_of: ["hot reload", "built", "static", "bundled", "optimized", "production build", "development server"]}
-  tier: 1
-  # LO (lab 4): Differentiate dev server vs production static files
-
-# Lab 3 — REST API, security
-
-- index: 6
-  question: "Your API returns 401 for one request and 403 for another. What is the difference between these two status codes?"
-  expected: {any_of: ["authenticated", "authorized", "identity", "permission", "who you are", "allowed"]}
-  tier: 1
-  # LO: Authenticate API requests
-
-- index: 7
-  question: "A POST request to create a user succeeds. What HTTP status code should the API return, and why not just 200?"
-  expected: {any_of: ["201", "Created", "specific", "semantic"]}
-  tier: 1
-  # LO: Explore a REST API
-
-- index: 8
-  question: "Your VM is exposed to the internet. Name two concrete steps you would take to harden it against attacks."
-  expected: {any_of: ["firewall", "fail2ban", "SSH key", "disable password", "ufw", "close port", "root login"]}
-  tier: 1
-  # LO: Harden a Linux server (firewall, fail2ban, SSH)
-
-# Lab 4 — Testing
-
-- index: 9
-  question: "Your unit tests call a real PostgreSQL database. They pass on your machine but fail in CI where there is no database. What should you do?"
-  expected: {any_of: ["mock", "stub", "in-memory", "fake", "isolat", "don't depend", "test double"]}
-  tier: 1
-  # LO: Construct unit tests, mock external services
-
-- index: 10
-  question: "You write a function that accepts ages 0-120. Which specific input values should you test to catch off-by-one bugs?"
-  expected: {any_of: ["0", "120", "boundary", "-1", "121", "edge", "limit"]}
-  tier: 1
-  # LO: Construct tests for boundary-value cases
-
-- index: 11
-  question: "What is the purpose of end-to-end tests? Why aren't unit tests alone sufficient?"
-  expected: {any_of: ["integration", "whole system", "components together", "real", "user flow", "interact", "full stack"]}
-  tier: 1
-  # LO: Differentiate unit and e2e tests
-
-# Lab 5 — ETL, SQL, data pipelines
-
-- index: 12
-  question: "An external API has 10,000 records but returns at most 100 per request. How does your ETL pipeline fetch all of them?"
-  expected: {any_of: ["paginat", "offset", "page", "next", "loop", "multiple requests", "cursor", "has_more"]}
-  tier: 1
-  # LO: Handle pagination
-
-- index: 13
-  question: "Your ETL pipeline crashes halfway through loading. When you restart, some records appear twice. What technique prevents this?"
-  expected: {any_of: ["idempoten", "upsert", "ON CONFLICT", "INSERT OR UPDATE", "deduplic"]}
-  tier: 1
-  # LO: Handle idempotent upserts
-
-- index: 14
-  question: "You want the average score per student group. Write the key SQL clauses you would use (not the full query, just the approach)."
-  expected: {any_of: ["GROUP BY", "AVG", "group by"]}
-  tier: 1
-  # LO: Write SQL aggregation queries
-
-# Lab 6 — Agents, LLM tool calling
-
-- index: 15
-  question: "A user asks your agent 'How many items are in the database?' but the LLM has no database access. How does the agent answer this without hallucinating?"
-  expected: {any_of: ["tool", "function call", "query", "API call", "external", "look up"]}
-  tier: 1
-  # LO: Explain the agentic loop, why tools matter
-
-- index: 16
-  question: "Your agent calls a tool but the tool returns an error. What should the agent do next?"
-  expected: {any_of: ["retry", "different", "report", "handle", "fall back", "try again", "error message", "inform"]}
-  tier: 1
-  # LO: Debug agent behavior, handle tool errors
-
-# --- Tier 2: Tool questions (require read_file / list_files / query_api) ---
-
-# Class B: Static system facts (deterministic, baked into code)
-
-- index: 17
   question: "What Python web framework does this project's backend use? Read the source code to find out."
   expected: {any_of: ["FastAPI", "fastapi"]}
-  requires_tool: read_file
+  check_tools: [read_file]
   feedback: "Look at the imports in the main backend file."
-  tier: 2
+  tier: 1
   # LO (lab 2): Explore the code of an existing web server
 
-- index: 18
-  question: "What ORM does this project use to define database models? Check the imports in the backend code."
-  expected: {any_of: ["SQLModel", "sqlmodel"]}
-  requires_tool: read_file
-  feedback: "Check the model definitions in the backend code — what library are they importing?"
-  tier: 2
-  # LO (lab 3): Examine database-related code
-
-- index: 19
-  question: "Read the docker-compose.yml. If you run 'docker compose down' (without the -v flag), is the PostgreSQL data preserved or lost? Why?"
-  expected: {any_of: ["preserved", "named volume", "postgres_data", "volume", "survives", "kept"]}
-  requires_tool: read_file
-  feedback: "Look at the volumes section in docker-compose.yml. Named volumes survive 'docker compose down'."
-  tier: 2
-  # LO (lab 2): Understand Docker volumes and data persistence
-
-- index: 20
-  question: "Read the authentication module. How does the backend verify that an API request is authorized?"
-  expected: {any_of: ["Bearer", "bearer", "API key", "api_key", "Authorization header", "token"]}
-  requires_tool: read_file
-  feedback: "Look at the dependency injection or middleware that checks requests before they reach routers."
-  tier: 2
-  # LO (lab 3): Authenticate API requests using an API key
-
-- index: 21
+- index: 3
   question: "List all API router modules in the backend. What domain does each one handle?"
-  expected: {contains_all: ["items", "interactions", "analytics", "pipeline", "learners"]}
-  requires_tool: list_files
-  feedback: "Use list_files to see what's in the backend routers directory, then read each file's purpose."
-  tier: 2
+  expected: {contains_all: ["items", "interactions", "analytics", "pipeline"]}
+  check_tools: [list_files]
+  feedback: "Use list_files on the backend routers directory, then read each file's purpose."
+  tier: 1
   # LO (lab 2): Explore the code of an existing web server
 
-- index: 22
-  question: "Read the Caddyfile. What is Caddy's role in this project — what does it proxy and what does it serve directly?"
-  expected: {any_of: ["reverse proxy", "static files", "frontend", "API", "proxy to backend"]}
-  requires_tool: read_file
-  feedback: "Read the Caddyfile and look at what routes are defined and where they point."
-  tier: 2
-  # LO (lab 4): Understand dev server vs production deployment
+# --- Class C: Data-dependent queries (local) ---
 
-# Class C: Data-dependent system queries (live data, range checks)
-
-- index: 23
+- index: 4
   question: "How many items are currently stored in the database? Query the running API to find out."
   expected: {numeric_gt: 0}
-  requires_tool: query_api
+  check_tools: [query_api]
   feedback: "Query the /items/ endpoint with authentication and count the results."
   tier: 2
   # LO (lab 3): Query the API, inspect responses
 
-# Class B: Static system facts via API
-
-- index: 24
+- index: 5
   question: "What HTTP status code does the API return when you request /items/ without sending an authentication header?"
   expected: {any_of: ["401", "403"]}
-  requires_tool: query_api
-  feedback: "Try making a request without the API key header and check the response status code."
+  check_tools: [query_api]
+  feedback: "Make a request without the API key header and check the response status code."
   tier: 2
-  # LO (lab 3): Authenticate API requests, inspect responses
+  # LO (lab 3): Authenticate API requests
 
-# =============================================================================
-# BOT-ONLY QUESTIONS (25-33) — never served by the API
-# =============================================================================
+# --- Class D: Bug diagnosis (local) ---
 
-# Class B: Static system facts (bot-only)
-
-- index: 25
-  question: "What database system does this project use? Check the Docker Compose or backend configuration."
-  expected: {any_of: ["PostgreSQL", "postgres", "Postgres"]}
-  requires_tool: read_file
-  feedback: "Look at the services in docker-compose.yml or the database connection settings."
-  tier: 2
-  bot_only: true
-  # LO (lab 3): Examine a database
-
-- index: 26
-  question: "Read the init.sql file. What are the three main database tables and what does each store?"
-  expected: {contains_all: ["item", "learner", "interact"]}
-  requires_tool: read_file
-  feedback: "Find and read the SQL initialization file that creates the database schema."
-  tier: 2
-  bot_only: true
-  # LO (lab 3): Debug by tracing code and comparing to DB schema
-
-- index: 27
-  question: "What port does the FastAPI application listen on inside its Docker container? How is this different from the host port?"
-  expected: {contains: "8000"}
-  requires_tool: read_file
-  feedback: "Check the Dockerfile CMD or docker-compose.yml port mapping to see internal vs external ports."
-  tier: 2
-  bot_only: true
-  # LO (lab 2): Docker port mapping
-
-- index: 28
-  question: "What async HTTP client does the ETL pipeline use, and why would you use an async client instead of a synchronous one like requests?"
-  expected: {any_of: ["httpx", "HTTPX"]}
-  requires_tool: read_file
-  feedback: "Read the ETL pipeline code and check its imports."
-  tier: 2
-  bot_only: true
-  # LO (lab 5): Build an ETL pipeline
-
-- index: 29
-  question: "What testing framework does this project use, and where are the unit tests vs end-to-end tests located?"
-  expected: {any_of: ["pytest", "Pytest"]}
-  requires_tool: read_file
-  feedback: "Check pyproject.toml for test dependencies and look for test directories."
-  tier: 2
-  bot_only: true
-  # LO (lab 4): Construct unit and e2e tests
-
-# Class B: Advanced static facts (bot-only, tier 3)
-
-- index: 30
-  question: "What HTTP status code does the API return for a request to an endpoint that doesn't exist, like GET /nonexistent?"
-  expected: {contains: "404"}
-  requires_tool: query_api
-  feedback: "Try querying an endpoint that doesn't exist and check the status code."
-  tier: 3
-  bot_only: true
-  # LO (lab 3): Inspect API responses
-
-- index: 31
-  question: "Look at how the app container's environment is configured in docker-compose.yml. Where does DB_HOST point to and why?"
-  expected: {any_of: ["postgres", "service name", "container name", "docker network", "CONST_POSTGRESQL_SERVICE_NAME"]}
-  requires_tool: read_file
-  feedback: "Check the environment variables in docker-compose.yml. Docker Compose services can reach each other by service name."
-  tier: 3
-  bot_only: true
-  # LO (lab 2): Docker Compose service networking
-
-- index: 32
-  question: "Read the Dockerfile. What technique is used to keep the final Docker image small?"
-  expected: {any_of: ["multi-stage", "multi stage", "slim", "two stage", "builder"]}
-  requires_tool: read_file
-  feedback: "Look for multiple FROM statements in the Dockerfile."
-  tier: 3
-  bot_only: true
-  # LO (lab 2): Docker images and deployment
-
-- index: 33
-  question: "What ASGI server runs the FastAPI application? Check the project dependencies."
-  expected: {any_of: ["uvicorn", "Uvicorn"]}
-  requires_tool: read_file
-  feedback: "Check pyproject.toml or the Dockerfile CMD for the server that runs the app."
-  tier: 3
-  bot_only: true
-  # LO (lab 2): Run a web server
-
-# =============================================================================
-# CLASS D: Bug diagnosis chain (bot-only, tier 3)
-# Agent must: query API → get error → read source → explain bug
-# =============================================================================
-
-- index: 34
+- index: 6
   question: "Query the /analytics/completion-rate endpoint for a lab that has no data (e.g., lab-99). What error do you get, and what is the bug in the source code?"
   expected: {any_of: ["ZeroDivisionError", "division by zero", "divide by zero"]}
   expected_source: {any_of: ["analytics.py", "analytics"]}
-  feedback: "Try GET /analytics/completion-rate?lab=lab-99. Read the error, then look at the source code in the analytics router."
   check_tools: [query_api, read_file]
-  tier: 3
-  bot_only: true
+  feedback: "Try GET /analytics/completion-rate?lab=lab-99. Read the error response, then find the buggy line in the analytics router."
+  tier: 2
   # Class D: Bug diagnosis — division by zero when no learners exist
 
-- index: 35
+- index: 7
   question: "The /analytics/top-learners endpoint crashes for some labs. Query it, find the error, and read the source code to explain what went wrong."
   expected: {any_of: ["TypeError", "None", "NoneType", "sorted", "comparison"]}
   expected_source: {any_of: ["analytics.py", "analytics"]}
-  feedback: "Try GET /analytics/top-learners?lab=lab-01. If it works, try other labs. Read the analytics router source to find the sorting bug."
   check_tools: [query_api, read_file]
-  tier: 3
-  bot_only: true
+  feedback: "Try GET /analytics/top-learners with different labs. Read the analytics router source to find the sorting bug."
+  tier: 2
   # Class D: Bug diagnosis — TypeError sorting None scores
 
-# =============================================================================
-# CLASS E: LLM-judged reasoning (bot-only, tier 3)
-# Agent must read code and reason about it. Checked by LLM judge, not keywords.
-# =============================================================================
+# --- Class E: LLM-judged reasoning (local) ---
 
-- index: 36
-  question: "Compare how the ETL pipeline handles failures vs how the API endpoints handle failures. Which approach is more robust and why?"
-  rubric: "Answer must: (1) describe ETL error handling (e.g., raise_for_status, pagination retry), (2) describe API endpoint error handling (e.g., returns empty list, no try/except), (3) compare them, (4) give a reasoned judgment about which is more robust."
-  feedback: "Read both the ETL code (etl.py) and the API router code (routers/), then compare their error handling strategies."
-  check_tools: [read_file]
-  tier: 3
-  bot_only: true
-  # Class E: LLM-judged — ETL vs API error handling comparison
-
-- index: 37
+- index: 8
   question: "Read the docker-compose.yml and the backend Dockerfile. Explain the full journey of an HTTP request from the browser to the database and back."
   rubric: "Answer must trace the path through: (1) Caddy reverse proxy, (2) FastAPI app inside Docker container, (3) authentication middleware, (4) router/endpoint, (5) SQLModel/SQLAlchemy ORM, (6) PostgreSQL database. At least 4 of these 6 hops must be mentioned."
-  feedback: "Read docker-compose.yml, Caddyfile, the Dockerfile, and main.py to trace the request path."
   check_tools: [read_file]
-  tier: 3
-  bot_only: true
-  # Class E: LLM-judged — request lifecycle through the stack
+  feedback: "Read docker-compose.yml, Caddyfile, the Dockerfile, and main.py to trace the request path."
+  tier: 2
+  # Class E: Request lifecycle through the stack
 
-- index: 38
+- index: 9
   question: "Read the ETL pipeline code. Explain how it ensures idempotency — what happens if the same data is loaded twice?"
   rubric: "Answer must: (1) identify the idempotency mechanism (checking external_id before inserting), (2) explain that duplicate records are skipped, (3) mention the upsert-like pattern. Mentioning 'external_id' or 'existing check' is essential."
-  feedback: "Read etl.py carefully, especially the load_logs function. Look for how it handles duplicates."
   check_tools: [read_file]
-  tier: 3
+  feedback: "Read etl.py carefully, especially the load function. Look for how it handles duplicates."
+  tier: 2
+  # Class E: ETL idempotency explanation
+
+# =============================================================================
+# BOT-ONLY QUESTIONS (10-19) — only in autochecker eval
+# =============================================================================
+
+# --- Class A: Wiki lookup (bot-only) ---
+
+- index: 10
+  question: "What does the project wiki say about cleaning up Docker? List the main commands or steps."
+  expected: {any_of: ["prune", "docker system prune", "docker compose down", "remove", "clean"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Find Docker-related wiki pages and read the cleanup section."
+  tier: 1
   bot_only: true
-  # Class E: LLM-judged — ETL idempotency explanation
+  # LO (lab 2): Docker cleanup
+
+- index: 11
+  question: "According to the wiki, how do you authorize in Swagger UI for this project?"
+  expected: {any_of: ["Bearer", "API key", "Authorize", "LMS_API_KEY"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Look for a Swagger-related wiki page and read the authorization section."
+  tier: 1
+  bot_only: true
+  # LO (lab 3): Explore a REST API via Swagger
+
+# --- Class B: Static system facts (bot-only) ---
+
+- index: 12
+  question: "Read the Dockerfile. What technique is used to keep the final Docker image small?"
+  expected: {any_of: ["multi-stage", "multi stage", "slim", "two stage", "builder"]}
+  check_tools: [read_file]
+  feedback: "Look for multiple FROM statements in the Dockerfile."
+  tier: 1
+  bot_only: true
+  # LO (lab 2): Docker images and deployment
+
+- index: 13
+  question: "Read the database initialization code. What are the main database tables and what does each store?"
+  expected: {contains_all: ["item", "learner", "interact"]}
+  check_tools: [read_file]
+  feedback: "Find and read the SQL initialization or model files that define the database schema."
+  tier: 1
+  bot_only: true
+  # LO (lab 3): Examine a database schema
+
+# --- Class C: Data-dependent queries (bot-only) ---
+
+- index: 14
+  question: "How many distinct learners have submitted data? Query the API to find out."
+  expected: {numeric_gt: 0}
+  check_tools: [query_api]
+  feedback: "Query the /learners/ endpoint and count the results."
+  tier: 2
+  bot_only: true
+  # LO (lab 5): Query and analyze data
+
+- index: 15
+  question: "What HTTP status code does the API return for a request to an endpoint that doesn't exist, like GET /nonexistent?"
+  expected: {contains: "404"}
+  check_tools: [query_api]
+  feedback: "Try querying an endpoint that doesn't exist and check the status code."
+  tier: 2
+  bot_only: true
+  # LO (lab 3): Inspect API responses
+
+# --- Class D: Bug diagnosis (bot-only) ---
+
+- index: 16
+  question: "Read the analytics router source code. How many endpoints have potential runtime errors? Identify them and explain what triggers each bug."
+  expected: {contains_all: ["completion", "top"]}
+  expected_source: {any_of: ["analytics.py", "analytics"]}
+  check_tools: [read_file]
+  feedback: "Read analytics.py carefully. Look for operations that could fail with certain inputs."
+  tier: 2
+  bot_only: true
+  # Class D: Proactive bug identification
+
+- index: 17
+  question: "Query /analytics/completion-rate for a lab with data (e.g., lab-04) and for one without (e.g., lab-99). Compare the responses and explain why one fails."
+  expected: {any_of: ["ZeroDivisionError", "division by zero", "zero", "no learners", "empty"]}
+  check_tools: [query_api, read_file]
+  feedback: "Compare successful and failing responses, then read the source to understand the difference."
+  tier: 2
+  bot_only: true
+  # Class D: Comparative bug diagnosis
+
+# --- Class E: LLM-judged reasoning (bot-only) ---
+
+- index: 18
+  question: "Compare how the ETL pipeline handles failures vs how the API endpoints handle failures. Which approach is more robust and why?"
+  rubric: "Answer must: (1) describe ETL error handling (e.g., raise_for_status, pagination retry), (2) describe API endpoint error handling (e.g., returns empty list, no try/except), (3) compare them, (4) give a reasoned judgment about which is more robust."
+  check_tools: [read_file]
+  feedback: "Read both the ETL code (etl.py) and the API router code (routers/), then compare their error handling strategies."
+  tier: 2
+  bot_only: true
+  # Class E: ETL vs API error handling comparison
+
+- index: 19
+  question: "Read the authentication code and docker-compose.yml. Explain how the LMS_API_KEY flows from the .env file to the point where it validates a request. Trace every step."
+  rubric: "Answer must trace: (1) .env.docker.secret file, (2) docker-compose.yml environment variable mapping, (3) app settings/config loading, (4) FastAPI dependency injection or middleware, (5) comparison with the request header. At least 4 of these 5 steps must be mentioned."
+  check_tools: [read_file]
+  feedback: "Start from docker-compose.yml environment section, follow the variable into the app config, then into the auth dependency."
+  tier: 2
+  bot_only: true
+  # Class E: Auth flow tracing
