@@ -202,9 +202,9 @@ def check_student(
                     }
                 )
 
-    # Deep repo analysis
+    # Deep repo analysis (only when spec has LLM checks)
     llm_analysis = None
-    if openrouter_api_key:
+    if openrouter_api_key and llm_checks:
         try:
             from .llm_analyzer import analyze_repo
 
