@@ -1365,7 +1365,7 @@ class CheckEngine:
             )
             result = _call_llm_api(
                 api_key, prompt,
-                model=os.environ.get("LLM_JUDGE_MODEL", "google/gemini-2.5-flash-lite"),
+                model=os.environ.get("LLM_JUDGE_MODEL", "meta-llama/llama-4-scout:free"),
             )
             return result.get("score", 0) >= 3
         except Exception:
