@@ -1348,15 +1348,17 @@ class CheckEngine:
         """Use an LLM to judge an open-ended answer against a rubric.
 
         Returns True if the answer scores >= 3/5.
-        Requires OPENROUTER_API_KEY env var.
+        Uses LLM_JUDGE_API_KEY (falls back to OPENROUTER_API_KEY).
+        Uses LLM_JUDGE_API_URL (falls back to LLM_API_URL).
         """
         import os
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        api_key = os.environ.get("LLM_JUDGE_API_KEY") or os.environ.get("OPENROUTER_API_KEY", "")
         if not api_key:
             return False  # Can't judge without API key — fail gracefully
 
         try:
             from .llm_analyzer import _call_llm_api
+            judge_api_url = os.environ.get("LLM_JUDGE_API_URL")
             prompt = (
                 "You are a strict grader. Score the following answer 0-5 against the rubric.\n\n"
                 f"### RUBRIC\n{rubric}\n\n"
@@ -1366,6 +1368,7 @@ class CheckEngine:
             result = _call_llm_api(
                 api_key, prompt,
                 model=os.environ.get("LLM_JUDGE_MODEL", "meta-llama/llama-4-scout:free"),
+                api_url=judge_api_url,
             )
             return result.get("score", 0) >= 3
         except Exception:

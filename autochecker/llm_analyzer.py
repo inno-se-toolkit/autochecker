@@ -17,20 +17,22 @@ _api_semaphore = threading.Semaphore(1)
 _last_request_time = 0
 _request_lock = threading.Lock()
 _MIN_REQUEST_INTERVAL = 2.0  # Minimum interval between requests (seconds) - increased to 2s to avoid rate limit
-def _call_llm_api(openrouter_api_key: str, prompt: str, model: str = None) -> Dict:
+def _call_llm_api(openrouter_api_key: str, prompt: str, model: str = None, api_url: str = None) -> Dict:
     """
-    Calls an LLM via OpenRouter API with the given prompt.
+    Calls an LLM via an OpenAI-compatible API with the given prompt.
     Returns parsed JSON response.
 
     Args:
-        openrouter_api_key: OpenRouter API key
+        openrouter_api_key: API key for the LLM provider
         prompt: Prompt text
         model: Model to use (default: google/gemini-2.5-flash-lite)
+        api_url: Override API endpoint URL
 
     Returns:
         Dict with parsed JSON response
     """
-    api_url = "https://openrouter.ai/api/v1/chat/completions"
+    if not api_url:
+        api_url = os.getenv("LLM_API_URL", "https://openrouter.ai/api/v1/chat/completions")
 
     model = model or DEFAULT_MODEL
     models_to_try = [model]
