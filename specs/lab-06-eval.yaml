@@ -16,6 +16,8 @@
 #   numeric_range: answer contains a number in [min, max]
 #
 # requires_tool: tool name the agent must use (verified by bot eval)
+# expected_source: optional source field check (same matching strategies)
+# feedback: hint shown on failure instead of expected value (for tier 2+)
 
 # =============================================================================
 # SCRIPT QUESTIONS (0-24)
@@ -139,10 +141,13 @@
 
 # --- Tier 2: Tool questions (require read_file / list_files / query_api) ---
 
+# Class B: Static system facts (deterministic, baked into code)
+
 - index: 17
   question: "What Python web framework does this project's backend use? Read the source code to find out."
   expected: {any_of: ["FastAPI", "fastapi"]}
   requires_tool: read_file
+  feedback: "Look at the imports in the main backend file."
   tier: 2
   # LO (lab 2): Explore the code of an existing web server
 
@@ -150,6 +155,7 @@
   question: "What ORM does this project use to define database models? Check the imports in the backend code."
   expected: {any_of: ["SQLModel", "sqlmodel"]}
   requires_tool: read_file
+  feedback: "Check the model definitions in the backend code — what library are they importing?"
   tier: 2
   # LO (lab 3): Examine database-related code
 
@@ -157,6 +163,7 @@
   question: "Read the docker-compose.yml. If you run 'docker compose down' (without the -v flag), is the PostgreSQL data preserved or lost? Why?"
   expected: {any_of: ["preserved", "named volume", "postgres_data", "volume", "survives", "kept"]}
   requires_tool: read_file
+  feedback: "Look at the volumes section in docker-compose.yml. Named volumes survive 'docker compose down'."
   tier: 2
   # LO (lab 2): Understand Docker volumes and data persistence
 
@@ -164,6 +171,7 @@
   question: "Read the authentication module. How does the backend verify that an API request is authorized?"
   expected: {any_of: ["Bearer", "bearer", "API key", "api_key", "Authorization header", "token"]}
   requires_tool: read_file
+  feedback: "Look at the dependency injection or middleware that checks requests before they reach routers."
   tier: 2
   # LO (lab 3): Authenticate API requests using an API key
 
@@ -171,6 +179,7 @@
   question: "List all API router modules in the backend. What domain does each one handle?"
   expected: {contains_all: ["items", "interactions", "analytics", "pipeline", "learners"]}
   requires_tool: list_files
+  feedback: "Use list_files to see what's in the backend routers directory, then read each file's purpose."
   tier: 2
   # LO (lab 2): Explore the code of an existing web server
 
@@ -178,20 +187,27 @@
   question: "Read the Caddyfile. What is Caddy's role in this project — what does it proxy and what does it serve directly?"
   expected: {any_of: ["reverse proxy", "static files", "frontend", "API", "proxy to backend"]}
   requires_tool: read_file
+  feedback: "Read the Caddyfile and look at what routes are defined and where they point."
   tier: 2
   # LO (lab 4): Understand dev server vs production deployment
+
+# Class C: Data-dependent system queries (live data, range checks)
 
 - index: 23
   question: "How many items are currently stored in the database? Query the running API to find out."
   expected: {numeric_gt: 0}
   requires_tool: query_api
+  feedback: "Query the /items/ endpoint with authentication and count the results."
   tier: 2
   # LO (lab 3): Query the API, inspect responses
+
+# Class B: Static system facts via API
 
 - index: 24
   question: "What HTTP status code does the API return when you request /items/ without sending an authentication header?"
   expected: {any_of: ["401", "403"]}
   requires_tool: query_api
+  feedback: "Try making a request without the API key header and check the response status code."
   tier: 2
   # LO (lab 3): Authenticate API requests, inspect responses
 
@@ -199,10 +215,13 @@
 # BOT-ONLY QUESTIONS (25-33) — never served by the API
 # =============================================================================
 
+# Class B: Static system facts (bot-only)
+
 - index: 25
   question: "What database system does this project use? Check the Docker Compose or backend configuration."
   expected: {any_of: ["PostgreSQL", "postgres", "Postgres"]}
   requires_tool: read_file
+  feedback: "Look at the services in docker-compose.yml or the database connection settings."
   tier: 2
   bot_only: true
   # LO (lab 3): Examine a database
@@ -211,6 +230,7 @@
   question: "Read the init.sql file. What are the three main database tables and what does each store?"
   expected: {contains_all: ["item", "learner", "interact"]}
   requires_tool: read_file
+  feedback: "Find and read the SQL initialization file that creates the database schema."
   tier: 2
   bot_only: true
   # LO (lab 3): Debug by tracing code and comparing to DB schema
@@ -219,6 +239,7 @@
   question: "What port does the FastAPI application listen on inside its Docker container? How is this different from the host port?"
   expected: {contains: "8000"}
   requires_tool: read_file
+  feedback: "Check the Dockerfile CMD or docker-compose.yml port mapping to see internal vs external ports."
   tier: 2
   bot_only: true
   # LO (lab 2): Docker port mapping
@@ -227,6 +248,7 @@
   question: "What async HTTP client does the ETL pipeline use, and why would you use an async client instead of a synchronous one like requests?"
   expected: {any_of: ["httpx", "HTTPX"]}
   requires_tool: read_file
+  feedback: "Read the ETL pipeline code and check its imports."
   tier: 2
   bot_only: true
   # LO (lab 5): Build an ETL pipeline
@@ -235,14 +257,18 @@
   question: "What testing framework does this project use, and where are the unit tests vs end-to-end tests located?"
   expected: {any_of: ["pytest", "Pytest"]}
   requires_tool: read_file
+  feedback: "Check pyproject.toml for test dependencies and look for test directories."
   tier: 2
   bot_only: true
   # LO (lab 4): Construct unit and e2e tests
+
+# Class B: Advanced static facts (bot-only, tier 3)
 
 - index: 30
   question: "What HTTP status code does the API return for a request to an endpoint that doesn't exist, like GET /nonexistent?"
   expected: {contains: "404"}
   requires_tool: query_api
+  feedback: "Try querying an endpoint that doesn't exist and check the status code."
   tier: 3
   bot_only: true
   # LO (lab 3): Inspect API responses
@@ -251,6 +277,7 @@
   question: "Look at how the app container's environment is configured in docker-compose.yml. Where does DB_HOST point to and why?"
   expected: {any_of: ["postgres", "service name", "container name", "docker network", "CONST_POSTGRESQL_SERVICE_NAME"]}
   requires_tool: read_file
+  feedback: "Check the environment variables in docker-compose.yml. Docker Compose services can reach each other by service name."
   tier: 3
   bot_only: true
   # LO (lab 2): Docker Compose service networking
@@ -259,6 +286,7 @@
   question: "Read the Dockerfile. What technique is used to keep the final Docker image small?"
   expected: {any_of: ["multi-stage", "multi stage", "slim", "two stage", "builder"]}
   requires_tool: read_file
+  feedback: "Look for multiple FROM statements in the Dockerfile."
   tier: 3
   bot_only: true
   # LO (lab 2): Docker images and deployment
@@ -267,6 +295,7 @@
   question: "What ASGI server runs the FastAPI application? Check the project dependencies."
   expected: {any_of: ["uvicorn", "Uvicorn"]}
   requires_tool: read_file
+  feedback: "Check pyproject.toml or the Dockerfile CMD for the server that runs the app."
   tier: 3
   bot_only: true
   # LO (lab 2): Run a web server

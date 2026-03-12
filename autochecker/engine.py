@@ -1280,14 +1280,32 @@ class CheckEngine:
                 continue
 
             # Match answer against expected
-            if self._match_answer(answer, expected):
+            answer_ok = self._match_answer(answer, expected)
+
+            # Check source field if expected_source is defined
+            source_ok = True
+            expected_source = q.get("expected_source")
+            if expected_source:
+                source = output.get("source", "")
+                if not source or not self._match_answer(source, expected_source):
+                    source_ok = False
+
+            if answer_ok and source_ok:
                 passed_count += 1
                 results.append(f"  + [{q['index']}] {question_text[:60]}...")
             else:
+                feedback = q.get("feedback")
+                if feedback:
+                    reason = f"      Hint: {feedback}"
+                elif not answer_ok:
+                    reason = (
+                        f"      Answer: {answer[:100]}\n"
+                        f"      Expected: {self._format_expected(expected)}"
+                    )
+                else:
+                    reason = f"      Source: {output.get('source', '(missing)')}"
                 results.append(
-                    f"  x [{q['index']}] {question_text[:60]}...\n"
-                    f"      Answer: {answer[:100]}\n"
-                    f"      Expected: {self._format_expected(expected)}"
+                    f"  x [{q['index']}] {question_text[:60]}...\n{reason}"
                 )
 
             # Check tool usage for questions that require tools
