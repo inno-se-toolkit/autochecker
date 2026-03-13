@@ -1744,10 +1744,30 @@ with open("_eval_results.json", "w") as f:
         # 4. Get student's LMS_API_KEY from bot env (or fallback)
         lms_api_key = self._lms_api_key or os.environ.get("STUDENT_LMS_API_KEY", "") or "my-secret-api-key"
 
-        # 5. Run each question via separate SSH call
+        # 4b. Load cached passed results from previous runs
+        cache_file = f"{repo_dir}/_eval_cache.json"
+        cached_passes = {}  # index -> True
+        ok_cache, cache_result = self._ssh_check_via_relay(
+            server_ip, 22, username,
+            f"cat {cache_file} 2>/dev/null || echo '{{}}'",
+            10,
+        )
+        if ok_cache:
+            try:
+                cached_passes = json.loads(cache_result.get("stdout", "{}").strip())
+            except json.JSONDecodeError:
+                cached_passes = {}
+
+        # 5. Run each question via separate SSH call (skip cached passes)
         agent_outputs = {}
         for qi, q in enumerate(questions):
             idx = q["index"]
+
+            # Skip questions that passed in a previous run
+            if cached_passes.get(str(idx)):
+                agent_outputs[str(idx)] = {"rc": 0, "stdout": cached_passes[str(idx)], "stderr": "", "cached": True}
+                continue
+
             question_text = q["question"]
             # Escape single quotes for shell
             escaped_q = question_text.replace("'", "'\"'\"'")
@@ -1867,7 +1887,12 @@ with open("_eval_results.json", "w") as f:
 
             if answer_ok and source_ok and tools_ok:
                 passed_count += 1
-                results.append(f"  + [{q['index']}] {question_text[:60]}...")
+                is_cached = agent_outputs.get(idx, {}).get("cached")
+                cache_label = " (cached)" if is_cached else ""
+                results.append(f"  + [{q['index']}] {question_text[:60]}...{cache_label}")
+                # Cache the stdout for this passed question
+                if not is_cached:
+                    cached_passes[idx] = agent_outputs[idx]["stdout"]
             else:
                 feedback = q.get("feedback")
                 if feedback:
@@ -1886,6 +1911,16 @@ with open("_eval_results.json", "w") as f:
                 results.append(
                     f"  x [{q['index']}] {question_text[:60]}...\n{reason}"
                 )
+
+        # Save updated cache to student's VM via base64 to avoid quoting issues
+        if cached_passes:
+            import base64
+            cache_b64 = base64.b64encode(json.dumps(cached_passes).encode()).decode()
+            self._ssh_check_via_relay(
+                server_ip, 22, username,
+                f"echo '{cache_b64}' | base64 -d > {cache_file}",
+                10,
+            )
 
         pass_rate = passed_count / total if total > 0 else 0
         summary = f"{passed_count}/{total} passed ({pass_rate:.0%})"
