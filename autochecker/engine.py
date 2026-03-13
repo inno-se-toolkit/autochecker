@@ -1341,7 +1341,37 @@ class CheckEngine:
                 llm_api_base = llm_api_base[: -len("/chat/completions")]
             llm_model = os.environ.get("LLM_MODEL", "")
 
-            # 4. Pre-install dependencies once in sandbox
+            # 4. Write questions file and runner script into cloned repo
+            questions_path = os.path.join(tmpdir, "_eval_questions.json")
+            with open(questions_path, "w") as f:
+                json.dump([{"index": q["index"], "question": q["question"]} for q in questions], f)
+
+            runner_script = os.path.join(tmpdir, "_eval_runner.py")
+            with open(runner_script, "w") as f:
+                f.write('''\
+import json, subprocess, sys, time
+
+with open("_eval_questions.json") as f:
+    questions = json.load(f)
+
+results = {}
+for qi, q in enumerate(questions):
+    if qi > 0:
+        time.sleep(1)
+    idx = q["index"]
+    escaped = q["question"].replace("'", "'\\\\''")
+    cmd = f"uv run --python-preference only-system agent.py '{escaped}'"
+    try:
+        r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=90)
+        results[str(idx)] = {"rc": r.returncode, "stdout": r.stdout.strip()[-4096:], "stderr": r.stderr.strip()[-500:]}
+    except subprocess.TimeoutExpired:
+        results[str(idx)] = {"rc": -1, "stdout": "", "stderr": "timeout"}
+
+with open("_eval_results.json", "w") as f:
+    json.dump(results, f)
+''')
+
+            # 5. Run all questions in a single sandbox container
             env_flags = [
                 "-e", f"LLM_API_KEY={llm_api_key}",
                 "-e", f"LLM_API_BASE={llm_api_base}",
@@ -1349,7 +1379,7 @@ class CheckEngine:
                 "-e", f"LMS_API_KEY={lms_api_key}",
                 "-e", f"AGENT_API_BASE_URL={backend_url}",
             ]
-            docker_base = [
+            docker_cmd = [
                 "docker", "run", "--rm",
                 "--memory=512m",
                 "--cpus=1",
@@ -1358,54 +1388,58 @@ class CheckEngine:
                 "--add-host=host.docker.internal:host-gateway",
                 "-v", f"{tmpdir}:{tmpdir}",
                 "-w", tmpdir,
-            ] + env_flags + ["autochecker-sandbox:latest"]
+            ] + env_flags + [
+                "autochecker-sandbox:latest",
+                "sh", "-c",
+                "uv sync --python-preference only-system --quiet 2>/dev/null; "
+                "python _eval_runner.py",
+            ]
 
-            # Run uv sync once to install deps (cached in the mounted volume)
+            total_timeout = timeout_per_question * len(questions) + 120
             try:
                 subprocess.run(
-                    docker_base + ["sh", "-c", "uv sync --python-preference only-system --quiet 2>/dev/null; true"],
-                    capture_output=True, text=True, timeout=120,
+                    docker_cmd,
+                    capture_output=True, text=True,
+                    timeout=total_timeout,
                 )
             except subprocess.TimeoutExpired:
-                pass  # best-effort; agent.py may still work
+                pass  # partial results may still be written
 
-            # 5. Run eval questions
+            # 6. Read results and evaluate
+            results_path = os.path.join(tmpdir, "_eval_results.json")
+            if os.path.exists(results_path):
+                with open(results_path) as f:
+                    agent_outputs = json.load(f)
+            else:
+                agent_outputs = {}
+
             passed_count = 0
             total = len(questions)
             results = []
 
-            for qi, q in enumerate(questions):
+            for q in questions:
                 question_text = q["question"]
                 expected = q.get("expected", {})
+                idx = str(q["index"])
 
-                # Brief pause between questions to avoid rate limits
-                if qi > 0:
-                    time.sleep(2)
-
-                escaped_q = question_text.replace("'", "'\\''")
-                cmd = f"uv run --python-preference only-system agent.py '{escaped_q}'"
-
-                docker_cmd = docker_base + ["sh", "-c", cmd]
-
-                try:
-                    agent_result = subprocess.run(
-                        docker_cmd,
-                        capture_output=True, text=True,
-                        timeout=timeout_per_question,
-                    )
-                except subprocess.TimeoutExpired:
-                    results.append(f"  x [{q['index']}] Agent timed out ({timeout_per_question}s)")
+                ao = agent_outputs.get(idx)
+                if not ao:
+                    results.append(f"  x [{q['index']}] Agent did not produce results (container killed?)")
                     continue
 
-                if agent_result.returncode != 0:
-                    stderr_preview = agent_result.stderr.strip()[:100]
+                if ao["stderr"] == "timeout":
+                    results.append(f"  x [{q['index']}] Agent timed out (90s)")
+                    continue
+
+                if ao["rc"] != 0:
+                    stderr_preview = ao["stderr"][:100]
                     results.append(
                         f"  x [{q['index']}] Agent exited with code "
-                        f"{agent_result.returncode}: {stderr_preview}"
+                        f"{ao['rc']}: {stderr_preview}"
                     )
                     continue
 
-                stdout = agent_result.stdout.strip()
+                stdout = ao["stdout"]
                 if not stdout:
                     results.append(f"  x [{q['index']}] Agent produced no output")
                     continue
