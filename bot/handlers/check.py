@@ -381,12 +381,12 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
         return
 
     status_msg = await message.answer(
-        f"Saved VM IP: <code>{ip}</code>\n\n"
+        f"Saved VM IP: <code>{text}</code>\n\n"
         f"Checking <b>{task_id}</b>...\n"
         f"This may take up to 60 seconds.",
     )
 
-    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=ip)
+    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=text)
 
     # Record the attempt
     await add_attempt(db_user.tg_id, lab_id, task_id)
