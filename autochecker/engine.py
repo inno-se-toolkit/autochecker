@@ -271,15 +271,19 @@ class CheckEngine:
             "invalid_count": len(invalid_links)
         }
     
-    def check_glob_exists(self, patterns: List[str]) -> Tuple[bool, str]:
-        """Checks file existence by glob patterns."""
+    def check_glob_exists(self, patterns: List[str], min_matches: int = 0) -> Tuple[bool, str]:
+        """Checks file existence by glob patterns.
+
+        If min_matches > 0, passes when at least that many patterns match.
+        If min_matches == 0 (default), ALL patterns must match.
+        """
         all_files = self._reader.list_files() if hasattr(self._reader, 'list_files') else []
         if not all_files:
             return False, "Could not get file list"
-        
+
         matched_patterns = []
         unmatched_patterns = []
-        
+
         for pattern in patterns:
             matched = False
             for file_path in all_files:
@@ -290,19 +294,22 @@ class CheckEngine:
                 if pattern.endswith('/**') and file_path.startswith(pattern[:-3]):
                     matched = True
                     break
-            
+
             if matched:
                 matched_patterns.append(pattern)
             else:
                 unmatched_patterns.append(pattern)
-        
-        passed = len(unmatched_patterns) == 0
+
+        if min_matches > 0:
+            passed = len(matched_patterns) >= min_matches
+        else:
+            passed = len(unmatched_patterns) == 0
         details = ""
         if matched_patterns:
             details += f"Found: {', '.join(matched_patterns)}\n"
         if unmatched_patterns:
             details += f"Not found: {', '.join(unmatched_patterns)}"
-        
+
         return passed, details
     
     def check_markdown_sections_nonempty(self, path: str, headings: List[str]) -> Tuple[bool, str]:
@@ -1815,7 +1822,8 @@ class CheckEngine:
             
             elif check_type == "glob_exists":
                 patterns = params.get('patterns', [])
-                passed, details = self.check_glob_exists(patterns)
+                min_matches = params.get('min_matches', 0)
+                passed, details = self.check_glob_exists(patterns, min_matches=min_matches)
                 if passed: status = "PASS"
             
             elif check_type == "markdown_sections_nonempty":
