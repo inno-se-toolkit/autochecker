@@ -1341,7 +1341,35 @@ class CheckEngine:
                 llm_api_base = llm_api_base[: -len("/chat/completions")]
             llm_model = os.environ.get("LLM_MODEL", "")
 
-            # 4. Run eval questions
+            # 4. Pre-install dependencies once in sandbox
+            env_flags = [
+                "-e", f"LLM_API_KEY={llm_api_key}",
+                "-e", f"LLM_API_BASE={llm_api_base}",
+                "-e", f"LLM_MODEL={llm_model}",
+                "-e", f"LMS_API_KEY={lms_api_key}",
+                "-e", f"AGENT_API_BASE_URL={backend_url}",
+            ]
+            docker_base = [
+                "docker", "run", "--rm",
+                "--memory=512m",
+                "--cpus=1",
+                "--pids-limit=256",
+                "--security-opt=no-new-privileges",
+                "--add-host=host.docker.internal:host-gateway",
+                "-v", f"{tmpdir}:{tmpdir}",
+                "-w", tmpdir,
+            ] + env_flags + ["autochecker-sandbox:latest"]
+
+            # Run uv sync once to install deps (cached in the mounted volume)
+            try:
+                subprocess.run(
+                    docker_base + ["sh", "-c", "uv sync --python-preference only-system --quiet 2>/dev/null; true"],
+                    capture_output=True, text=True, timeout=120,
+                )
+            except subprocess.TimeoutExpired:
+                pass  # best-effort; agent.py may still work
+
+            # 5. Run eval questions
             passed_count = 0
             total = len(questions)
             results = []
@@ -1352,33 +1380,12 @@ class CheckEngine:
 
                 # Brief pause between questions to avoid rate limits
                 if qi > 0:
-                    time.sleep(3)
+                    time.sleep(2)
 
                 escaped_q = question_text.replace("'", "'\\''")
                 cmd = f"uv run --python-preference only-system agent.py '{escaped_q}'"
 
-                # Run agent.py in sandbox container
-                env_flags = [
-                    "-e", f"LLM_API_KEY={llm_api_key}",
-                    "-e", f"LLM_API_BASE={llm_api_base}",
-                    "-e", f"LLM_MODEL={llm_model}",
-                    "-e", f"LMS_API_KEY={lms_api_key}",
-                    "-e", f"AGENT_API_BASE_URL={backend_url}",
-                ]
-
-                docker_cmd = [
-                    "docker", "run", "--rm",
-                    "--memory=512m",
-                    "--cpus=1",
-                    "--pids-limit=256",
-                    "--security-opt=no-new-privileges",
-                    "--add-host=host.docker.internal:host-gateway",
-                    "-v", f"{tmpdir}:{tmpdir}",
-                    "-w", tmpdir,
-                ] + env_flags + [
-                    "autochecker-sandbox:latest",
-                    "sh", "-c", f"uv sync --python-preference only-system --quiet 2>/dev/null; {cmd}",
-                ]
+                docker_cmd = docker_base + ["sh", "-c", cmd]
 
                 try:
                     agent_result = subprocess.run(
