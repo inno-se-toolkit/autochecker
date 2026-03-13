@@ -394,7 +394,7 @@ checks:
       eval_lab: "lab-06"
       include_bot_only: false
       min_pass_rate: 1.0
-      timeout_per_question: 60
+      timeout_per_question: 120
 
   - id: task3_hidden_eval
     task: task-3
@@ -413,7 +413,7 @@ checks:
       eval_lab: "lab-06"
       bot_only_exclusively: true
       min_pass_rate: 1.0
-      timeout_per_question: 60
+      timeout_per_question: 120
 
   - id: task3_agent_md_updated
     task: task-3
