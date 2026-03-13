@@ -1661,17 +1661,23 @@ with open("_eval_results.json", "w") as f:
         agent_path = result["stdout"].strip().split("\n")[0]
         repo_dir = os.path.dirname(agent_path)
 
-        # 2. Verify .env.agent exists (student's LLM creds)
+        # 2. Verify .env.agent or .env.agent.secret exists (student's LLM creds)
         ok, result = self._ssh_check_via_relay(
             server_ip, 22, username,
-            f"test -f {repo_dir}/.env.agent && echo EXISTS || echo MISSING",
+            f"if [ -f {repo_dir}/.env.agent.secret ]; then echo SECRET; "
+            f"elif [ -f {repo_dir}/.env.agent ]; then echo PLAIN; "
+            f"else echo MISSING; fi",
             15,
         )
-        env_agent_exists = ok and "EXISTS" in result.get("stdout", "")
-        if not env_agent_exists:
+        env_file_type = result.get("stdout", "").strip() if ok else "MISSING"
+        if env_file_type == "SECRET":
+            env_agent_file = ".env.agent.secret"
+        elif env_file_type == "PLAIN":
+            env_agent_file = ".env.agent"
+        else:
             return False, (
                 f".env.agent not found in {repo_dir} on VM. "
-                "Create it with LLM_API_KEY, LLM_API_BASE, LLM_MODEL for your Qwen Code API."
+                "Create .env.agent (or .env.agent.secret) with LLM_API_KEY, LLM_API_BASE, LLM_MODEL for your Qwen Code API."
             )
 
         # 3. Ensure uv is available and deps are synced
@@ -1700,7 +1706,7 @@ with open("_eval_results.json", "w") as f:
             cmd = (
                 f"cd {repo_dir} && "
                 f"export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\" && "
-                f"set -a && source .env.agent && set +a && "
+                f"set -a && source {env_agent_file} && set +a && "
                 f"export LMS_API_KEY='{lms_api_key}' && "
                 f"export AGENT_API_BASE_URL='http://localhost:42002' && "
                 f"uv run agent.py '{escaped_q}' 2>/dev/null"
