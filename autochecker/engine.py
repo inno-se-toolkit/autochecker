@@ -1643,13 +1643,19 @@ with open("_eval_results.json", "w") as f:
             return bool(re.search(expected["regex"], answer, re.IGNORECASE))
 
         if "numeric_gt" in expected:
-            numbers = re.findall(r"[\d.]+", answer)
-            return any(float(n) > expected["numeric_gt"] for n in numbers if n)
+            numbers = re.findall(r"\d+\.?\d*|\.\d+", answer)
+            try:
+                return any(float(n) > expected["numeric_gt"] for n in numbers)
+            except ValueError:
+                return False
 
         if "numeric_range" in expected:
             lo, hi = expected["numeric_range"]
-            numbers = re.findall(r"[\d.]+", answer)
-            return any(lo <= float(n) <= hi for n in numbers if n)
+            numbers = re.findall(r"\d+\.?\d*|\.\d+", answer)
+            try:
+                return any(lo <= float(n) <= hi for n in numbers)
+            except ValueError:
+                return False
 
         return False
 
