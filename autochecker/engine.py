@@ -1305,7 +1305,7 @@ class CheckEngine:
                     # Get LMS_API_KEY from bot (student submits via Telegram)
                     lms_api_key = os.environ.get("STUDENT_LMS_API_KEY", "")
                     if not lms_api_key:
-                        lms_api_key = "test"
+                        lms_api_key = "my-secret-api-key"
 
                     # Start relay HTTP proxy so sandbox can reach student VM
                     proxy_port, proxy_server = self._start_relay_proxy(
@@ -1592,37 +1592,7 @@ with open("_eval_results.json", "w") as f:
         thread.start()
         return port, server
 
-    def _ssh_check_via_relay(self, host: str, username: str,
-                              command: str, timeout: int) -> Tuple[bool, dict]:
-        """Run an SSH command via the relay worker. Returns (success, result_dict)."""
-        import os
-        import requests
-
-        relay_url = os.environ.get("RELAY_URL", "http://dashboard:8000/relay/ssh")
-        # SSH relay uses a different endpoint
-        relay_url = relay_url.replace("/relay/check", "/relay/ssh")
-        relay_token = os.environ.get("RELAY_TOKEN", "")
-
-        try:
-            resp = requests.post(
-                relay_url,
-                json={
-                    "host": host,
-                    "username": username,
-                    "command": command,
-                    "timeout": timeout,
-                },
-                headers={"Authorization": f"Bearer {relay_token}"},
-                timeout=timeout + 20,
-            )
-            if resp.status_code != 200:
-                return False, {"error": resp.text}
-            data = resp.json()
-            if data.get("error"):
-                return False, data
-            return data.get("exit_code", -1) == 0, data
-        except Exception as e:
-            return False, {"error": str(e)}
+    # NOTE: _ssh_check_via_relay is defined earlier in this class (with retry logic)
 
     @staticmethod
     def _llm_judge(answer: str, rubric: str) -> bool:

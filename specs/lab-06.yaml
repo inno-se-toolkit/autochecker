@@ -8,7 +8,7 @@ discovery:
 
 scoring:
   mode: "weighted"
-  pass_threshold: 0.75
+  pass_threshold: 1.0
   score_required_only: true
 
 tasks:
@@ -107,85 +107,27 @@ checks:
       expect_output: "200"
 
   # =====================================================
-  # TASK 1: Call an LLM from Code — repo checks only
+  # TASK 1: Call an LLM from Code
   # =====================================================
 
-  - id: task1_issue_exists
+  - id: task1_required_files
     task: task-1
-    title: "Task 1 issue exists"
-    class: process
-    runner: code
-    type: issue_exists
-    is_required: true
-    weight: 2
-    hint: >
-      Create a GitHub issue with the title:
-      [Task] Call an LLM from Code
-    params:
-      title_regex: "\\[Task\\]\\s+Call an LLM"
-
-  - id: task1_plan_exists
-    task: task-1
-    title: "Plan file exists (plans/task-1.md)"
+    title: "Required files exist (plan, agent.py, AGENT.md, tests)"
     class: structural
     runner: code
-    type: file_nonempty
+    type: glob_exists
     is_required: true
-    weight: 2
+    weight: 9
     depends_on: [repo_exists]
     hint: >
-      Create plans/task-1.md with your agent implementation plan
-      before writing code.
+      Create the following files:
+      - plans/task-1.md — your implementation plan
+      - agent.py — CLI entry point (takes a question, returns JSON)
+      - AGENT.md — documents your agent's architecture
+      - test_*.py or tests/test_*.py — at least 1 regression test
     params:
-      path: "plans/task-1.md"
-
-  - id: task1_agent_exists
-    task: task-1
-    title: "agent.py exists in project root"
-    class: structural
-    runner: code
-    type: file_nonempty
-    is_required: true
-    weight: 3
-    depends_on: [repo_exists]
-    hint: >
-      Create agent.py in the project root. This is the CLI entry point
-      that takes a question and returns a JSON answer.
-    params:
-      path: "agent.py"
-
-  - id: task1_agent_md_exists
-    task: task-1
-    title: "AGENT.md documentation exists"
-    class: structural
-    runner: code
-    type: file_nonempty
-    is_required: true
-    weight: 2
-    depends_on: [repo_exists]
-    hint: >
-      Create AGENT.md documenting your agent's architecture, LLM provider,
-      tools, system prompt strategy, and how to run it.
-    params:
-      path: "AGENT.md"
-
-  - id: task1_reads_env_vars
-    task: task-1
-    title: "Agent reads LLM config from environment variables"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Your agent must read LLM_API_KEY, LLM_API_BASE, and LLM_MODEL
-      from environment variables (not hardcoded). The autochecker will
-      inject its own LLM credentials when evaluating your agent.
-    params:
-      path: "agent.py"
-      pattern: "LLM_API_KEY|LLM_API_BASE|LLM_MODEL"
-      min_matches: 2
+      patterns: ["plans/task-1.md", "agent.py", "AGENT.md"]
+      min_matches: 3
 
   - id: task1_tests_exist
     task: task-1
@@ -203,17 +145,35 @@ checks:
       patterns: ["test_*.py", "tests/test_*.py", "*_test.py"]
       min_matches: 1
 
+  - id: task1_reads_env_vars
+    task: task-1
+    title: "Agent reads LLM config from environment variables"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your agent must read LLM_API_KEY, LLM_API_BASE, and LLM_MODEL
+      from environment variables (not hardcoded). The autochecker will
+      inject its own LLM credentials when evaluating your agent.
+    params:
+      path: "agent.py"
+      pattern: "LLM_API_KEY|LLM_API_BASE|LLM_MODEL"
+      min_matches: 2
+
   - id: task1_issue_has_linked_pr
     task: task-1
-    title: "Task issue is closed by a PR"
+    title: "Task issue exists and is closed by a merged PR"
     class: process
     runner: code
     type: issue_has_linked_pr
     is_required: true
-    weight: 2
+    weight: 4
     hint: >
-      Create a PR that closes the issue using 'Closes #<issue-number>'
-      in the PR description.
+      Create a GitHub issue titled "[Task] Call an LLM from Code",
+      then create a PR that closes it using 'Closes #<issue-number>'.
     params:
       title_regex: "\\[Task\\]\\s+Call an LLM"
       merged: true
@@ -233,22 +193,8 @@ checks:
       min_approvals: 1
 
   # =====================================================
-  # TASK 2: The Documentation Agent — repo checks only
+  # TASK 2: The Documentation Agent
   # =====================================================
-
-  - id: task2_issue_exists
-    task: task-2
-    title: "Task 2 issue exists"
-    class: process
-    runner: code
-    type: issue_exists
-    is_required: true
-    weight: 2
-    hint: >
-      Create a GitHub issue with the title:
-      [Task] The Documentation Agent
-    params:
-      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
 
   - id: task2_plan_exists
     task: task-2
@@ -265,68 +211,35 @@ checks:
     params:
       path: "plans/task-2.md"
 
-  - id: task2_has_read_file
+  - id: task2_agent_tools
     task: task-2
-    title: "Agent code has read_file tool"
+    title: "Agent has read_file, list_files tools with function calling"
     class: structural
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
+    weight: 9
+    depends_on: [repo_exists]
     hint: >
-      Implement a read_file tool in agent.py that reads files from
-      the project directory (especially wiki files).
+      Implement read_file and list_files tools in agent.py, and define
+      tool schemas for function calling. The LLM uses these schemas to
+      decide which tool to call.
     params:
       path: "agent.py"
-      pattern: "read_file"
-      min_matches: 2
-
-  - id: task2_has_list_files
-    task: task-2
-    title: "Agent code has list_files tool"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Implement a list_files tool in agent.py that lists files and
-      directories in the project (to discover wiki files).
-    params:
-      path: "agent.py"
-      pattern: "list_files"
-      min_matches: 2
-
-  - id: task2_has_tool_schemas
-    task: task-2
-    title: "Agent defines tool schemas for function calling"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
-    hint: >
-      Define your tools as JSON schemas in the tools parameter of your
-      API request. The LLM uses these schemas to decide which tool to call.
-    params:
-      path: "agent.py"
-      pattern: "\"type\":\\s*\"function\"|'type':\\s*'function'|tool_calls|function_call"
-      min_matches: 1
+      pattern: "read_file|list_files|tool_calls|function_call|\"type\":\\s*\"function\"|'type':\\s*'function'"
+      min_matches: 4
 
   - id: task2_issue_has_linked_pr
     task: task-2
-    title: "Task issue is closed by a PR"
+    title: "Task issue exists and is closed by a merged PR"
     class: process
     runner: code
     type: issue_has_linked_pr
     is_required: true
-    weight: 2
+    weight: 4
     hint: >
-      Create a PR that closes the issue using 'Closes #<issue-number>'
-      in the PR description.
+      Create a GitHub issue titled "[Task] The Documentation Agent",
+      then create a PR that closes it using 'Closes #<issue-number>'.
     params:
       title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
       merged: true
@@ -346,22 +259,8 @@ checks:
       min_approvals: 1
 
   # =====================================================
-  # TASK 3: The System Agent — clone_and_run eval
+  # TASK 3: The System Agent — agent eval
   # =====================================================
-
-  - id: task3_issue_exists
-    task: task-3
-    title: "Task 3 issue exists"
-    class: process
-    runner: code
-    type: issue_exists
-    is_required: true
-    weight: 2
-    hint: >
-      Create a GitHub issue with the title:
-      [Task] The System Agent
-    params:
-      title_regex: "\\[Task\\]\\s+(The )?System Agent"
 
   - id: task3_plan_exists
     task: task-3
@@ -378,40 +277,23 @@ checks:
     params:
       path: "plans/task-3.md"
 
-  - id: task3_has_query_api
+  - id: task3_agent_api_tools
     task: task-3
-    title: "Agent code has query_api tool"
+    title: "Agent has query_api tool and reads AGENT_API_BASE_URL"
     class: structural
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 3
-    depends_on: [task1_agent_exists]
+    weight: 5
+    depends_on: [repo_exists]
     hint: >
       Implement a query_api tool in agent.py that makes HTTP requests
-      to the backend API.
+      to the backend API. Read the base URL from the AGENT_API_BASE_URL
+      environment variable (default: http://localhost:42002).
     params:
       path: "agent.py"
-      pattern: "query_api"
-      min_matches: 2
-
-  - id: task3_reads_api_base_url
-    task: task-3
-    title: "Agent reads AGENT_API_BASE_URL from environment"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 2
-    depends_on: [task1_agent_exists]
-    hint: >
-      Your query_api tool must read the backend base URL from the
-      AGENT_API_BASE_URL environment variable (default: http://localhost:42002).
-      The autochecker injects its own URL when evaluating.
-    params:
-      path: "agent.py"
-      pattern: "AGENT_API_BASE_URL"
-      min_matches: 1
+      pattern: "query_api|AGENT_API_BASE_URL"
+      min_matches: 3
 
   - id: task3_local_eval
     task: task-3
@@ -421,7 +303,7 @@ checks:
     type: agent_eval
     is_required: true
     weight: 8
-    depends_on: [task1_agent_exists, task3_has_query_api]
+    depends_on: [task3_agent_api_tools]
     hint: >
       Run run_eval.py locally to test your agent against the 10 local questions.
       Your agent must pass all of them.
@@ -469,15 +351,15 @@ checks:
 
   - id: task3_issue_has_linked_pr
     task: task-3
-    title: "Task issue is closed by a PR"
+    title: "Task issue exists and is closed by a merged PR"
     class: process
     runner: code
     type: issue_has_linked_pr
     is_required: true
-    weight: 2
+    weight: 4
     hint: >
-      Create a PR that closes the issue using 'Closes #<issue-number>'
-      in the PR description.
+      Create a GitHub issue titled "[Task] The System Agent",
+      then create a PR that closes it using 'Closes #<issue-number>'.
     params:
       title_regex: "\\[Task\\]\\s+(The )?System Agent"
       merged: true

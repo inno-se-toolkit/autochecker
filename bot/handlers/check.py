@@ -101,9 +101,11 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
 
     await callback.answer()
 
+    has_eval = bool(get_tasks_needing_lms_key(lab_id) & {task_id})
+    time_est = "20 minutes" if has_eval else "60 seconds"
     await callback.message.edit_text(
         f"Checking <b>{task_id}</b>...\n\n"
-        f"This may take up to 60 seconds.",
+        f"This may take up to {time_est}.",
     )
 
     # Run the check using github_alias
@@ -374,7 +376,7 @@ async def process_lms_key(message: Message, db_user: User, state: FSMContext) ->
     status_msg = await message.answer(
         f"Saved LMS_API_KEY.\n\n"
         f"Checking <b>{task_id}</b>...\n"
-        f"This may take up to 60 seconds.",
+        f"This may take up to 20 minutes.",
     )
 
     result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=text)
