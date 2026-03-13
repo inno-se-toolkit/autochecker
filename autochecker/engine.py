@@ -1495,7 +1495,11 @@ with open("_eval_results.json", "w") as f:
                             f"      Expected: {self._format_expected(expected)}"
                         )
                     elif not source_ok:
-                        reason = f"      Source: {output.get('source', '(missing)')}"
+                        actual_src = output.get('source')
+                        if not actual_src:
+                            reason = "      'source' is null/missing — it is optional only for non-wiki questions; wiki questions must include a source file path"
+                        else:
+                            reason = f"      Source '{actual_src}' doesn't match expected"
                     elif not tools_ok:
                         reason = f"      Missing tools: {', '.join(missing_tools)}"
                     else:
@@ -1903,7 +1907,11 @@ with open("_eval_results.json", "w") as f:
                         f"      Expected: {self._format_expected(expected)}"
                     )
                 elif not source_ok:
-                    reason = f"      Source: {output.get('source', '(missing)')}"
+                    actual_src = output.get('source')
+                    if not actual_src:
+                        reason = "      'source' is null/missing — it is optional only for non-wiki questions; wiki questions must include a source file path"
+                    else:
+                        reason = f"      Source '{actual_src}' doesn't match expected"
                 elif not tools_ok:
                     reason = f"      Missing tools: {', '.join(missing_tools)}"
                 else:
