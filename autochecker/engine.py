@@ -1350,9 +1350,9 @@ class CheckEngine:
                 question_text = q["question"]
                 expected = q.get("expected", {})
 
-                # Rate-limit: wait between questions to avoid 429s from LLM providers
+                # Brief pause between questions to avoid rate limits
                 if qi > 0:
-                    time.sleep(10)
+                    time.sleep(3)
 
                 escaped_q = question_text.replace("'", "'\\''")
                 cmd = f"uv run --python-preference only-system agent.py '{escaped_q}'"
