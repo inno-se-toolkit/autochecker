@@ -1,9 +1,39 @@
 # autochecker/engine.py
+import random
 import re
 import fnmatch
 from typing import List, Dict, Any, Optional, Tuple
 from .github_client import GitHubClient
 from .repo_reader import RepoReader
+
+
+def _sample_eval_questions(questions: list, sample_per_class: int) -> list:
+    """Sample N questions per class from the eval pool.
+
+    Classes are derived from the question index:
+      A (0,1,10,11)  B (2,3,12,13)  C (4,5,14,15)  D (6,7,16,17)  E (8,9,18,19)
+
+    Within each class, hidden (bot_only) questions are preferred.
+    """
+    def _class_of(idx: int) -> str:
+        return chr(ord("A") + (idx % 10) // 2)
+
+    by_class: dict[str, list] = {}
+    for q in questions:
+        cls = _class_of(q["index"])
+        by_class.setdefault(cls, []).append(q)
+
+    sampled = []
+    for cls in sorted(by_class):
+        pool = by_class[cls]
+        # prefer hidden questions
+        hidden = [q for q in pool if q.get("bot_only")]
+        local = [q for q in pool if not q.get("bot_only")]
+        ordered = hidden + local
+        sampled.extend(ordered[:sample_per_class])
+
+    sampled.sort(key=lambda q: q["index"])
+    return sampled
 
 class CheckResult(Dict):
     id: str
@@ -1213,6 +1243,7 @@ class CheckEngine:
         max_tier: int = 3,
         min_pass_rate: float = 0.75,
         timeout_per_question: int = 60,
+        sample_per_class: int = 0,
     ) -> Tuple[bool, str]:
         """Run agent evaluation: clone repo, run agent.py in sandbox.
 
@@ -1254,6 +1285,9 @@ class CheckEngine:
                 continue
             questions.append(q)
         questions.sort(key=lambda q: q["index"])
+
+        if sample_per_class > 0:
+            questions = _sample_eval_questions(questions, sample_per_class)
 
         if not questions:
             return False, "No questions matched the filter criteria"
@@ -1610,6 +1644,7 @@ with open("_eval_results.json", "w") as f:
         max_tier: int = 3,
         min_pass_rate: float = 0.75,
         timeout_per_question: int = 90,
+        sample_per_class: int = 0,
     ) -> Tuple[bool, str]:
         """Run agent evaluation via SSH on the student's VM.
 
@@ -1642,6 +1677,9 @@ with open("_eval_results.json", "w") as f:
                 continue
             questions.append(q)
         questions.sort(key=lambda q: q["index"])
+
+        if sample_per_class > 0:
+            questions = _sample_eval_questions(questions, sample_per_class)
 
         if not questions:
             return False, "No questions matched the filter criteria"
@@ -2522,6 +2560,7 @@ with open("_eval_results.json", "w") as f:
                 max_tier = params.get('max_tier', 3)
                 min_pass_rate = params.get('min_pass_rate', 0.75)
                 timeout_per_q = params.get('timeout_per_question', 60)
+                sample_per_class = params.get('sample_per_class', 0)
 
                 # Use SSH-based eval when SERVER_IP is set (student has a VM)
                 server_ip = self._server_ip or os.environ.get("SERVER_IP", "")
@@ -2535,6 +2574,7 @@ with open("_eval_results.json", "w") as f:
                         max_tier=max_tier,
                         min_pass_rate=min_pass_rate,
                         timeout_per_question=timeout_per_q,
+                        sample_per_class=sample_per_class,
                     )
                 else:
                     passed, details = self.check_agent_eval_clone_and_run(
@@ -2544,6 +2584,7 @@ with open("_eval_results.json", "w") as f:
                         max_tier=max_tier,
                         min_pass_rate=min_pass_rate,
                         timeout_per_question=timeout_per_q,
+                        sample_per_class=sample_per_class,
                     )
                 if passed: status = "PASS"
 
