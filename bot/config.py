@@ -23,9 +23,9 @@ DB_PATH = os.getenv("DB_PATH", "bot.db")
 BASE_DIR = Path(__file__).resolve().parent.parent
 SPECS_DIR = BASE_DIR / "specs"
 RESULTS_DIR = BASE_DIR / "results"
-EXECUTION_TIMEOUT = 1200  # seconds (agent eval can take up to 20 min)
+EXECUTION_TIMEOUT = 1200  # seconds
 MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "12"))
-MAX_ATTEMPTS_EVAL_TASK = int(os.getenv("MAX_ATTEMPTS_EVAL_TASK", "5"))
+MAX_ATTEMPTS_EVAL_TASK = int(os.getenv("MAX_ATTEMPTS_EVAL_TASK", "12"))
 
 # Active labs — controls which tasks appear in the bot
 # Comma-separated list in env var, e.g. "lab-01,lab-02"
