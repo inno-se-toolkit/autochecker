@@ -1804,10 +1804,11 @@ with open("_eval_results.json", "w") as f:
                     f"2. Or set up ~/qwen-code-oai-proxy with a .env file"
                 )
 
-        # 3. Ensure uv is available and deps are synced
+        # 3. Pull latest code and ensure uv is available and deps are synced
         ok, result = self._ssh_check_via_relay(
             server_ip, 22, username,
             f"cd {repo_dir} && export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\" && "
+            "git pull --ff-only --quiet 2>/dev/null; "
             "which uv && uv sync --quiet 2>&1 | tail -3",
             60,
         )
