@@ -27,8 +27,8 @@ Every question is checked in order. All three must pass.
 
 | Check ID | Questions | Threshold | Description |
 |----------|-----------|-----------|-------------|
-| `task3_local_eval` | 0-9 (local only) | 60% (6/10) | First pass gate |
-| `task3_full_eval` | 0-19 (all) | 75% (15/20) | Final grade |
+| `task3_local_eval` | 0-9 (local only) | 100% (10/10) | All local questions must pass |
+| `task3_full_eval` | 0-19 (all) | 100% (20/20) | All questions must pass |
 
 ## Questions
 
