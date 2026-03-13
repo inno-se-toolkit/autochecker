@@ -1,7 +1,12 @@
 """Handler for task check callbacks."""
 
+import asyncio
+import functools
 import json
+import os
 import re
+
+import requests
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -20,6 +25,43 @@ router = Router()
 
 
 AUTOCHECKER_PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKiL0DDQZw7L0Uf1c9cNlREY7IS6ZkIbGVWNsClqGNCZ se-toolkit-autochecker"
+
+
+def _check_vm_reachable_sync(ip: str) -> tuple[bool, str]:
+    """Check if a VM is reachable via SSH through the relay (blocking)."""
+    relay_url = os.environ.get("RELAY_URL", "http://dashboard:8000/relay/ssh")
+    relay_token = os.environ.get("RELAY_TOKEN", "")
+    if not relay_token:
+        return True, ""  # skip check if relay not configured
+    try:
+        resp = requests.post(
+            relay_url,
+            json={"host": ip, "port": 22, "username": "root",
+                  "command": "echo ok", "timeout": 5},
+            headers={"Authorization": f"Bearer {relay_token}"},
+            timeout=15,
+        )
+        if resp.status_code == 503:
+            return True, ""  # relay worker offline, skip check
+        if resp.status_code != 200:
+            return False, f"Relay error: {resp.status_code}"
+        data = resp.json()
+        # SSH connect succeeded (even if auth fails, the VM is reachable)
+        if data.get("error") == "timeout":
+            return False, "Connection timed out — VM may be down or unreachable."
+        return True, ""
+    except requests.Timeout:
+        return False, "Connection timed out — VM may be down or unreachable."
+    except Exception as e:
+        return True, ""  # on unexpected errors, don't block the student
+
+
+async def _check_vm_reachable(ip: str) -> tuple[bool, str]:
+    """Async wrapper for VM reachability check."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, functools.partial(_check_vm_reachable_sync, ip)
+    )
 
 
 class CheckStates(StatesGroup):
@@ -356,6 +398,26 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
     if not valid:
         await message.answer(error_msg)
         return
+
+    # Reachability check for internal IPs via relay
+    if text.startswith("10."):
+        checking_msg = await message.answer(f"Checking if <code>{text}</code> is reachable...")
+        reachable, reach_err = await _check_vm_reachable(text)
+        try:
+            await checking_msg.delete()
+        except TelegramBadRequest:
+            pass
+        if not reachable:
+            await message.answer(
+                f"VM <code>{text}</code> is not reachable.\n\n"
+                f"{reach_err}\n\n"
+                "Please check that:\n"
+                "1. Your VM is running\n"
+                "2. The IP is correct\n"
+                "3. SSH is enabled on the VM\n\n"
+                "Enter your VM IP:"
+            )
+            return
 
     # Check uniqueness — each student must have their own VM IP
     existing_owner = await get_server_ip_owner(text, db_user.tg_id)
