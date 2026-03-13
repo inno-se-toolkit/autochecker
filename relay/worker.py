@@ -89,7 +89,7 @@ def _do_ssh_check(job: dict) -> dict:
         return {
             "job_id": job_id,
             "exit_code": result.returncode,
-            "stdout": result.stdout[:16384],
+            "stdout": result.stdout[:65536],
             "stderr": result.stderr[:4096],
             "error": "",
         }
