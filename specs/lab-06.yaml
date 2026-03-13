@@ -236,19 +236,38 @@ checks:
       pattern: "query_api|AGENT_API_BASE_URL"
       min_matches: 3
 
+  - id: task3_local_eval
+    task: task-3
+    title: "Agent passes local questions (≥80%)"
+    class: execution
+    runner: code
+    type: agent_eval
+    is_required: true
+    weight: 5
+    depends_on: [task3_structural]
+    hint: >
+      The autochecker first runs 5 open questions (1 per class) that you can
+      also test locally with run_eval.py. At least 80% must pass (4/5).
+      Fix these before the hidden eval runs.
+    params:
+      eval_lab: "lab-06"
+      include_bot_only: false
+      sample_per_class: 1
+      min_pass_rate: 0.8
+      timeout_per_question: 120
+
   - id: task3_eval
     task: task-3
-    title: "Agent passes eval (≥80%)"
+    title: "Agent passes hidden eval (≥80%)"
     class: execution
     runner: code
     type: agent_eval
     is_required: true
     weight: 10
-    depends_on: [task3_structural]
+    depends_on: [task3_local_eval]
     hint: >
-      The autochecker runs 5 hidden questions (1 per class, 5 classes).
-      At least 80% must pass (4/5). Test locally with run_eval.py first,
-      then submit.
+      After passing local questions, the autochecker runs 5 hidden questions
+      (1 per class, 5 classes). At least 80% must pass (4/5).
     params:
       eval_lab: "lab-06"
       bot_only_exclusively: true
