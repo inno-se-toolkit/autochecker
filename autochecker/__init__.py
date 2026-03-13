@@ -46,6 +46,7 @@ def check_student(
     use_cache: bool = False,
     server_ip: Optional[str] = None,
     lms_api_key: Optional[str] = None,
+    vm_username: Optional[str] = None,
 ) -> StudentCheckResult:
     """Check a single student's repository against a lab spec.
 
@@ -157,7 +158,8 @@ def check_student(
 
     # Run code checks
     engine = CheckEngine(client, reader, branch=check_branch, lab_spec=lab_spec,
-                         server_ip=server_ip, lms_api_key=lms_api_key)
+                         server_ip=server_ip, lms_api_key=lms_api_key,
+                         vm_username=vm_username)
     results = []
     for check_spec in code_checks:
         check_description = check_spec.title or check_spec.description or check_spec.id

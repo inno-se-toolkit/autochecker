@@ -21,7 +21,7 @@ class CheckResult:
     error_message: Optional[str] = None
 
 
-def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = None, server_ip: Optional[str] = None, lms_api_key: Optional[str] = None) -> CheckResult:
+def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = None, server_ip: Optional[str] = None, lms_api_key: Optional[str] = None, vm_username: Optional[str] = None) -> CheckResult:
     """Synchronous wrapper that calls check_student directly."""
     from autochecker import check_student
 
@@ -34,6 +34,7 @@ def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = Non
             output_dir=str(RESULTS_DIR),
             server_ip=server_ip,
             lms_api_key=lms_api_key,
+            vm_username=vm_username,
         )
 
         return CheckResult(
@@ -62,7 +63,7 @@ def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = Non
         )
 
 
-async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = None, server_ip: Optional[str] = None, lms_api_key: Optional[str] = None) -> CheckResult:
+async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = None, server_ip: Optional[str] = None, lms_api_key: Optional[str] = None, vm_username: Optional[str] = None) -> CheckResult:
     """
     Run the Autochecker asynchronously via run_in_executor.
 
@@ -72,6 +73,7 @@ async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = Non
         task_id: Optional task identifier (e.g. "task-1")
         server_ip: Optional VM IP for http_check tasks
         lms_api_key: Optional LMS API key for agent eval
+        vm_username: Optional VM username for SSH-based agent eval
 
     Returns:
         CheckResult with execution details and file paths
@@ -82,7 +84,7 @@ async def run_check(student_name: str, lab_id: str, task_id: Optional[str] = Non
         result = await asyncio.wait_for(
             loop.run_in_executor(
                 None,
-                functools.partial(_run_check_sync, student_name, lab_id, task_id, server_ip, lms_api_key),
+                functools.partial(_run_check_sync, student_name, lab_id, task_id, server_ip, lms_api_key, vm_username),
             ),
             timeout=EXECUTION_TIMEOUT,
         )

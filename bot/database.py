@@ -28,7 +28,7 @@ class User:
 #   0 — legacy (users: tg_id, student_name, github_nick, is_admin)
 #   1 — self-registration + results table
 # ---------------------------------------------------------------------------
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 
 async def _get_table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -81,6 +81,8 @@ async def init_db() -> None:
             await _migrate_to_v5(db)
         if version < 6:
             await _migrate_to_v6(db)
+        if version < 7:
+            await _migrate_to_v7(db)
 
         await _set_schema_version(db, SCHEMA_VERSION)
         await db.commit()
@@ -236,6 +238,34 @@ async def _migrate_to_v6(db: aiosqlite.Connection) -> None:
         logger.info("Migration v6: adding lms_api_key column to users")
         await db.execute("ALTER TABLE users ADD COLUMN lms_api_key TEXT DEFAULT ''")
     logger.info("Migration to v6 complete")
+
+
+async def _migrate_to_v7(db: aiosqlite.Connection) -> None:
+    """Add vm_username column to users table for SSH-based agent eval."""
+    user_cols = await _get_table_columns(db, "users")
+    if "vm_username" not in user_cols:
+        logger.info("Migration v7: adding vm_username column to users")
+        await db.execute("ALTER TABLE users ADD COLUMN vm_username TEXT DEFAULT ''")
+    logger.info("Migration to v7 complete")
+
+
+async def get_vm_username(tg_id: int) -> str:
+    """Get stored VM username for a user. Returns empty string if not set."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT vm_username FROM users WHERE tg_id = ?", (tg_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return (row[0] or "") if row else ""
+
+
+async def set_vm_username(tg_id: int, username: str) -> None:
+    """Store VM username for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET vm_username = ? WHERE tg_id = ?", (username, tg_id)
+        )
+        await db.commit()
 
 
 async def get_lms_api_key(tg_id: int) -> str:

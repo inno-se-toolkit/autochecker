@@ -15,12 +15,14 @@ class CheckResult(Dict):
 class CheckEngine:
     """Engine that runs data-based checks."""
     def __init__(self, client: GitHubClient, reader: RepoReader, branch: Optional[str] = None, lab_spec: Optional[Any] = None,
-                 server_ip: Optional[str] = None, lms_api_key: Optional[str] = None):
+                 server_ip: Optional[str] = None, lms_api_key: Optional[str] = None,
+                 vm_username: Optional[str] = None):
         self._client = client
         self._reader = reader
         self._branch = branch
         self._server_ip = server_ip
         self._lms_api_key = lms_api_key
+        self._vm_username = vm_username
         self._lab_spec = lab_spec
         self._data_cache = {}
         self._branch = branch  # Branch to use (overrides repo default)
@@ -1644,13 +1646,13 @@ with open("_eval_results.json", "w") as f:
         if not server_ip:
             return False, "SERVER_IP not set — cannot SSH to student VM"
 
-        username = "autochecker"
+        username = self._vm_username or "autochecker"
         ssh_timeout = 120  # relay cap
 
-        # 1. Find the agent repo on the student's VM
+        # 1. Find the agent repo in the user's home directory
         ok, result = self._ssh_check_via_relay(
             server_ip, 22, username,
-            "find /home -maxdepth 4 -name agent.py -path '*/se-toolkit-lab-6/*' 2>/dev/null | head -1",
+            "find $HOME -maxdepth 3 -name agent.py -path '*/se-toolkit-lab-6/*' 2>/dev/null | head -1",
             30,
         )
         if not ok or not result.get("stdout", "").strip():

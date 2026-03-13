@@ -9,7 +9,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip, get_lms_api_key, set_lms_api_key
+from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip, get_lms_api_key, set_lms_api_key, get_vm_username, set_vm_username
 from ..ip_utils import validate_ip
 from ..keyboards import get_labs_keyboard, get_tasks_keyboard
 from ..runner import run_check
@@ -18,8 +18,12 @@ from ..config import MAX_ATTEMPTS_PER_TASK, get_max_attempts, get_tasks_needing_
 router = Router()
 
 
+AUTOCHECKER_PUBKEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKiL0DDQZw7L0Uf1c9cNlREY7IS6ZkIbGVWNsClqGNCZ se-toolkit-autochecker"
+
+
 class CheckStates(StatesGroup):
     waiting_for_server_ip = State()
+    waiting_for_vm_username = State()
     waiting_for_lms_key = State()
 
 BLOCK_TAG_RE = re.compile(r"<(/?(h[1-6]|p|div|br|li|ul|ol|tr|hr)[^>]*)>", re.IGNORECASE)
@@ -85,9 +89,35 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
             await state.update_data(lab_id=lab_id, task_id=task_id)
             return
 
-    # For tasks needing LMS API key (agent eval), check if we have one stored
+    # For tasks needing agent eval, check if we have VM username stored
+    vm_username = ""
     lms_api_key = ""
     if task_id in get_tasks_needing_lms_key(lab_id):
+        vm_username = await get_vm_username(db_user.tg_id)
+        if not vm_username:
+            await callback.answer()
+            await callback.message.edit_text(
+                f"To check <b>{task_id}</b>, I need your VM username.\n\n"
+                f"The autochecker will SSH into your VM to run the agent eval. "
+                f"Run these commands on your VM:\n\n"
+                f"<b>1. Check your username:</b>\n"
+                f"<code>whoami</code>\n\n"
+                f"<b>2. Add the autochecker SSH key:</b>\n"
+                f"<code>mkdir -p ~/.ssh &amp;&amp; echo '{AUTOCHECKER_PUBKEY}' &gt;&gt; ~/.ssh/authorized_keys</code>\n\n"
+                f"<b>3. Install uv (if not installed):</b>\n"
+                f"<code>curl -LsSf https://astral.sh/uv/install.sh | sh</code>\n\n"
+                f"<b>4. Create .env.agent.secret in your repo:</b>\n"
+                f"<code>cd ~/se-toolkit-lab-6 &amp;&amp; cp .env.agent.example .env.agent.secret</code>\n"
+                f"Then edit it with your Qwen Code API credentials.\n\n"
+                f"<b>5. Sync dependencies:</b>\n"
+                f"<code>cd ~/se-toolkit-lab-6 &amp;&amp; uv sync</code>\n\n"
+                f"Reply with your VM username (e.g., <code>deploy</code>):",
+            )
+            await state.set_state(CheckStates.waiting_for_vm_username)
+            await state.update_data(lab_id=lab_id, task_id=task_id)
+            return
+
+        # Also need LMS API key
         lms_api_key = await get_lms_api_key(db_user.tg_id)
         if not lms_api_key:
             await callback.answer()
@@ -110,7 +140,7 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
     )
 
     # Run the check using github_alias
-    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=lms_api_key or None)
+    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=lms_api_key or None, vm_username=vm_username or None)
 
     # Record the attempt
     await add_attempt(db_user.tg_id, lab_id, task_id)
@@ -343,6 +373,145 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
     )
 
 
+@router.message(CheckStates.waiting_for_vm_username)
+async def process_vm_username(message: Message, db_user: User, state: FSMContext) -> None:
+    """Handle VM username input, save it, then ask for LMS_API_KEY."""
+    text = message.text.strip() if message.text else ""
+
+    if text.startswith("/"):
+        await state.clear()
+        server_ip = await get_server_ip(db_user.tg_id)
+        await message.answer(
+            "Cancelled.\n\nChoose a lab:",
+            reply_markup=get_labs_keyboard(server_ip=server_ip),
+        )
+        return
+
+    # Validate: alphanumeric, underscore, hyphen, 1-32 chars
+    if not text or not re.match(r'^[a-zA-Z0-9_-]{1,32}$', text):
+        await message.answer(
+            "Invalid username. Must be 1-32 characters (letters, digits, underscore, hyphen).\n"
+            "Run <code>whoami</code> on your VM to check. Try again:"
+        )
+        return
+
+    await set_vm_username(db_user.tg_id, text)
+    data = await state.get_data()
+
+    lab_id = data["lab_id"]
+    task_id = data["task_id"]
+
+    # Now check if we also need LMS_API_KEY
+    lms_api_key = await get_lms_api_key(db_user.tg_id)
+    if not lms_api_key:
+        await state.update_data(lab_id=lab_id, task_id=task_id)
+        await state.set_state(CheckStates.waiting_for_lms_key)
+        await message.answer(
+            f"Saved VM username: <code>{text}</code>\n\n"
+            f"Now I need your <code>LMS_API_KEY</code> "
+            f"(the backend API key from your <code>.env.docker.secret</code>).\n\n"
+            f"Reply with your LMS_API_KEY:",
+        )
+        return
+
+    await state.clear()
+
+    max_attempts = get_max_attempts(lab_id, task_id)
+    attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
+    if attempts >= max_attempts:
+        await message.answer(f"No attempts left for {task_id}.")
+        return
+
+    server_ip = await get_server_ip(db_user.tg_id)
+
+    status_msg = await message.answer(
+        f"Saved VM username: <code>{text}</code>\n\n"
+        f"Checking <b>{task_id}</b>...\n"
+        f"This may take up to 20 minutes.",
+    )
+
+    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=lms_api_key or None, vm_username=text)
+
+    await add_attempt(db_user.tg_id, lab_id, task_id)
+
+    passed = None
+    failed = None
+    total = None
+    details_json = ""
+    if result.results_json_path and result.results_json_path.exists():
+        try:
+            with open(result.results_json_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if lines:
+                score_data = json.loads(lines[0].strip())
+                passed = score_data.get("passed_checks")
+                failed = score_data.get("failed_checks")
+                total = score_data.get("total_checks")
+            checks = []
+            for line in lines[1:]:
+                line = line.strip()
+                if line:
+                    checks.append(json.loads(line))
+            if checks:
+                details_json = json.dumps(checks, ensure_ascii=False)
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    await save_result(
+        tg_id=db_user.tg_id, lab_id=lab_id, task_id=task_id,
+        score=result.score, passed=passed, failed=failed, total=total, details=details_json,
+    )
+
+    if result.error_message:
+        await status_msg.edit_text(
+            result.error_message,
+            reply_markup=await get_tasks_keyboard(db_user.tg_id, lab_id)
+        )
+        return
+
+    if result.score:
+        status_emoji = "✅" if (failed is not None and failed == 0) else "⚠️"
+        score_text = f"\nScore: <b>{result.score}</b>"
+    else:
+        status_emoji = "⚠️"
+        score_text = ""
+
+    await status_msg.edit_text(
+        f"{status_emoji} Check complete for <b>{task_id}</b>!{score_text}\n\n"
+        f"Attempts used: {attempts + 1}/{max_attempts}",
+    )
+
+    if result.student_report_path and result.student_report_path.exists():
+        try:
+            report_text = result.student_report_path.read_text(encoding="utf-8")
+            if len(report_text) <= 4000:
+                await message.answer(f"<pre>{report_text}</pre>")
+            else:
+                await message.answer_document(
+                    FSInputFile(result.student_report_path, filename="report.txt"),
+                    caption=f"Report for {task_id}"
+                )
+        except (TelegramBadRequest, Exception):
+            try:
+                await message.answer_document(
+                    FSInputFile(result.student_report_path, filename="report.txt"),
+                    caption=f"Report for {task_id}"
+                )
+            except TelegramBadRequest:
+                pass
+    elif result.summary_html_path and result.summary_html_path.exists():
+        summary = _parse_summary_html(result.summary_html_path)
+        if summary:
+            await message.answer(summary)
+    elif not result.score:
+        await message.answer("No results were generated. Check your repository setup.")
+
+    await message.answer(
+        "Choose a task:",
+        reply_markup=await get_tasks_keyboard(db_user.tg_id, lab_id)
+    )
+
+
 @router.message(CheckStates.waiting_for_lms_key)
 async def process_lms_key(message: Message, db_user: User, state: FSMContext) -> None:
     """Handle LMS API key input, save it, and run the check."""
@@ -375,6 +544,7 @@ async def process_lms_key(message: Message, db_user: User, state: FSMContext) ->
         return
 
     server_ip = await get_server_ip(db_user.tg_id)
+    vm_username = await get_vm_username(db_user.tg_id)
 
     status_msg = await message.answer(
         f"Saved LMS_API_KEY.\n\n"
@@ -382,7 +552,7 @@ async def process_lms_key(message: Message, db_user: User, state: FSMContext) ->
         f"This may take up to 20 minutes.",
     )
 
-    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=text)
+    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=text, vm_username=vm_username or None)
 
     await add_attempt(db_user.tg_id, lab_id, task_id)
 
