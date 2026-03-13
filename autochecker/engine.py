@@ -1303,16 +1303,19 @@ class CheckEngine:
                         )
 
                     # Get LMS_API_KEY from student's .env.docker.secret via SSH
-                    ssh_ok, ssh_detail = self._ssh_check_via_relay(
-                        server_ip, "autochecker",
-                        "grep '^LMS_API_KEY=' ~/se-toolkit-lab-6/.env.docker.secret 2>/dev/null | cut -d= -f2-",
-                        10,
-                    )
-                    if ssh_ok:
-                        lms_api_key = ssh_detail.get("stdout", "").strip()
+                    # Try common usernames and paths
+                    for ssh_user in ("deploy", "autochecker"):
+                        ssh_ok, ssh_detail = self._ssh_check_via_relay(
+                            server_ip, ssh_user,
+                            "grep '^LMS_API_KEY=' ~/se-toolkit-lab-6/.env.docker.secret 2>/dev/null | cut -d= -f2-",
+                            10,
+                        )
+                        if ssh_ok:
+                            lms_api_key = ssh_detail.get("stdout", "").strip()
+                        if lms_api_key:
+                            break
 
                     if not lms_api_key:
-                        # Fallback: try common keys
                         lms_api_key = "test"
 
                     # Start relay HTTP proxy so sandbox can reach student VM
