@@ -4,7 +4,8 @@ import json
 import re
 
 from aiogram import Router, F
-from aiogram.types import CallbackQuery, Message, FSInputFile
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, Message, FSInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -42,6 +43,105 @@ def _parse_summary_html(path) -> str | None:
         return "\n".join(line for line in lines if line) or None
     except Exception:
         return None
+
+
+@router.message(Command("reset"))
+async def cmd_reset(message: Message, db_user: User, state: FSMContext) -> None:
+    """Show reset options for stored settings."""
+    if db_user is None:
+        await message.answer("Please /start to register first.")
+        return
+
+    await state.clear()
+
+    server_ip = await get_server_ip(db_user.tg_id)
+    vm_user = await get_vm_username(db_user.tg_id)
+    lms_key = await get_lms_api_key(db_user.tg_id)
+
+    lines = ["<b>Your stored settings:</b>\n"]
+    buttons = []
+
+    if server_ip:
+        lines.append(f"VM IP: <code>{server_ip}</code>")
+        buttons.append([InlineKeyboardButton(text="Reset VM IP", callback_data="reset:server_ip")])
+    else:
+        lines.append("VM IP: <i>not set</i>")
+
+    if vm_user:
+        lines.append(f"VM username: <code>{vm_user}</code>")
+        buttons.append([InlineKeyboardButton(text="Reset VM username", callback_data="reset:vm_username")])
+    else:
+        lines.append("VM username: <i>not set</i>")
+
+    if lms_key:
+        lines.append(f"LMS API key: <code>{lms_key[:6]}...</code>")
+        buttons.append([InlineKeyboardButton(text="Reset LMS API key", callback_data="reset:lms_api_key")])
+    else:
+        lines.append("LMS API key: <i>not set</i>")
+
+    if not buttons:
+        lines.append("\nNothing to reset.")
+
+    await message.answer(
+        "\n".join(lines),
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None,
+    )
+
+
+@router.callback_query(F.data.startswith("reset:"))
+async def callback_reset(callback: CallbackQuery, db_user: User) -> None:
+    """Handle reset button press."""
+    field = callback.data.split(":", 1)[1]
+
+    if field == "server_ip":
+        await set_server_ip(db_user.tg_id, "")
+        await callback.answer("VM IP reset. You'll be asked again on next check.", show_alert=True)
+    elif field == "vm_username":
+        await set_vm_username(db_user.tg_id, "")
+        await callback.answer("VM username reset. You'll be asked again on next check.", show_alert=True)
+    elif field == "lms_api_key":
+        await set_lms_api_key(db_user.tg_id, "")
+        await callback.answer("LMS API key reset. You'll be asked again on next check.", show_alert=True)
+    else:
+        await callback.answer("Unknown setting.", show_alert=True)
+        return
+
+    # Refresh the message
+    server_ip = await get_server_ip(db_user.tg_id)
+    vm_user = await get_vm_username(db_user.tg_id)
+    lms_key = await get_lms_api_key(db_user.tg_id)
+
+    lines = ["<b>Your stored settings:</b>\n"]
+    buttons = []
+
+    if server_ip:
+        lines.append(f"VM IP: <code>{server_ip}</code>")
+        buttons.append([InlineKeyboardButton(text="Reset VM IP", callback_data="reset:server_ip")])
+    else:
+        lines.append("VM IP: <i>not set</i>")
+
+    if vm_user:
+        lines.append(f"VM username: <code>{vm_user}</code>")
+        buttons.append([InlineKeyboardButton(text="Reset VM username", callback_data="reset:vm_username")])
+    else:
+        lines.append("VM username: <i>not set</i>")
+
+    if lms_key:
+        lines.append(f"LMS API key: <code>{lms_key[:6]}...</code>")
+        buttons.append([InlineKeyboardButton(text="Reset LMS API key", callback_data="reset:lms_api_key")])
+    else:
+        lines.append("LMS API key: <i>not set</i>")
+
+    if not buttons:
+        lines.append("\nAll settings cleared.")
+
+    try:
+        await callback.message.edit_text(
+            "\n".join(lines),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None,
+        )
+    except TelegramBadRequest:
+        pass
 
 
 @router.callback_query(F.data.startswith("locked:"))
