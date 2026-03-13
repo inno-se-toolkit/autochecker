@@ -115,3 +115,19 @@ def get_tasks_needing_ip(lab_id: str) -> set[str]:
         if params.get("runtime"):
             task_ids.add(check["task"])
     return task_ids
+
+
+def get_tasks_needing_lms_key(lab_id: str) -> set[str]:
+    """Return task IDs that have agent_eval checks (need LMS_API_KEY)."""
+    spec_path = SPECS_DIR / f"{lab_id}.yaml"
+    if not spec_path.exists():
+        return set()
+
+    with open(spec_path, "r", encoding="utf-8") as f:
+        spec = yaml.safe_load(f)
+
+    task_ids: set[str] = set()
+    for check in spec.get("checks", []):
+        if check.get("type") == "agent_eval":
+            task_ids.add(check["task"])
+    return task_ids

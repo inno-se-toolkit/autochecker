@@ -9,17 +9,18 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip
+from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip, get_lms_api_key, set_lms_api_key
 from ..ip_utils import validate_ip
 from ..keyboards import get_labs_keyboard, get_tasks_keyboard
 from ..runner import run_check
-from ..config import MAX_ATTEMPTS_PER_TASK, get_tasks_needing_ip
+from ..config import MAX_ATTEMPTS_PER_TASK, get_tasks_needing_ip, get_tasks_needing_lms_key
 
 router = Router()
 
 
 class CheckStates(StatesGroup):
     waiting_for_server_ip = State()
+    waiting_for_lms_key = State()
 
 BLOCK_TAG_RE = re.compile(r"<(/?(h[1-6]|p|div|br|li|ul|ol|tr|hr)[^>]*)>", re.IGNORECASE)
 TAG_RE = re.compile(r"<[^>]+>")
@@ -83,6 +84,21 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
             await state.update_data(lab_id=lab_id, task_id=task_id)
             return
 
+    # For tasks needing LMS API key (agent eval), check if we have one stored
+    lms_api_key = ""
+    if task_id in get_tasks_needing_lms_key(lab_id):
+        lms_api_key = await get_lms_api_key(db_user.tg_id)
+        if not lms_api_key:
+            await callback.answer()
+            await callback.message.edit_text(
+                f"To check <b>{task_id}</b>, I need your <code>LMS_API_KEY</code> "
+                f"(the backend API key from your <code>.env.docker.secret</code>).\n\n"
+                f"Reply with your LMS_API_KEY:",
+            )
+            await state.set_state(CheckStates.waiting_for_lms_key)
+            await state.update_data(lab_id=lab_id, task_id=task_id)
+            return
+
     await callback.answer()
 
     await callback.message.edit_text(
@@ -91,7 +107,7 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
     )
 
     # Run the check using github_alias
-    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None)
+    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=lms_api_key or None)
 
     # Record the attempt
     await add_attempt(db_user.tg_id, lab_id, task_id)
@@ -245,6 +261,126 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
     await add_attempt(db_user.tg_id, lab_id, task_id)
 
     # Parse score details
+    passed = None
+    failed = None
+    total = None
+    details_json = ""
+    if result.results_json_path and result.results_json_path.exists():
+        try:
+            with open(result.results_json_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+            if lines:
+                score_data = json.loads(lines[0].strip())
+                passed = score_data.get("passed_checks")
+                failed = score_data.get("failed_checks")
+                total = score_data.get("total_checks")
+            checks = []
+            for line in lines[1:]:
+                line = line.strip()
+                if line:
+                    checks.append(json.loads(line))
+            if checks:
+                details_json = json.dumps(checks, ensure_ascii=False)
+        except (json.JSONDecodeError, IOError):
+            pass
+
+    await save_result(
+        tg_id=db_user.tg_id, lab_id=lab_id, task_id=task_id,
+        score=result.score, passed=passed, failed=failed, total=total, details=details_json,
+    )
+
+    if result.error_message:
+        await status_msg.edit_text(
+            result.error_message,
+            reply_markup=await get_tasks_keyboard(db_user.tg_id, lab_id)
+        )
+        return
+
+    if result.score:
+        status_emoji = "✅" if (failed is not None and failed == 0) else "⚠️"
+        score_text = f"\nScore: <b>{result.score}</b>"
+    else:
+        status_emoji = "⚠️"
+        score_text = ""
+
+    await status_msg.edit_text(
+        f"{status_emoji} Check complete for <b>{task_id}</b>!{score_text}\n\n"
+        f"Attempts used: {attempts + 1}/{MAX_ATTEMPTS_PER_TASK}",
+    )
+
+    if result.student_report_path and result.student_report_path.exists():
+        try:
+            report_text = result.student_report_path.read_text(encoding="utf-8")
+            if len(report_text) <= 4000:
+                await message.answer(f"<pre>{report_text}</pre>")
+            else:
+                await message.answer_document(
+                    FSInputFile(result.student_report_path, filename="report.txt"),
+                    caption=f"Report for {task_id}"
+                )
+        except (TelegramBadRequest, Exception):
+            try:
+                await message.answer_document(
+                    FSInputFile(result.student_report_path, filename="report.txt"),
+                    caption=f"Report for {task_id}"
+                )
+            except TelegramBadRequest:
+                pass
+    elif result.summary_html_path and result.summary_html_path.exists():
+        summary = _parse_summary_html(result.summary_html_path)
+        if summary:
+            await message.answer(summary)
+    elif not result.score:
+        await message.answer("No results were generated. Check your repository setup.")
+
+    await message.answer(
+        "Choose a task:",
+        reply_markup=await get_tasks_keyboard(db_user.tg_id, lab_id)
+    )
+
+
+@router.message(CheckStates.waiting_for_lms_key)
+async def process_lms_key(message: Message, db_user: User, state: FSMContext) -> None:
+    """Handle LMS API key input, save it, and run the check."""
+    text = message.text.strip() if message.text else ""
+
+    if text.startswith("/"):
+        await state.clear()
+        server_ip = await get_server_ip(db_user.tg_id)
+        await message.answer(
+            "Cancelled.\n\nChoose a lab:",
+            reply_markup=get_labs_keyboard(server_ip=server_ip),
+        )
+        return
+
+    if not text or len(text) < 3:
+        await message.answer("LMS_API_KEY must be at least 3 characters. Try again:")
+        return
+
+    await set_lms_api_key(db_user.tg_id, text)
+    data = await state.get_data()
+    await state.clear()
+
+    lab_id = data["lab_id"]
+    task_id = data["task_id"]
+
+    attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
+    if attempts >= MAX_ATTEMPTS_PER_TASK:
+        await message.answer(f"No attempts left for {task_id}.")
+        return
+
+    server_ip = await get_server_ip(db_user.tg_id)
+
+    status_msg = await message.answer(
+        f"Saved LMS_API_KEY.\n\n"
+        f"Checking <b>{task_id}</b>...\n"
+        f"This may take up to 60 seconds.",
+    )
+
+    result = await run_check(db_user.github_alias, lab_id, task_id, server_ip=server_ip or None, lms_api_key=text)
+
+    await add_attempt(db_user.tg_id, lab_id, task_id)
+
     passed = None
     failed = None
     total = None

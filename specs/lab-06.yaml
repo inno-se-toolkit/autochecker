@@ -19,10 +19,10 @@ tasks:
     prerequisite: setup
   - id: task-2
     title: "Task 2: The Documentation Agent"
-    prerequisite: task-1
+    prerequisite: setup
   - id: task-3
     title: "Task 3: The System Agent"
-    prerequisite: task-2
+    prerequisite: setup
 
 checks:
 

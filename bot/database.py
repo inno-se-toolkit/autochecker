@@ -28,7 +28,7 @@ class User:
 #   0 — legacy (users: tg_id, student_name, github_nick, is_admin)
 #   1 — self-registration + results table
 # ---------------------------------------------------------------------------
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 async def _get_table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -79,6 +79,8 @@ async def init_db() -> None:
             await _migrate_to_v4(db)
         if version < 5:
             await _migrate_to_v5(db)
+        if version < 6:
+            await _migrate_to_v6(db)
 
         await _set_schema_version(db, SCHEMA_VERSION)
         await db.commit()
@@ -225,6 +227,34 @@ async def _migrate_to_v5(db: aiosqlite.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_api_access_email ON api_access_log(email)"
     )
     logger.info("Migration to v5 complete")
+
+
+async def _migrate_to_v6(db: aiosqlite.Connection) -> None:
+    """Add lms_api_key column to users table for agent eval."""
+    user_cols = await _get_table_columns(db, "users")
+    if "lms_api_key" not in user_cols:
+        logger.info("Migration v6: adding lms_api_key column to users")
+        await db.execute("ALTER TABLE users ADD COLUMN lms_api_key TEXT DEFAULT ''")
+    logger.info("Migration to v6 complete")
+
+
+async def get_lms_api_key(tg_id: int) -> str:
+    """Get stored LMS API key for a user. Returns empty string if not set."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT lms_api_key FROM users WHERE tg_id = ?", (tg_id,)
+        ) as cur:
+            row = await cur.fetchone()
+            return (row[0] or "") if row else ""
+
+
+async def set_lms_api_key(tg_id: int, key: str) -> None:
+    """Store LMS API key for a user."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE users SET lms_api_key = ? WHERE tg_id = ?", (key, tg_id)
+        )
+        await db.commit()
 
 
 async def log_api_access(email: str, endpoint: str) -> None:
