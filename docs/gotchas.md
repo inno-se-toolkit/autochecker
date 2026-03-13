@@ -100,3 +100,20 @@ compact_calls = [
 ```
 
 Also cap what the agent sends to the LLM: `content: result[:15000]` to avoid filling the context window with large API responses.
+
+---
+
+## GitHub `/issues` API returns pull requests too
+
+**Symptom:** `issue_has_linked_pr` check fails saying "issue #N is not closed" even though the PR body contains `Closes #N`. Happens when a PR has the exact same title as an issue.
+
+**Root cause:** GitHub's `GET /repos/:owner/:repo/issues` endpoint returns both issues **and** pull requests. The engine was finding the PR by title-regex match, treating it as the issue, and then looking for a PR that closes the PR number — which doesn't exist.
+
+**Fix:** Filter out items that have a `pull_request` key from `get_issues()`:
+
+```python
+all_items = self._get("issues?state=all&per_page=100") or []
+return [i for i in all_items if "pull_request" not in i]
+```
+
+**Where we hit this:** Lab 6, student had PR #6 titled identically to issue #5.
