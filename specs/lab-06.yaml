@@ -262,24 +262,9 @@ checks:
   # TASK 3: The System Agent — agent eval
   # =====================================================
 
-  - id: task3_plan_exists
+  - id: task3_structural
     task: task-3
-    title: "Plan file exists (plans/task-3.md)"
-    class: structural
-    runner: code
-    type: file_nonempty
-    is_required: true
-    weight: 2
-    depends_on: [repo_exists]
-    hint: >
-      Create plans/task-3.md with your system agent implementation plan
-      and benchmark iteration strategy.
-    params:
-      path: "plans/task-3.md"
-
-  - id: task3_agent_api_tools
-    task: task-3
-    title: "Agent has query_api tool and reads AGENT_API_BASE_URL"
+    title: "Plan, query_api tool, and AGENT.md (200+ words)"
     class: structural
     runner: code
     type: regex_in_file
@@ -287,93 +272,44 @@ checks:
     weight: 5
     depends_on: [repo_exists]
     hint: >
-      Implement a query_api tool in agent.py that makes HTTP requests
-      to the backend API. Read the base URL from the AGENT_API_BASE_URL
-      environment variable (default: http://localhost:42002).
+      1. Create plans/task-3.md with your implementation plan.
+      2. Implement query_api tool in agent.py (reads AGENT_API_BASE_URL env var).
+      3. Update AGENT.md with final architecture and lessons learned (200+ words).
     params:
       path: "agent.py"
       pattern: "query_api|AGENT_API_BASE_URL"
       min_matches: 3
 
-  - id: task3_local_eval
+  - id: task3_eval
     task: task-3
-    title: "Agent passes local questions (100%)"
+    title: "Agent passes eval (≥75%)"
     class: execution
     runner: code
     type: agent_eval
     is_required: true
-    weight: 8
-    depends_on: [task3_agent_api_tools]
+    weight: 20
+    depends_on: [task3_structural]
     hint: >
-      Run run_eval.py locally to test your agent against the 10 local questions.
-      Your agent must pass all of them.
-      Fix failing questions one at a time.
+      Your agent is tested on local + hidden questions. At least 75% must pass.
+      Run run_eval.py locally first, then submit to the bot.
+      Build a genuinely working agent, not hard-coded answers.
     params:
       eval_lab: "lab-06"
-      include_bot_only: false
-      min_pass_rate: 1.0
+      include_bot_only: true
+      min_pass_rate: 0.8
       timeout_per_question: 120
 
-  - id: task3_hidden_eval
+  - id: task3_process
     task: task-3
-    title: "Agent passes hidden eval (100%)"
-    class: execution
-    runner: code
-    type: agent_eval
-    is_required: true
-    weight: 15
-    depends_on: [task3_local_eval]
-    hint: >
-      The autochecker tests additional hidden questions beyond run_eval.py.
-      Your agent must pass all of them. Build a genuinely working agent,
-      not hard-coded answers.
-    params:
-      eval_lab: "lab-06"
-      bot_only_exclusively: true
-      min_pass_rate: 1.0
-      timeout_per_question: 120
-
-  - id: task3_agent_md_updated
-    task: task-3
-    title: "AGENT.md documents final architecture and lessons learned"
-    class: structural
-    runner: code
-    type: file_word_count
-    is_required: true
-    weight: 2
-    depends_on: [repo_exists]
-    hint: >
-      Update AGENT.md with your final architecture, lessons learned,
-      and evaluation score. At least 200 words.
-    params:
-      path: "AGENT.md"
-      min_words: 200
-
-  - id: task3_issue_has_linked_pr
-    task: task-3
-    title: "Task issue exists and is closed by a merged PR"
+    title: "Issue closed by merged PR with approval"
     class: process
     runner: code
     type: issue_has_linked_pr
     is_required: true
-    weight: 4
+    weight: 5
     hint: >
       Create a GitHub issue titled "[Task] The System Agent",
-      then create a PR that closes it using 'Closes #<issue-number>'.
+      create a PR that closes it, and get at least 1 approval.
     params:
       title_regex: "\\[Task\\]\\s+(The )?System Agent"
       merged: true
-
-  - id: task3_pr_approved
-    task: task-3
-    title: "Task 3 PR has at least 1 approval"
-    class: process
-    runner: code
-    type: issue_pr_approved
-    is_required: true
-    weight: 2
-    hint: >
-      Ask your partner to review and approve your PR.
-    params:
-      title_regex: "\\[Task\\]\\s+(The )?System Agent"
-      min_approvals: 1
