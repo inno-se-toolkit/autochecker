@@ -1203,7 +1203,9 @@ class CheckEngine:
 
     def check_agent_eval_clone_and_run(
         self, eval_lab: str,
-        include_bot_only: bool = True, max_tier: int = 3,
+        include_bot_only: bool = True,
+        bot_only_exclusively: bool = False,
+        max_tier: int = 3,
         min_pass_rate: float = 0.75,
         timeout_per_question: int = 60,
     ) -> Tuple[bool, str]:
@@ -1236,8 +1238,10 @@ class CheckEngine:
 
         questions = []
         for q in all_questions:
-            if not include_bot_only and q.get("bot_only", False):
-                continue
+            if bot_only_exclusively and not q.get("bot_only", False):
+                continue  # Only run hidden/bot-only questions
+            elif not include_bot_only and q.get("bot_only", False):
+                continue  # Skip bot-only questions
             if q.get("tier", 1) > max_tier:
                 continue
             questions.append(q)
@@ -1347,7 +1351,7 @@ class CheckEngine:
             # 5. Wait for backend to be healthy
             backend_url = f"http://127.0.0.1:{caddy_port}"
             healthy = False
-            for attempt in range(30):
+            for attempt in range(60):
                 try:
                     import urllib.request
                     req = urllib.request.Request(f"{backend_url}/docs")
@@ -2107,6 +2111,7 @@ class CheckEngine:
             elif check_type == "agent_eval":
                 eval_lab = params.get('eval_lab', 'lab-06')
                 include_bot_only = params.get('include_bot_only', True)
+                bot_only_exclusively = params.get('bot_only_exclusively', False)
                 max_tier = params.get('max_tier', 3)
                 min_pass_rate = params.get('min_pass_rate', 0.75)
                 timeout_per_q = params.get('timeout_per_question', 60)
@@ -2114,6 +2119,7 @@ class CheckEngine:
                 passed, details = self.check_agent_eval_clone_and_run(
                     eval_lab=eval_lab,
                     include_bot_only=include_bot_only,
+                    bot_only_exclusively=bot_only_exclusively,
                     max_tier=max_tier,
                     min_pass_rate=min_pass_rate,
                     timeout_per_question=timeout_per_q,

@@ -396,22 +396,22 @@ checks:
       min_pass_rate: 1.0
       timeout_per_question: 60
 
-  - id: task3_full_eval
+  - id: task3_hidden_eval
     task: task-3
-    title: "Agent passes full benchmark (100%)"
+    title: "Agent passes hidden eval (100%)"
     class: execution
     runner: code
     type: agent_eval
     is_required: true
     weight: 15
-    depends_on: [task1_agent_exists, task3_has_query_api]
+    depends_on: [task3_local_eval]
     hint: >
-      Run run_eval.py locally to pass all 10 local questions.
-      The autochecker tests additional hidden questions.
-      Your agent must pass all of them.
+      The autochecker tests additional hidden questions beyond run_eval.py.
+      Your agent must pass all of them. Build a genuinely working agent,
+      not hard-coded answers.
     params:
       eval_lab: "lab-06"
-      include_bot_only: true
+      bot_only_exclusively: true
       min_pass_rate: 1.0
       timeout_per_question: 60
 
