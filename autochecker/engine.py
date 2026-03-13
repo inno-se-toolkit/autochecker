@@ -1851,7 +1851,7 @@ with open("_eval_results.json", "w") as f:
             cmd = (
                 f"cd {repo_dir} && "
                 f"export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\" && "
-                f"set -a && source {env_agent_file} && set +a && "
+                f"set -a && . <(tr -d '\\r' < {env_agent_file}) && set +a && "
                 f"export LMS_API_KEY='{lms_api_key}' && "
                 f"export AGENT_API_BASE_URL='http://localhost:42002' && "
                 f"uv run agent.py '{escaped_q}' 2>/dev/null"
