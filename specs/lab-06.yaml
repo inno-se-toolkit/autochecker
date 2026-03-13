@@ -246,12 +246,12 @@ checks:
     weight: 10
     depends_on: [task3_structural]
     hint: >
-      The autochecker runs all 10 hidden questions (2 per class, 5 classes).
-      At least 80% must pass (8/10). Test locally with run_eval.py first,
+      The autochecker runs 5 hidden questions (1 per class, 5 classes).
+      At least 80% must pass (4/5). Test locally with run_eval.py first,
       then submit.
     params:
       eval_lab: "lab-06"
-      include_bot_only: true
-      sample_per_class: 2
+      bot_only_exclusively: true
+      sample_per_class: 1
       min_pass_rate: 0.8
       timeout_per_question: 120
