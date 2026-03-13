@@ -129,7 +129,8 @@ class GitHubClient:
 
     def get_issues(self) -> List[Dict[str, Any]]:
         """Gets all issues."""
-        return self._get("issues?state=all&per_page=100") or []
+        all_items = self._get("issues?state=all&per_page=100") or []
+        return [i for i in all_items if "pull_request" not in i]
 
     def get_issue_comments(self, issue_number: int) -> List[Dict[str, Any]]:
         """Gets comments for an issue."""
