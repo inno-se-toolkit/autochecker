@@ -7,6 +7,7 @@ import sys
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
+from aiogram.types import BotCommand
 
 from bot.config import BOT_TOKEN
 from bot.database import init_db
@@ -48,6 +49,12 @@ async def main() -> None:
     dp.include_router(register.router)
     dp.include_router(labs.router)
     dp.include_router(start.router)
+
+    # Set bot command menu
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Check your labs"),
+        BotCommand(command="reset", description="View and reset stored settings"),
+    ])
 
     # Start polling
     logger.info("Starting bot...")
