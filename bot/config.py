@@ -25,6 +25,7 @@ SPECS_DIR = BASE_DIR / "specs"
 RESULTS_DIR = BASE_DIR / "results"
 EXECUTION_TIMEOUT = 1200  # seconds (agent eval can take up to 20 min)
 MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "12"))
+MAX_ATTEMPTS_EVAL_TASK = int(os.getenv("MAX_ATTEMPTS_EVAL_TASK", "5"))
 
 # Active labs — controls which tasks appear in the bot
 # Comma-separated list in env var, e.g. "lab-01,lab-02"
@@ -115,6 +116,13 @@ def get_tasks_needing_ip(lab_id: str) -> set[str]:
         if params.get("runtime"):
             task_ids.add(check["task"])
     return task_ids
+
+
+def get_max_attempts(lab_id: str, task_id: str) -> int:
+    """Return max attempts for a task (fewer for agent_eval tasks)."""
+    if task_id in get_tasks_needing_lms_key(lab_id):
+        return MAX_ATTEMPTS_EVAL_TASK
+    return MAX_ATTEMPTS_PER_TASK
 
 
 def get_tasks_needing_lms_key(lab_id: str) -> set[str]:

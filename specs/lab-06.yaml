@@ -8,7 +8,7 @@ discovery:
 
 scoring:
   mode: "weighted"
-  pass_threshold: 1.0
+  pass_threshold: 0.75
   score_required_only: true
 
 tasks:
@@ -280,22 +280,40 @@ checks:
       pattern: "query_api|AGENT_API_BASE_URL"
       min_matches: 3
 
-  - id: task3_eval
+  - id: task3_local_eval
     task: task-3
-    title: "Agent passes eval (≥75%)"
+    title: "Agent passes local eval (≥80%)"
     class: execution
     runner: code
     type: agent_eval
     is_required: true
-    weight: 20
+    weight: 10
     depends_on: [task3_structural]
     hint: >
-      Your agent is tested on local + hidden questions. At least 75% must pass.
-      Run run_eval.py locally first, then submit to the bot.
-      Build a genuinely working agent, not hard-coded answers.
+      Run run_eval.py locally to test your agent against the 10 local questions.
+      At least 80% must pass. Fix failing questions one at a time.
     params:
       eval_lab: "lab-06"
-      include_bot_only: true
+      include_bot_only: false
+      min_pass_rate: 0.8
+      timeout_per_question: 120
+
+  - id: task3_hidden_eval
+    task: task-3
+    title: "Agent passes hidden eval (≥80%)"
+    class: execution
+    runner: code
+    type: agent_eval
+    is_required: true
+    weight: 10
+    depends_on: [task3_local_eval]
+    hint: >
+      The autochecker tests additional hidden questions beyond run_eval.py.
+      At least 80% must pass. Build a genuinely working agent,
+      not hard-coded answers.
+    params:
+      eval_lab: "lab-06"
+      bot_only_exclusively: true
       min_pass_rate: 0.8
       timeout_per_question: 120
 

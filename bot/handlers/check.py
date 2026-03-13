@@ -13,7 +13,7 @@ from ..database import User, get_attempts_count, add_attempt, save_result, get_s
 from ..ip_utils import validate_ip
 from ..keyboards import get_labs_keyboard, get_tasks_keyboard
 from ..runner import run_check
-from ..config import MAX_ATTEMPTS_PER_TASK, get_tasks_needing_ip, get_tasks_needing_lms_key
+from ..config import MAX_ATTEMPTS_PER_TASK, get_max_attempts, get_tasks_needing_ip, get_tasks_needing_lms_key
 
 router = Router()
 
@@ -62,8 +62,9 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
     lab_id = parts[1]
     task_id = parts[2]
 
+    max_attempts = get_max_attempts(lab_id, task_id)
     attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
-    if attempts >= MAX_ATTEMPTS_PER_TASK:
+    if attempts >= max_attempts:
         await callback.answer(
             f"No attempts left for {task_id}.",
             show_alert=True
@@ -169,7 +170,7 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
 
     await callback.message.edit_text(
         f"{status_emoji} Check complete for <b>{task_id}</b>!{score_text}\n\n"
-        f"Attempts used: {attempts + 1}/{MAX_ATTEMPTS_PER_TASK}",
+        f"Attempts used: {attempts + 1}/{max_attempts}",
     )
 
     # Send feedback to student
@@ -246,8 +247,9 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
     lab_id = data["lab_id"]
     task_id = data["task_id"]
 
+    max_attempts = get_max_attempts(lab_id, task_id)
     attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
-    if attempts >= MAX_ATTEMPTS_PER_TASK:
+    if attempts >= max_attempts:
         await message.answer(f"No attempts left for {task_id}.")
         return
 
@@ -307,7 +309,7 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
 
     await status_msg.edit_text(
         f"{status_emoji} Check complete for <b>{task_id}</b>!{score_text}\n\n"
-        f"Attempts used: {attempts + 1}/{MAX_ATTEMPTS_PER_TASK}",
+        f"Attempts used: {attempts + 1}/{max_attempts}",
     )
 
     if result.student_report_path and result.student_report_path.exists():
@@ -366,8 +368,9 @@ async def process_lms_key(message: Message, db_user: User, state: FSMContext) ->
     lab_id = data["lab_id"]
     task_id = data["task_id"]
 
+    max_attempts = get_max_attempts(lab_id, task_id)
     attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
-    if attempts >= MAX_ATTEMPTS_PER_TASK:
+    if attempts >= max_attempts:
         await message.answer(f"No attempts left for {task_id}.")
         return
 
@@ -427,7 +430,7 @@ async def process_lms_key(message: Message, db_user: User, state: FSMContext) ->
 
     await status_msg.edit_text(
         f"{status_emoji} Check complete for <b>{task_id}</b>!{score_text}\n\n"
-        f"Attempts used: {attempts + 1}/{MAX_ATTEMPTS_PER_TASK}",
+        f"Attempts used: {attempts + 1}/{max_attempts}",
     )
 
     if result.student_report_path and result.student_report_path.exists():
