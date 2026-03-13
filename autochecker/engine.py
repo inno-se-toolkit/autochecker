@@ -1663,7 +1663,7 @@ with open("_eval_results.json", "w") as f:
         agent_path = result["stdout"].strip().split("\n")[0]
         repo_dir = os.path.dirname(agent_path)
 
-        # 2. Verify .env.agent or .env.agent.secret exists (student's LLM creds)
+        # 2. Check for LLM creds: .env.agent.secret, .env.agent, or auto-detect from proxy
         ok, result = self._ssh_check_via_relay(
             server_ip, 22, username,
             f"if [ -f {repo_dir}/.env.agent.secret ]; then echo SECRET; "
@@ -1677,10 +1677,57 @@ with open("_eval_results.json", "w") as f:
         elif env_file_type == "PLAIN":
             env_agent_file = ".env.agent"
         else:
-            return False, (
-                f".env.agent not found in {repo_dir} on VM. "
-                "Create .env.agent (or .env.agent.secret) with LLM_API_KEY, LLM_API_BASE, LLM_MODEL for your Qwen Code API."
+            # Auto-detect: look for qwen-code-oai-proxy config
+            ok2, result2 = self._ssh_check_via_relay(
+                server_ip, 22, username,
+                "cat $HOME/qwen-code-oai-proxy/.env 2>/dev/null || echo NO_PROXY_ENV",
+                15,
             )
+            proxy_env = result2.get("stdout", "").strip() if ok2 else ""
+
+            if proxy_env and "NO_PROXY_ENV" not in proxy_env:
+                # Parse proxy .env for API key
+                proxy_vars = {}
+                for line in proxy_env.split("\n"):
+                    line = line.strip()
+                    if "=" in line and not line.startswith("#"):
+                        k, v = line.split("=", 1)
+                        proxy_vars[k.strip()] = v.strip().strip('"').strip("'")
+
+                api_key = proxy_vars.get("QWEN_API_KEY") or proxy_vars.get("API_KEY") or "my-secret-qwen-key"
+                # Detect proxy port
+                ok3, result3 = self._ssh_check_via_relay(
+                    server_ip, 22, username,
+                    "ss -tlnp 2>/dev/null | grep node | head -1",
+                    10,
+                )
+                port_line = result3.get("stdout", "").strip() if ok3 else ""
+                # Extract port from ss output like "LISTEN 0 511 0.0.0.0:8080"
+                proxy_port = "8080"  # default
+                if port_line:
+                    import re as _re
+                    port_match = _re.search(r":(\d+)\s", port_line)
+                    if port_match:
+                        proxy_port = port_match.group(1)
+
+                # Create .env.agent.secret automatically
+                env_content = (
+                    f"LLM_API_KEY={api_key}\\n"
+                    f"LLM_API_BASE=http://127.0.0.1:{proxy_port}/v1\\n"
+                    f"LLM_MODEL=qwen3-coder-plus\\n"
+                )
+                self._ssh_check_via_relay(
+                    server_ip, 22, username,
+                    f"printf '{env_content}' > {repo_dir}/.env.agent.secret",
+                    10,
+                )
+                env_agent_file = ".env.agent.secret"
+            else:
+                return False, (
+                    f"No LLM credentials found on VM. Either:\n"
+                    f"1. Create {repo_dir}/.env.agent.secret with LLM_API_KEY, LLM_API_BASE, LLM_MODEL\n"
+                    f"2. Or set up ~/qwen-code-oai-proxy with a .env file"
+                )
 
         # 3. Ensure uv is available and deps are synced
         ok, result = self._ssh_check_via_relay(

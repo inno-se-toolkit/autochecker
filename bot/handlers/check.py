@@ -106,12 +106,9 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
                 f"<code>mkdir -p ~/.ssh &amp;&amp; echo '{AUTOCHECKER_PUBKEY}' &gt;&gt; ~/.ssh/authorized_keys</code>\n\n"
                 f"<b>3. Install uv (if not installed):</b>\n"
                 f"<code>curl -LsSf https://astral.sh/uv/install.sh | sh</code>\n\n"
-                f"<b>4. Create .env.agent.secret in your repo:</b>\n"
-                f"<code>cd ~/se-toolkit-lab-6 &amp;&amp; cp .env.agent.example .env.agent.secret</code>\n"
-                f"Then edit it with your Qwen Code API credentials.\n\n"
-                f"<b>5. Sync dependencies:</b>\n"
+                f"<b>4. Sync dependencies:</b>\n"
                 f"<code>cd ~/se-toolkit-lab-6 &amp;&amp; uv sync</code>\n\n"
-                f"Reply with your VM username (e.g., <code>deploy</code>):",
+                f"Reply with the output of <code>whoami</code>:",
             )
             await state.set_state(CheckStates.waiting_for_vm_username)
             await state.update_data(lab_id=lab_id, task_id=task_id)
