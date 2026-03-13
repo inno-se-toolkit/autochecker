@@ -1346,9 +1346,13 @@ class CheckEngine:
             total = len(questions)
             results = []
 
-            for q in questions:
+            for qi, q in enumerate(questions):
                 question_text = q["question"]
                 expected = q.get("expected", {})
+
+                # Rate-limit: wait between questions to avoid 429s from LLM providers
+                if qi > 0:
+                    time.sleep(3)
 
                 escaped_q = question_text.replace("'", "'\\''")
                 cmd = f"uv run --python-preference only-system agent.py '{escaped_q}'"
