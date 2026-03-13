@@ -218,8 +218,9 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
         return
 
     # For tasks needing a server IP, check if we have one stored
+    # agent_eval tasks also need server_ip (SSH to student VM)
     server_ip = ""
-    if task_id in get_tasks_needing_ip(lab_id):
+    if task_id in get_tasks_needing_ip(lab_id) or task_id in get_tasks_needing_lms_key(lab_id):
         server_ip = await get_server_ip(db_user.tg_id)
         if not server_ip:
             await callback.answer()
