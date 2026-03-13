@@ -1053,10 +1053,39 @@ class CheckEngine:
         except Exception as e:
             return False, f"Error checking API access: {e}"
 
+    def _direct_ssh(self, host: str, port: int, username: str,
+                     command: str, timeout: int) -> Tuple[bool, dict]:
+        """Run SSH command directly from the bot container (for public IPs)."""
+        import subprocess
+
+        ssh_key = "/app/ssh_key"
+        try:
+            result = subprocess.run(
+                ["ssh", "-i", ssh_key,
+                 "-o", "StrictHostKeyChecking=no",
+                 "-o", "UserKnownHostsFile=/dev/null",
+                 "-o", f"ConnectTimeout={min(timeout, 10)}",
+                 "-o", "LogLevel=ERROR",
+                 "-p", str(port),
+                 f"{username}@{host}", command],
+                capture_output=True, text=True, timeout=timeout + 10,
+            )
+            return True, {
+                "exit_code": result.returncode,
+                "stdout": result.stdout[:65536],
+                "stderr": result.stderr[:4096],
+                "error": "",
+            }
+        except subprocess.TimeoutExpired:
+            return False, {"exit_code": -1, "stdout": "", "stderr": "", "error": "timeout"}
+        except Exception as e:
+            return False, {"exit_code": -1, "stdout": "", "stderr": "", "error": str(e)}
+
     def _ssh_check_via_relay(self, host: str, port: int, username: str,
                              command: str, timeout: int) -> Tuple[bool, dict]:
         """Route SSH check through the relay worker for internal IPs.
 
+        For public IPs, uses direct SSH from the bot container instead.
         Retries up to 3 times on transient failures.
         Returns (success, result_dict) where result_dict has
         {exit_code, stdout, stderr, error}.
@@ -1064,6 +1093,10 @@ class CheckEngine:
         import os
         import time
         import requests
+
+        # Public IPs: use direct SSH, skip the relay
+        if not host.startswith("10."):
+            return self._direct_ssh(host, port, username, command, timeout)
 
         relay_url = os.environ.get('RELAY_URL', 'http://dashboard:8000/relay/ssh')
         # Derive SSH relay URL from HTTP relay URL if needed
