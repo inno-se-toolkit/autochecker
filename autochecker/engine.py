@@ -1685,6 +1685,7 @@ with open("_eval_results.json", "w") as f:
         min_pass_rate: float = 0.75,
         timeout_per_question: int = 90,
         sample_per_class: int = 0,
+        use_cache: bool = False,
     ) -> Tuple[bool, str]:
         """Run agent evaluation via SSH on the student's VM.
 
@@ -1827,19 +1828,20 @@ with open("_eval_results.json", "w") as f:
         # 4. Get student's LMS_API_KEY from bot env (or fallback)
         lms_api_key = self._lms_api_key or os.environ.get("STUDENT_LMS_API_KEY", "") or "my-secret-api-key"
 
-        # 4b. Load cached passed results from previous runs
+        # 4b. Load cached passed results from previous runs (only if use_cache=True)
         cache_file = f"{repo_dir}/_eval_cache.json"
-        cached_passes = {}  # index -> True
-        ok_cache, cache_result = self._ssh_check_via_relay(
-            server_ip, 22, username,
-            f"cat {cache_file} 2>/dev/null || echo '{{}}'",
-            10,
-        )
-        if ok_cache:
-            try:
-                cached_passes = json.loads(cache_result.get("stdout", "{}").strip())
-            except json.JSONDecodeError:
-                cached_passes = {}
+        cached_passes = {}  # index -> stdout of passed run
+        if use_cache:
+            ok_cache, cache_result = self._ssh_check_via_relay(
+                server_ip, 22, username,
+                f"cat {cache_file} 2>/dev/null || echo '{{}}'",
+                10,
+            )
+            if ok_cache:
+                try:
+                    cached_passes = json.loads(cache_result.get("stdout", "{}").strip())
+                except json.JSONDecodeError:
+                    cached_passes = {}
 
         # 5. Run each question via separate SSH call (skip cached passes)
         agent_outputs = {}
@@ -1999,8 +2001,8 @@ with open("_eval_results.json", "w") as f:
                     f"  x [{q['index']}] {question_text[:60]}...\n{reason}"
                 )
 
-        # Save updated cache to student's VM via base64 to avoid quoting issues
-        if cached_passes:
+        # Save updated cache to student's VM (only if use_cache=True)
+        if use_cache and cached_passes:
             import base64
             cache_b64 = base64.b64encode(json.dumps(cached_passes).encode()).decode()
             self._ssh_check_via_relay(
@@ -2602,6 +2604,7 @@ with open("_eval_results.json", "w") as f:
                 min_pass_rate = params.get('min_pass_rate', 0.75)
                 timeout_per_q = params.get('timeout_per_question', 60)
                 sample_per_class = params.get('sample_per_class', 0)
+                use_cache = params.get('use_cache', False)
 
                 # Use SSH-based eval when SERVER_IP is set (student has a VM)
                 server_ip = self._server_ip or os.environ.get("SERVER_IP", "")
@@ -2616,6 +2619,7 @@ with open("_eval_results.json", "w") as f:
                         min_pass_rate=min_pass_rate,
                         timeout_per_question=timeout_per_q,
                         sample_per_class=sample_per_class,
+                        use_cache=use_cache,
                     )
                 else:
                     passed = False
