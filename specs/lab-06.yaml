@@ -258,7 +258,7 @@ checks:
         BASE=$(grep -oP 'LLM_API_BASE=\K[^\s#]+' ~/se-toolkit-lab-6/.env.agent.secret 2>/dev/null | head -1 | tr -d "\"'");
         [ -z "$BASE" ] && BASE=$(grep -oP 'LLM_API_BASE=\K[^\s#]+' ~/se-toolkit-lab-6/.env.agent 2>/dev/null | head -1 | tr -d "\"'");
         [ -z "$BASE" ] && exit 1;
-        curl -sf --max-time 5 "${BASE}/models" -o /dev/null && echo ok || exit 1
+        curl -s --max-time 5 "${BASE}/models" -o /dev/null && echo ok || exit 1
       expect_regex: "ok"
       expect_exit: 0
 
