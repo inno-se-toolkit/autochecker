@@ -192,11 +192,11 @@
 # --- Class D: Bug diagnosis (bot-only) ---
 
 - index: 16
-  question: "Read the analytics router source code. How many endpoints have potential runtime errors? Identify them and explain what triggers each bug."
+  question: "Read the analytics router source code (analytics.py). Which endpoints can crash, and what specific operation causes each crash? Name the endpoints and the error type."
   expected: {contains_all: ["completion", "top"]}
   expected_source: {any_of: ["analytics.py", "analytics"]}
   check_tools: [read_file]
-  feedback: "Read analytics.py carefully. Look for operations that could fail with certain inputs."
+  feedback: "Your agent needs to read analytics.py and spot the risky operations (e.g. division, sorting with None). Improve your agent's system prompt to instruct it to look for division operations and None-unsafe calls when asked about bugs."
   tier: 2
   bot_only: true
   # Class D: Proactive bug identification
