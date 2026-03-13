@@ -1834,9 +1834,9 @@ with open("_eval_results.json", "w") as f:
             if not ok and "timeout" in result.get("error", "").lower():
                 agent_outputs[str(idx)] = {"rc": -1, "stdout": "", "stderr": "timeout"}
             elif not ok:
-                agent_outputs[str(idx)] = {"rc": exit_code, "stdout": stdout[-4096:], "stderr": stderr[-500:]}
+                agent_outputs[str(idx)] = {"rc": exit_code, "stdout": stdout[:65536], "stderr": stderr[-500:]}
             else:
-                agent_outputs[str(idx)] = {"rc": exit_code, "stdout": stdout[-4096:], "stderr": stderr[-500:]}
+                agent_outputs[str(idx)] = {"rc": exit_code, "stdout": stdout[:65536], "stderr": stderr[-500:]}
 
             # Small delay between questions to avoid overwhelming the relay
             if qi < len(questions) - 1:
