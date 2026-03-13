@@ -2618,14 +2618,10 @@ with open("_eval_results.json", "w") as f:
                         sample_per_class=sample_per_class,
                     )
                 else:
-                    passed, details = self.check_agent_eval_clone_and_run(
-                        eval_lab=eval_lab,
-                        include_bot_only=include_bot_only,
-                        bot_only_exclusively=bot_only_exclusively,
-                        max_tier=max_tier,
-                        min_pass_rate=min_pass_rate,
-                        timeout_per_question=timeout_per_q,
-                        sample_per_class=sample_per_class,
+                    passed = False
+                    details = (
+                        "No VM registered. Please set your VM IP in the bot first: "
+                        "send /start and follow the setup instructions to register your VM."
                     )
                 if passed: status = "PASS"
 
