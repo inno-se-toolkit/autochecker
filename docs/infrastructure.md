@@ -25,6 +25,20 @@ Course-wide constraints that affect how the autochecker runs checks against stud
 - Autochecker routes SSH commands to internal IPs through relay automatically (when `RELAY_TOKEN` is set).
 - **Supports:** SSH command execution (run a command, get stdout/stderr/exit code).
 - **Does not support:** HTTP proxying, TCP port forwarding, persistent tunnels.
+- **stdout limit:** 64 KB per command. Changing this requires manual SCP + service restart on the university VM (not auto-deployed). See `docs/gotchas.md`.
+
+## SSH routing in the engine
+
+The engine uses two SSH paths depending on the host:
+
+| Host range | Path | Requirement |
+|------------|------|-------------|
+| `10.x.x.x` (internal) | Relay worker | `RELAY_TOKEN` env var set |
+| Public IPs | `_direct_ssh()` in bot container | `openssh-client` installed, SSH key at `/app/ssh_key` |
+
+The relay rejects non-internal hosts with `Host not allowed`. Routing public IPs through the relay causes errors and long hangs. Always check `host.startswith("10.")` to select the right path.
+
+**VM reachability check:** Before saving a student's IP address, the bot verifies reachability by sending `echo ok` via relay (5 s timeout). If the relay is offline it skips the check (fail-open). This prevents students from registering fake or typo IPs.
 
 ## Networking matrix
 

@@ -73,6 +73,9 @@ autochecker/                    # repo root
 │   ├── app.py                  # routes, auth, relay endpoints
 │   └── templates/              # Jinja2 HTML templates
 ├── specs/                      # lab YAML specs
+├── docs/                       # internal documentation
+│   ├── infrastructure.md       # network topology, SSH routing, relay
+│   └── gotchas.md              # recurring bugs & surprising fixes
 ├── reports/                    # plagiarism analysis reports (date-stamped)
 ├── deploy/                     # Docker deployment
 │   ├── Dockerfile              # bot + dashboard image (includes docker-ce-cli)
