@@ -117,3 +117,52 @@ return [i for i in all_items if "pull_request" not in i]
 ```
 
 **Where we hit this:** Lab 6, student had PR #6 titled identically to issue #5.
+
+---
+
+## agent_eval: server_ip not passed for tasks without `runtime: prod`
+
+**Symptom:** `No VM registered` error for task-3 even though the student has a VM IP saved. Eval never runs via SSH.
+
+**Root cause:** `get_tasks_needing_ip()` only returns tasks that have a check with `params.runtime: prod`. The `agent_eval` check has no `runtime: prod`, so `server_ip` is never fetched from DB and is passed as `None` to the engine. The engine then sees `use_ssh = False` and falls back (or returns the error).
+
+**Fix:** In `bot/handlers/check.py`, also fetch `server_ip` for tasks in `get_tasks_needing_lms_key()`:
+
+```python
+if task_id in get_tasks_needing_ip(lab_id) or task_id in get_tasks_needing_lms_key(lab_id):
+    server_ip = await get_server_ip(db_user.tg_id)
+```
+
+**Where we hit this:** Lab 6 task-3 — every student's eval was silently broken.
+
+---
+
+## agent_eval: Windows CRLF in `.env.agent.secret` breaks `source`
+
+**Symptom:** Agent exits with code 1: `.env.agent.secret: line N: //openrouter.ai/api/v1: No such file or directory`. Agent falls back to OpenRouter default URL, gets 403.
+
+**Root cause:** Students who create `.env.agent.secret` on Windows get CRLF line endings. When bash `source`s the file, line `LLM_API_BASE=https:\r` is cut at `\r`, leaving `//openrouter.ai/api/v1` as a bare command on the next line — which bash tries to execute as a file path.
+
+**Fix:** Strip carriage returns before sourcing:
+
+```bash
+# Wrong — breaks on Windows-created files
+set -a && source .env.agent.secret && set +a
+
+# Correct
+set -a && . <(tr -d '\r' < .env.agent.secret) && set +a
+```
+
+**Where we hit this:** Lab 6 task-3 — affected every student who created the env file on Windows.
+
+---
+
+## Qwen proxy HOST_PORT vs internal PORT
+
+**Symptom:** `curl http://127.0.0.1:8080/v1/models` returns nothing (connection refused) even though the Qwen proxy container is running.
+
+**Root cause:** The `qwen-code-oai-proxy` docker-compose maps `HOST_PORT` (e.g. `42005`) → container port `PORT` (e.g. `8080`). From the VM host, the proxy is reachable at `HOST_PORT`, not `PORT`. The `.env.agent.secret` must use the host port.
+
+**How to check:** `ss -tlnp | grep node` — look for the listening port. Or check `HOST_PORT` in `~/qwen-code-oai-proxy/.env`.
+
+**Where we hit this:** Lab 6, nurlingo had `LLM_API_BASE=http://127.0.0.1:8080/v1` but proxy was on `42005`.
