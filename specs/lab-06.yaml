@@ -27,7 +27,7 @@ tasks:
 checks:
 
   # =====================================================
-  # SETUP — repo-level checks only (no VM, no SSH)
+  # SETUP — repo-level + VM checks
   # =====================================================
 
   - id: repo_exists
@@ -69,6 +69,42 @@ checks:
     hint: >
       Enable issues in your repo: Settings -> General -> Features -> Issues.
     params: {}
+
+  - id: ssh_connectivity
+    task: setup
+    title: "SSH login as autochecker works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      Create an 'autochecker' user on your VM and add the autochecker's
+      public SSH key to /home/autochecker/.ssh/authorized_keys.
+      See the setup instructions from Lab 3.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "echo ok"
+
+  - id: backend_running
+    task: setup
+    title: "Backend is running on VM (port 42002)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      Deploy your backend on the VM: clone your fork, create .env.docker.secret,
+      run 'docker compose --env-file .env.docker.secret up --build -d'.
+      The backend must be accessible on port 42002.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:42002/docs"
+      expect_output: "200"
 
   # =====================================================
   # TASK 1: Call an LLM from Code — repo checks only

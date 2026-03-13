@@ -1303,17 +1303,15 @@ class CheckEngine:
                         )
 
                     # Get LMS_API_KEY from student's .env.docker.secret via SSH
-                    # Try common usernames and paths
-                    for ssh_user in ("deploy", "autochecker"):
-                        ssh_ok, ssh_detail = self._ssh_check_via_relay(
-                            server_ip, ssh_user,
-                            "grep '^LMS_API_KEY=' ~/se-toolkit-lab-6/.env.docker.secret 2>/dev/null | cut -d= -f2-",
-                            10,
-                        )
-                        if ssh_ok:
-                            lms_api_key = ssh_detail.get("stdout", "").strip()
-                        if lms_api_key:
-                            break
+                    # Students must have autochecker user (required in setup checks)
+                    # Search common locations for the env file
+                    ssh_ok, ssh_detail = self._ssh_check_via_relay(
+                        server_ip, "autochecker",
+                        "grep -rh '^LMS_API_KEY=' /home/*/se-toolkit-lab-6/.env.docker.secret 2>/dev/null | head -1 | cut -d= -f2-",
+                        10,
+                    )
+                    if ssh_ok:
+                        lms_api_key = ssh_detail.get("stdout", "").strip()
 
                     if not lms_api_key:
                         lms_api_key = "test"
