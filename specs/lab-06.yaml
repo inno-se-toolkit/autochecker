@@ -117,7 +117,7 @@ checks:
     runner: code
     type: glob_exists
     is_required: true
-    weight: 9
+    weight: 5
     depends_on: [repo_exists]
     hint: >
       Create the following files:
@@ -126,24 +126,8 @@ checks:
       - AGENT.md — documents your agent's architecture
       - test_*.py or tests/test_*.py — at least 1 regression test
     params:
-      patterns: ["plans/task-1.md", "agent.py", "AGENT.md"]
-      min_matches: 3
-
-  - id: task1_tests_exist
-    task: task-1
-    title: "Regression tests exist"
-    class: structural
-    runner: code
-    type: glob_exists
-    is_required: true
-    weight: 2
-    depends_on: [repo_exists]
-    hint: >
-      Create at least 1 regression test for your agent.
-      Test files should be named test_*.py or *_test.py.
-    params:
-      patterns: ["test_*.py", "tests/test_*.py", "*_test.py"]
-      min_matches: 1
+      patterns: ["plans/task-1.md", "agent.py", "AGENT.md", "test_*.py", "tests/test_*.py", "*_test.py"]
+      min_matches: 4
 
   - id: task1_reads_env_vars
     task: task-1
@@ -152,7 +136,7 @@ checks:
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 3
+    weight: 5
     depends_on: [repo_exists]
     hint: >
       Your agent must read LLM_API_KEY, LLM_API_BASE, and LLM_MODEL
@@ -163,31 +147,17 @@ checks:
       pattern: "LLM_API_KEY|LLM_API_BASE|LLM_MODEL"
       min_matches: 2
 
-  - id: task1_issue_has_linked_pr
+  - id: task1_process
     task: task-1
-    title: "Task issue exists and is closed by a merged PR"
-    class: process
-    runner: code
-    type: issue_has_linked_pr
-    is_required: true
-    weight: 4
-    hint: >
-      Create a GitHub issue titled "[Task] Call an LLM from Code",
-      then create a PR that closes it using 'Closes #<issue-number>'.
-    params:
-      title_regex: "\\[Task\\]\\s+Call an LLM"
-      merged: true
-
-  - id: task1_pr_approved
-    task: task-1
-    title: "Task 1 PR has at least 1 approval"
+    title: "Issue closed by approved and merged PR"
     class: process
     runner: code
     type: issue_pr_approved
     is_required: true
-    weight: 2
+    weight: 5
     hint: >
-      Ask your partner to review and approve your PR.
+      Create a GitHub issue titled "[Task] Call an LLM from Code",
+      create a PR that closes it, get at least 1 approval, and merge.
     params:
       title_regex: "\\[Task\\]\\s+Call an LLM"
       min_approvals: 1
@@ -218,7 +188,7 @@ checks:
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 9
+    weight: 5
     depends_on: [repo_exists]
     hint: >
       Implement read_file and list_files tools in agent.py, and define
@@ -229,31 +199,17 @@ checks:
       pattern: "read_file|list_files|tool_calls|function_call|\"type\":\\s*\"function\"|'type':\\s*'function'"
       min_matches: 4
 
-  - id: task2_issue_has_linked_pr
+  - id: task2_process
     task: task-2
-    title: "Task issue exists and is closed by a merged PR"
-    class: process
-    runner: code
-    type: issue_has_linked_pr
-    is_required: true
-    weight: 4
-    hint: >
-      Create a GitHub issue titled "[Task] The Documentation Agent",
-      then create a PR that closes it using 'Closes #<issue-number>'.
-    params:
-      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
-      merged: true
-
-  - id: task2_pr_approved
-    task: task-2
-    title: "Task 2 PR has at least 1 approval"
+    title: "Issue closed by approved and merged PR"
     class: process
     runner: code
     type: issue_pr_approved
     is_required: true
-    weight: 2
+    weight: 5
     hint: >
-      Ask your partner to review and approve your PR.
+      Create a GitHub issue titled "[Task] The Documentation Agent",
+      create a PR that closes it, get at least 1 approval, and merge.
     params:
       title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
       min_approvals: 1
@@ -316,18 +272,3 @@ checks:
       bot_only_exclusively: true
       min_pass_rate: 0.8
       timeout_per_question: 120
-
-  - id: task3_process
-    task: task-3
-    title: "Issue closed by merged PR with approval"
-    class: process
-    runner: code
-    type: issue_has_linked_pr
-    is_required: true
-    weight: 5
-    hint: >
-      Create a GitHub issue titled "[Task] The System Agent",
-      create a PR that closes it, and get at least 1 approval.
-    params:
-      title_regex: "\\[Task\\]\\s+(The )?System Agent"
-      merged: true
