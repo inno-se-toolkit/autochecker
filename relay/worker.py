@@ -63,7 +63,7 @@ def _do_ssh_check(job: dict) -> dict:
     port = job.get("port", 22)
     username = job.get("username", "autochecker")
     command = job.get("command", "echo ok")
-    timeout = min(job.get("timeout", 10), 30)
+    timeout = min(job.get("timeout", 10), 120)
 
     if not _is_allowed_host(host):
         return {"job_id": job_id, "exit_code": -1, "stdout": "", "stderr": "", "error": f"Host not allowed: {host}"}
@@ -89,7 +89,7 @@ def _do_ssh_check(job: dict) -> dict:
         return {
             "job_id": job_id,
             "exit_code": result.returncode,
-            "stdout": result.stdout[:4096],
+            "stdout": result.stdout[:16384],
             "stderr": result.stderr[:4096],
             "error": "",
         }
@@ -110,7 +110,7 @@ def _do_check(job: dict) -> dict:
     method = job.get("method", "GET").upper()
     headers = job.get("headers", {})
     request_body = job.get("body")
-    timeout = min(job.get("timeout", 10), 30)  # cap at 30s
+    timeout = min(job.get("timeout", 10), 120)  # cap at 30s
 
     if not _is_allowed_url(url):
         return {"job_id": job_id, "status_code": 0, "body": "", "error": f"URL not allowed: {url}"}

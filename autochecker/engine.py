@@ -1594,6 +1594,248 @@ with open("_eval_results.json", "w") as f:
 
     # NOTE: _ssh_check_via_relay is defined earlier in this class (with retry logic)
 
+    def check_agent_eval_ssh(
+        self, eval_lab: str,
+        include_bot_only: bool = True,
+        bot_only_exclusively: bool = False,
+        max_tier: int = 3,
+        min_pass_rate: float = 0.75,
+        timeout_per_question: int = 90,
+    ) -> Tuple[bool, str]:
+        """Run agent evaluation via SSH on the student's VM.
+
+        Instead of cloning the repo and running in a Docker sandbox,
+        SSH into the student's VM where their agent.py and Qwen Code API
+        are already set up. Each question is run as a separate SSH call
+        through the relay worker (120s cap per call).
+        """
+        import json
+        import os
+        import time
+        import yaml
+
+        # Load eval questions
+        specs_dir = os.path.join(os.path.dirname(__file__), '..', 'specs')
+        eval_file = os.path.join(specs_dir, f"{eval_lab}-eval.yaml")
+        if not os.path.exists(eval_file):
+            return False, f"Eval file not found: {eval_lab}-eval.yaml"
+
+        with open(eval_file) as f:
+            all_questions = yaml.safe_load(f) or []
+
+        questions = []
+        for q in all_questions:
+            if bot_only_exclusively and not q.get("bot_only", False):
+                continue
+            elif not include_bot_only and q.get("bot_only", False):
+                continue
+            if q.get("tier", 1) > max_tier:
+                continue
+            questions.append(q)
+        questions.sort(key=lambda q: q["index"])
+
+        if not questions:
+            return False, "No questions matched the filter criteria"
+
+        server_ip = os.environ.get("SERVER_IP", "")
+        if not server_ip:
+            return False, "SERVER_IP not set — cannot SSH to student VM"
+
+        username = "autochecker"
+        ssh_timeout = 120  # relay cap
+
+        # 1. Find the agent repo on the student's VM
+        ok, result = self._ssh_check_via_relay(
+            server_ip, 22, username,
+            "find /home -maxdepth 4 -name agent.py -path '*/se-toolkit-lab-6/*' 2>/dev/null | head -1",
+            30,
+        )
+        if not ok or not result.get("stdout", "").strip():
+            return False, (
+                f"Could not find agent.py on VM {server_ip}. "
+                "Make sure se-toolkit-lab-6 is cloned and agent.py exists."
+            )
+        agent_path = result["stdout"].strip().split("\n")[0]
+        repo_dir = os.path.dirname(agent_path)
+
+        # 2. Verify .env.agent exists (student's LLM creds)
+        ok, result = self._ssh_check_via_relay(
+            server_ip, 22, username,
+            f"test -f {repo_dir}/.env.agent && echo EXISTS || echo MISSING",
+            15,
+        )
+        env_agent_exists = ok and "EXISTS" in result.get("stdout", "")
+        if not env_agent_exists:
+            return False, (
+                f".env.agent not found in {repo_dir} on VM. "
+                "Create it with LLM_API_KEY, LLM_API_BASE, LLM_MODEL for your Qwen Code API."
+            )
+
+        # 3. Ensure uv is available and deps are synced
+        ok, result = self._ssh_check_via_relay(
+            server_ip, 22, username,
+            f"cd {repo_dir} && export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\" && "
+            "which uv && uv sync --quiet 2>&1 | tail -3",
+            60,
+        )
+        if not ok or "uv" not in result.get("stdout", ""):
+            return False, (
+                f"uv not found on VM. Install it: curl -LsSf https://astral.sh/uv/install.sh | sh"
+            )
+
+        # 4. Get student's LMS_API_KEY from bot env (or fallback)
+        lms_api_key = os.environ.get("STUDENT_LMS_API_KEY", "") or "my-secret-api-key"
+
+        # 5. Run each question via separate SSH call
+        agent_outputs = {}
+        for qi, q in enumerate(questions):
+            idx = q["index"]
+            question_text = q["question"]
+            # Escape single quotes for shell
+            escaped_q = question_text.replace("'", "'\"'\"'")
+
+            cmd = (
+                f"cd {repo_dir} && "
+                f"export PATH=\"$HOME/.local/bin:$HOME/.cargo/bin:$PATH\" && "
+                f"set -a && source .env.agent && set +a && "
+                f"export LMS_API_KEY='{lms_api_key}' && "
+                f"export AGENT_API_BASE_URL='http://localhost:42002' && "
+                f"uv run agent.py '{escaped_q}' 2>/dev/null"
+            )
+
+            ok, result = self._ssh_check_via_relay(
+                server_ip, 22, username, cmd, ssh_timeout,
+            )
+
+            stdout = result.get("stdout", "").strip() if ok else ""
+            stderr = result.get("stderr", "").strip() if ok else result.get("error", "")
+            exit_code = result.get("exit_code", -1) if ok else -1
+
+            if not ok and "timeout" in result.get("error", "").lower():
+                agent_outputs[str(idx)] = {"rc": -1, "stdout": "", "stderr": "timeout"}
+            elif not ok:
+                agent_outputs[str(idx)] = {"rc": exit_code, "stdout": stdout[-4096:], "stderr": stderr[-500:]}
+            else:
+                agent_outputs[str(idx)] = {"rc": exit_code, "stdout": stdout[-4096:], "stderr": stderr[-500:]}
+
+            # Small delay between questions to avoid overwhelming the relay
+            if qi < len(questions) - 1:
+                time.sleep(1)
+
+        # 6. Grade results (same logic as clone_and_run)
+        passed_count = 0
+        total = len(questions)
+        results = []
+
+        for q in questions:
+            question_text = q["question"]
+            expected = q.get("expected", {})
+            idx = str(q["index"])
+
+            ao = agent_outputs.get(idx)
+            if not ao:
+                results.append(f"  x [{q['index']}] Agent did not produce results")
+                continue
+
+            if ao["stderr"] == "timeout":
+                results.append(f"  x [{q['index']}] Agent timed out ({ssh_timeout}s)")
+                continue
+
+            if ao["rc"] != 0:
+                stderr_preview = ao["stderr"][:100]
+                results.append(
+                    f"  x [{q['index']}] Agent exited with code "
+                    f"{ao['rc']}: {stderr_preview}"
+                )
+                continue
+
+            stdout = ao["stdout"]
+            if not stdout:
+                results.append(f"  x [{q['index']}] Agent produced no output")
+                continue
+
+            # Agent may print extra lines; take the last JSON line
+            json_line = ""
+            for line in reversed(stdout.split("\n")):
+                line = line.strip()
+                if line.startswith("{"):
+                    json_line = line
+                    break
+
+            if not json_line:
+                results.append(f"  x [{q['index']}] No JSON in output: {stdout[:100]}")
+                continue
+
+            try:
+                output = json.loads(json_line)
+            except json.JSONDecodeError:
+                results.append(f"  x [{q['index']}] Invalid JSON: {json_line[:100]}")
+                continue
+
+            answer = output.get("answer", "")
+            if not answer:
+                results.append(f"  x [{q['index']}] Missing 'answer' field")
+                continue
+
+            # Match answer
+            rubric = q.get("rubric")
+            if rubric:
+                answer_ok = self._llm_judge(answer, rubric)
+                if not answer_ok and expected:
+                    answer_ok = self._match_answer(answer, expected)
+            elif expected:
+                answer_ok = self._match_answer(answer, expected)
+            else:
+                answer_ok = False
+
+            # Check source
+            source_ok = True
+            expected_source = q.get("expected_source")
+            if expected_source:
+                source = output.get("source", "")
+                if not source or not self._match_answer(source, expected_source):
+                    source_ok = False
+
+            # Check tools
+            tools_ok = True
+            check_tools = q.get("check_tools")
+            missing_tools = set()
+            if check_tools:
+                tool_calls = output.get("tool_calls", [])
+                tools_used = {tc.get("tool") for tc in tool_calls} if tool_calls else set()
+                missing_tools = set(check_tools) - tools_used
+                if missing_tools:
+                    tools_ok = False
+
+            if answer_ok and source_ok and tools_ok:
+                passed_count += 1
+                results.append(f"  + [{q['index']}] {question_text[:60]}...")
+            else:
+                feedback = q.get("feedback")
+                if feedback:
+                    reason = f"      Hint: {feedback}"
+                elif not answer_ok:
+                    reason = (
+                        f"      Answer: {answer[:100]}\n"
+                        f"      Expected: {self._format_expected(expected)}"
+                    )
+                elif not source_ok:
+                    reason = f"      Source: {output.get('source', '(missing)')}"
+                elif not tools_ok:
+                    reason = f"      Missing tools: {', '.join(missing_tools)}"
+                else:
+                    reason = "      Unknown failure"
+                results.append(
+                    f"  x [{q['index']}] {question_text[:60]}...\n{reason}"
+                )
+
+        pass_rate = passed_count / total if total > 0 else 0
+        summary = f"{passed_count}/{total} passed ({pass_rate:.0%})"
+        detail_text = "\n".join(results)
+        full_details = f"Agent eval: {summary}\n{detail_text}"
+
+        return pass_rate >= min_pass_rate, full_details
+
     @staticmethod
     def _llm_judge(answer: str, rubric: str) -> bool:
         """Use an LLM to judge an open-ended answer against a rubric.
@@ -1871,6 +2113,7 @@ with open("_eval_results.json", "w") as f:
 
     def run_check(self, check_id: str, check_type: str, params: Dict[str, Any], description: str = "", hint: str = "") -> CheckResult:
         """Runs a single check by its type."""
+        import os
         status = "FAIL"
         details = ""
         try:
@@ -2179,13 +2422,27 @@ with open("_eval_results.json", "w") as f:
                 min_pass_rate = params.get('min_pass_rate', 0.75)
                 timeout_per_q = params.get('timeout_per_question', 60)
 
-                passed, details = self.check_agent_eval_clone_and_run(
-                    eval_lab=eval_lab,
-                    include_bot_only=include_bot_only,
-                    bot_only_exclusively=bot_only_exclusively,
-                    max_tier=max_tier,
-                    min_pass_rate=min_pass_rate,
-                    timeout_per_question=timeout_per_q,
+                # Use SSH-based eval when SERVER_IP is set (student has a VM)
+                server_ip = os.environ.get("SERVER_IP", "")
+                use_ssh = bool(server_ip) and os.environ.get("RELAY_TOKEN")
+
+                if use_ssh:
+                    passed, details = self.check_agent_eval_ssh(
+                        eval_lab=eval_lab,
+                        include_bot_only=include_bot_only,
+                        bot_only_exclusively=bot_only_exclusively,
+                        max_tier=max_tier,
+                        min_pass_rate=min_pass_rate,
+                        timeout_per_question=timeout_per_q,
+                    )
+                else:
+                    passed, details = self.check_agent_eval_clone_and_run(
+                        eval_lab=eval_lab,
+                        include_bot_only=include_bot_only,
+                        bot_only_exclusively=bot_only_exclusively,
+                        max_tier=max_tier,
+                        min_pass_rate=min_pass_rate,
+                        timeout_per_question=timeout_per_q,
                     )
                 if passed: status = "PASS"
 

@@ -958,7 +958,7 @@ async def relay_ssh(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
 
     body = await request.json()
-    timeout = min(body.get("timeout", 10), 30)
+    timeout = min(body.get("timeout", 10), 120)
     return await _send_relay_job({
         "type": "ssh",
         "host": body.get("host", ""),
