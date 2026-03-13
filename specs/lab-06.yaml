@@ -240,17 +240,18 @@ checks:
     task: task-3
     title: "LLM API is reachable on VM"
     class: execution
-    runner: vm
+    runner: code
     type: ssh_check
     is_required: true
     weight: 3
-    depends_on: [task3_structural]
+    depends_on: [ssh_connectivity, task3_structural]
     hint: >
       The autochecker SSHed to your VM and tried to reach your LLM API.
       Make sure the Qwen Code OAI proxy is running:
         cd ~/qwen-code-oai-proxy && docker compose up -d
       Then verify it responds: curl http://localhost:<port>/v1/models
     params:
+      runtime: prod
       username: autochecker
       timeout: 15
       command: >-

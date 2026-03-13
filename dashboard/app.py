@@ -596,6 +596,8 @@ _LAB_TITLES = {
     "lab-02": "Lab 02 — Run, Fix, and Deploy a Backend Service",
     "lab-03": "Lab 03 — Backend API: Explore, Debug, Implement, Deploy",
     "lab-04": "Lab 04 — Testing, Front-end, and AI Agents",
+    "lab-05": "Lab 05 — Data Pipeline and Analytics Dashboard",
+    "lab-06": "Lab 06 — Build Your Own Agent",
 }
 
 
