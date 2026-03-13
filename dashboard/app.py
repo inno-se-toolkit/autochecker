@@ -936,10 +936,18 @@ async def relay_check(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
 
     body = await request.json()
-    return await _send_relay_job({
+    job = {
         "url": body.get("url", ""),
         "timeout": min(body.get("timeout", 10), 30),
-    }, timeout=min(body.get("timeout", 10), 30))
+    }
+    # Pass through optional method/headers/body for richer HTTP checks
+    if body.get("method"):
+        job["method"] = body["method"]
+    if body.get("headers"):
+        job["headers"] = body["headers"]
+    if body.get("body") is not None:
+        job["body"] = body["body"]
+    return await _send_relay_job(job, timeout=job["timeout"])
 
 
 @app.post("/relay/ssh")

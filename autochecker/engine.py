@@ -1209,21 +1209,24 @@ class CheckEngine:
         min_pass_rate: float = 0.75,
         timeout_per_question: int = 60,
     ) -> Tuple[bool, str]:
-        """Run agent evaluation via clone_and_run.
+        """Run agent evaluation: clone repo, run agent.py in sandbox.
 
-        Clones the student repo, starts their Docker Compose backend,
-        populates the database, then runs agent.py for each eval question
-        with injected LLM credentials (Groq). Tears down afterwards.
+        For tier 2 questions (query_api), the student's backend must be
+        deployed on their VM. A relay proxy bridges HTTP from Hetzner
+        to the student VM through the relay worker.
 
-        This avoids SSH to student VMs (unreachable or LLM-blocked)
-        and uses the autochecker's own LLM key for evaluation.
+        Agent.py runs in an isolated sandbox container with only:
+        - The cloned repo (mounted volume)
+        - LLM credentials (Groq)
+        - Backend URL (relay proxy for VM, or direct for localhost)
+        No access to /app/, Docker socket, specs, or other student data.
         """
         import json
         import os
-        import random
         import shutil
         import subprocess
         import tempfile
+        import threading
         import time
         import yaml
 
@@ -1239,9 +1242,9 @@ class CheckEngine:
         questions = []
         for q in all_questions:
             if bot_only_exclusively and not q.get("bot_only", False):
-                continue  # Only run hidden/bot-only questions
+                continue
             elif not include_bot_only and q.get("bot_only", False):
-                continue  # Skip bot-only questions
+                continue
             if q.get("tier", 1) > max_tier:
                 continue
             questions.append(q)
@@ -1260,16 +1263,20 @@ class CheckEngine:
         os.makedirs(sandbox_dir, exist_ok=True)
         tmpdir = tempfile.mkdtemp(prefix="eval_", dir=sandbox_dir)
 
-        # Use random high ports to avoid conflicts between concurrent evals
-        base_port = random.randint(43000, 49000)
-        app_port = base_port
-        caddy_port = base_port + 1
-        pg_port = base_port + 2
-        pgadmin_port = base_port + 3
-        lms_api_key = f"autochecker-eval-{base_port}"
+        # Determine backend URL (student VM via relay proxy)
+        server_ip = os.environ.get("SERVER_IP", "localhost")
+        backend_port = 42002
+        vm_backend_url = f"http://{server_ip}:{backend_port}"
+        use_relay = (
+            os.environ.get("RELAY_TOKEN")
+            and self._is_internal_ip(vm_backend_url)
+        )
 
-        # Compose project name to isolate from other docker compose instances
-        compose_project = f"eval-{owner}-{base_port}"
+        # Get LMS_API_KEY from student VM via SSH relay
+        lms_api_key = ""
+
+        proxy_server = None
+        proxy_port = None
 
         try:
             # 1. Shallow clone
@@ -1280,136 +1287,61 @@ class CheckEngine:
             if result.returncode != 0:
                 return False, f"git clone failed: {result.stderr.strip()[:200]}"
 
-            # 2. Fix harbor proxy references (not reachable from Hetzner)
-            for root, _dirs, files in os.walk(tmpdir):
-                for fname in files:
-                    if fname in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml"):
-                        fpath = os.path.join(root, fname)
-                        with open(fpath) as f:
-                            content = f.read()
-                        if "harbor.pg.innopolis.university" in content:
-                            content = content.replace(
-                                "harbor.pg.innopolis.university/docker-hub-cache/", ""
-                            )
-                            with open(fpath, "w") as f:
-                                f.write(content)
+            # 2. Check if any tier 2 questions need the backend
+            has_tier2 = any(q.get("tier", 1) >= 2 for q in questions)
 
-            # 3. Create .env.docker.secret
-            autochecker_email = os.environ.get("AUTOCHECKER_EMAIL", "")
-            autochecker_password = os.environ.get("AUTOCHECKER_PASSWORD", "")
-            autochecker_api_url = os.environ.get(
-                "AUTOCHECKER_API_URL", "https://auche.namaz.live"
-            )
+            if has_tier2:
+                # Verify backend is reachable
+                if use_relay:
+                    ok, detail = self._http_check_via_relay(
+                        f"{vm_backend_url}/docs", [200, 401, 403], None, 15
+                    )
+                    if not ok:
+                        return False, (
+                            f"Student backend not reachable at {vm_backend_url}: {detail}. "
+                            "Make sure Docker Compose is running on your VM."
+                        )
 
-            env_content = (
-                f'APP_NAME="Learning Management Service"\n'
-                f"APP_DEBUG=false\n"
-                f"APP_RELOAD=false\n"
-                f"APP_CONTAINER_ADDRESS=0.0.0.0\n"
-                f"APP_CONTAINER_PORT=8000\n"
-                f"APP_HOST_ADDRESS=127.0.0.1\n"
-                f"APP_HOST_PORT={app_port}\n"
-                f"APP_ENABLE_INTERACTIONS=true\n"
-                f"APP_ENABLE_LEARNERS=true\n"
-                f"LMS_API_KEY={lms_api_key}\n"
-                f"AUTOCHECKER_API_URL={autochecker_api_url}\n"
-                f"AUTOCHECKER_EMAIL={autochecker_email}\n"
-                f"AUTOCHECKER_PASSWORD={autochecker_password}\n"
-                f"POSTGRES_DB=db-eval-{base_port}\n"
-                f"POSTGRES_USER=postgres\n"
-                f"POSTGRES_PASSWORD=postgres\n"
-                f"POSTGRES_HOST_ADDRESS=127.0.0.1\n"
-                f"POSTGRES_HOST_PORT={pg_port}\n"
-                f"PGADMIN_EMAIL=admin@example.com\n"
-                f"PGADMIN_PASSWORD=admin\n"
-                f"PGADMIN_HOST_ADDRESS=127.0.0.1\n"
-                f"PGADMIN_HOST_PORT={pgadmin_port}\n"
-                f"CADDY_CONTAINER_PORT=80\n"
-                f"CADDY_HOST_ADDRESS=127.0.0.1\n"
-                f"CADDY_HOST_PORT={caddy_port}\n"
-                f"CONST_POSTGRESQL_SERVICE_NAME=postgres\n"
-                f"CONST_POSTGRESQL_SERVER_NAME=postgres-eval-{base_port}\n"
-                f"CONST_POSTGRESQL_DEFAULT_PORT=5432\n"
-            )
-            env_path = os.path.join(tmpdir, ".env.docker.secret")
-            with open(env_path, "w") as f:
-                f.write(env_content)
+                    # Get LMS_API_KEY from student's .env.docker.secret via SSH
+                    ssh_ok, ssh_detail = self._ssh_check_via_relay(
+                        server_ip, "autochecker",
+                        "grep '^LMS_API_KEY=' ~/se-toolkit-lab-6/.env.docker.secret 2>/dev/null | cut -d= -f2-",
+                        10,
+                    )
+                    if ssh_ok:
+                        lms_api_key = ssh_detail.get("stdout", "").strip()
 
-            # 4. Docker compose up
-            compose_up = subprocess.run(
-                [
-                    "docker", "compose",
-                    "-p", compose_project,
-                    "--env-file", ".env.docker.secret",
-                    "up", "--build", "-d",
-                ],
-                capture_output=True, text=True, timeout=300, cwd=tmpdir,
-            )
-            if compose_up.returncode != 0:
-                return False, f"docker compose up failed: {compose_up.stderr.strip()[:300]}"
+                    if not lms_api_key:
+                        # Fallback: try common keys
+                        lms_api_key = "test"
 
-            # 5. Wait for backend to be healthy
-            backend_url = f"http://127.0.0.1:{caddy_port}"
-            healthy = False
-            for attempt in range(60):
-                try:
-                    import urllib.request
-                    req = urllib.request.Request(f"{backend_url}/docs")
-                    with urllib.request.urlopen(req, timeout=3) as resp:
-                        if resp.status in (200, 401, 403):
-                            healthy = True
-                            break
-                except Exception:
-                    pass
-                time.sleep(2)
+                    # Start relay HTTP proxy so sandbox can reach student VM
+                    proxy_port, proxy_server = self._start_relay_proxy(
+                        server_ip, backend_port
+                    )
+                    backend_url = f"http://host.docker.internal:{proxy_port}"
+                else:
+                    # Direct access (localhost or public IP)
+                    backend_url = vm_backend_url
+                    # Try to read LMS_API_KEY from cloned .env.docker.secret
+                    env_file = os.path.join(tmpdir, ".env.docker.secret")
+                    if os.path.exists(env_file):
+                        with open(env_file) as f:
+                            for line in f:
+                                if line.startswith("LMS_API_KEY="):
+                                    lms_api_key = line.split("=", 1)[1].strip()
+                                    break
+            else:
+                backend_url = "http://localhost:42002"  # unused, but set for agent
 
-            if not healthy:
-                return False, "Backend did not become healthy within 60s"
-
-            # 6. Populate database (POST /pipeline/sync)
-            try:
-                import urllib.request
-                sync_req = urllib.request.Request(
-                    f"{backend_url}/pipeline/sync",
-                    method="POST",
-                    headers={
-                        "Authorization": f"Bearer {lms_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    data=b"{}",
-                )
-                with urllib.request.urlopen(sync_req, timeout=60) as resp:
-                    sync_result = resp.read().decode()
-            except Exception as e:
-                return False, f"ETL sync failed: {e}"
-
-            # 7. Install Python dependencies for agent
-            uv_sync = subprocess.run(
-                ["uv", "sync", "--dev"],
-                capture_output=True, text=True, timeout=120, cwd=tmpdir,
-            )
-            # Not fatal if uv sync fails — agent might not need extra deps
-
-            # 8. Run eval questions
-            # Build environment for agent execution
-            agent_env = {k: v for k, v in os.environ.items()
-                         if k not in ("VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME")}
-
-            # Inject our LLM credentials
-            # LLM_API_URL may include /chat/completions (used by our llm_analyzer),
-            # but students expect a base URL (OpenAI SDK appends the path itself)
+            # 3. Prepare LLM credentials
             llm_api_key = os.environ.get("LLM_API_KEY", "")
             llm_api_base = os.environ.get("LLM_API_URL", "")
             if llm_api_base.endswith("/chat/completions"):
                 llm_api_base = llm_api_base[: -len("/chat/completions")]
             llm_model = os.environ.get("LLM_MODEL", "")
 
-            agent_env["LLM_API_KEY"] = llm_api_key
-            agent_env["LLM_API_BASE"] = llm_api_base
-            agent_env["LLM_MODEL"] = llm_model
-            agent_env["LMS_API_KEY"] = lms_api_key
-            agent_env["AGENT_API_BASE_URL"] = backend_url
-
+            # 4. Run eval questions
             passed_count = 0
             total = len(questions)
             results = []
@@ -1419,14 +1351,36 @@ class CheckEngine:
                 expected = q.get("expected", {})
 
                 escaped_q = question_text.replace("'", "'\\''")
-                cmd = f"uv run agent.py '{escaped_q}'"
+                cmd = f"uv run --python-preference only-system agent.py '{escaped_q}'"
+
+                # Run agent.py in sandbox container
+                env_flags = [
+                    "-e", f"LLM_API_KEY={llm_api_key}",
+                    "-e", f"LLM_API_BASE={llm_api_base}",
+                    "-e", f"LLM_MODEL={llm_model}",
+                    "-e", f"LMS_API_KEY={lms_api_key}",
+                    "-e", f"AGENT_API_BASE_URL={backend_url}",
+                ]
+
+                docker_cmd = [
+                    "docker", "run", "--rm",
+                    "--memory=512m",
+                    "--cpus=1",
+                    "--pids-limit=256",
+                    "--security-opt=no-new-privileges",
+                    "--add-host=host.docker.internal:host-gateway",
+                    "-v", f"{tmpdir}:{tmpdir}",
+                    "-w", tmpdir,
+                ] + env_flags + [
+                    "autochecker-sandbox:latest",
+                    "sh", "-c", f"uv sync --python-preference only-system --quiet 2>/dev/null; {cmd}",
+                ]
 
                 try:
                     agent_result = subprocess.run(
-                        cmd, shell=True, cwd=tmpdir,
+                        docker_cmd,
                         capture_output=True, text=True,
                         timeout=timeout_per_question,
-                        env=agent_env,
                     )
                 except subprocess.TimeoutExpired:
                     results.append(f"  x [{q['index']}] Agent timed out ({timeout_per_question}s)")
@@ -1456,13 +1410,11 @@ class CheckEngine:
                     results.append(f"  x [{q['index']}] Missing 'answer' field")
                     continue
 
-                # Match answer — prefer LLM judge (rubric) when available,
-                # fall back to keyword matching (expected) otherwise
+                # Match answer — prefer LLM judge (rubric) when available
                 rubric = q.get("rubric")
                 if rubric:
                     answer_ok = self._llm_judge(answer, rubric)
                     if not answer_ok and expected:
-                        # LLM judge failed or unavailable — try keyword fallback
                         answer_ok = self._match_answer(answer, expected)
                 elif expected:
                     answer_ok = self._match_answer(answer, expected)
@@ -1513,29 +1465,127 @@ class CheckEngine:
             pass_rate = passed_count / total if total > 0 else 0
             summary = f"{passed_count}/{total} passed ({pass_rate:.0%})"
             detail_text = "\n".join(results)
-            full_details = f"Agent eval (clone_and_run): {summary}\n{detail_text}"
+            full_details = f"Agent eval: {summary}\n{detail_text}"
 
             return pass_rate >= min_pass_rate, full_details
 
         except subprocess.TimeoutExpired:
-            return False, "Clone/build timed out"
+            return False, "Clone timed out"
         except Exception as e:
-            return False, f"Clone_and_run eval error: {str(e)}"
+            return False, f"Agent eval error: {str(e)}"
         finally:
-            # Tear down docker compose
-            try:
-                subprocess.run(
-                    [
-                        "docker", "compose",
-                        "-p", compose_project,
-                        "--env-file", ".env.docker.secret",
-                        "down", "-v", "--remove-orphans",
-                    ],
-                    capture_output=True, text=True, timeout=60, cwd=tmpdir,
-                )
-            except Exception:
-                pass
+            if proxy_server:
+                proxy_server.shutdown()
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def _start_relay_proxy(self, target_ip: str, target_port: int):
+        """Start a local HTTP proxy that forwards requests through the relay.
+
+        Returns (port, server) — the server runs in a background thread.
+        The proxy allows the sandbox container to reach the student VM's
+        backend via http://host.docker.internal:{port}.
+        """
+        import os
+        import random
+        import threading
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+
+        import requests as req_lib
+
+        relay_url = os.environ.get("RELAY_URL", "http://dashboard:8000/relay/check")
+        relay_token = os.environ.get("RELAY_TOKEN", "")
+
+        class ProxyHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self._proxy("GET")
+
+            def do_POST(self):
+                self._proxy("POST")
+
+            def do_PUT(self):
+                self._proxy("PUT")
+
+            def do_DELETE(self):
+                self._proxy("DELETE")
+
+            def _proxy(self, method):
+                target_url = f"http://{target_ip}:{target_port}{self.path}"
+                headers = {}
+                for key, value in self.headers.items():
+                    if key.lower() not in ("host", "transfer-encoding", "connection"):
+                        headers[key] = value
+
+                body = None
+                content_length = int(self.headers.get("Content-Length", 0))
+                if content_length > 0:
+                    body = self.rfile.read(content_length).decode("utf-8", errors="replace")
+
+                try:
+                    resp = req_lib.post(
+                        relay_url,
+                        json={
+                            "url": target_url,
+                            "method": method,
+                            "headers": headers,
+                            "body": body,
+                            "timeout": 20,
+                        },
+                        headers={"Authorization": f"Bearer {relay_token}"},
+                        timeout=35,
+                    )
+                    data = resp.json()
+                    status = data.get("status_code", 502)
+                    resp_body = data.get("body", "").encode()
+                except Exception as e:
+                    status = 502
+                    resp_body = f'{{"error": "{str(e)}"}}'.encode()
+
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(resp_body)))
+                self.end_headers()
+                self.wfile.write(resp_body)
+
+            def log_message(self, format, *args):
+                pass  # Suppress access logs
+
+        port = random.randint(43000, 49000)
+        server = HTTPServer(("0.0.0.0", port), ProxyHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        return port, server
+
+    def _ssh_check_via_relay(self, host: str, username: str,
+                              command: str, timeout: int) -> Tuple[bool, dict]:
+        """Run an SSH command via the relay worker. Returns (success, result_dict)."""
+        import os
+        import requests
+
+        relay_url = os.environ.get("RELAY_URL", "http://dashboard:8000/relay/ssh")
+        # SSH relay uses a different endpoint
+        relay_url = relay_url.replace("/relay/check", "/relay/ssh")
+        relay_token = os.environ.get("RELAY_TOKEN", "")
+
+        try:
+            resp = requests.post(
+                relay_url,
+                json={
+                    "host": host,
+                    "username": username,
+                    "command": command,
+                    "timeout": timeout,
+                },
+                headers={"Authorization": f"Bearer {relay_token}"},
+                timeout=timeout + 20,
+            )
+            if resp.status_code != 200:
+                return False, {"error": resp.text}
+            data = resp.json()
+            if data.get("error"):
+                return False, data
+            return data.get("exit_code", -1) == 0, data
+        except Exception as e:
+            return False, {"error": str(e)}
 
     @staticmethod
     def _llm_judge(answer: str, rubric: str) -> bool:

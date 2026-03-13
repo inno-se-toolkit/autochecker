@@ -100,18 +100,36 @@ def _do_ssh_check(job: dict) -> dict:
 
 
 def _do_check(job: dict) -> dict:
-    """Execute an HTTP check via curl and return the result."""
+    """Execute an HTTP check via curl and return the result.
+
+    Supports optional method and headers for richer HTTP checks
+    (e.g., agent eval proxy needs GET/POST with Authorization headers).
+    """
     job_id = job["job_id"]
     url = job.get("url", "")
+    method = job.get("method", "GET").upper()
+    headers = job.get("headers", {})
+    request_body = job.get("body")
     timeout = min(job.get("timeout", 10), 30)  # cap at 30s
 
     if not _is_allowed_url(url):
         return {"job_id": job_id, "status_code": 0, "body": "", "error": f"URL not allowed: {url}"}
 
     try:
+        cmd = ["curl", "-s", "-w", "\n%{http_code}", "--connect-timeout", str(timeout)]
+        if method != "GET":
+            cmd += ["-X", method]
+        for key, value in headers.items():
+            # Skip hop-by-hop headers
+            if key.lower() in ("host", "transfer-encoding", "connection"):
+                continue
+            cmd += ["-H", f"{key}: {value}"]
+        if request_body is not None:
+            cmd += ["-d", request_body]
+        cmd.append(url)
+
         result = subprocess.run(
-            ["curl", "-s", "-w", "\n%{http_code}", "--connect-timeout", str(timeout), url],
-            capture_output=True, text=True, timeout=timeout + 5,
+            cmd, capture_output=True, text=True, timeout=timeout + 5,
         )
         output = result.stdout
         lines = output.rsplit("\n", 1)
