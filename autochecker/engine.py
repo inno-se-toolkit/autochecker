@@ -14,10 +14,13 @@ class CheckResult(Dict):
 
 class CheckEngine:
     """Engine that runs data-based checks."""
-    def __init__(self, client: GitHubClient, reader: RepoReader, branch: Optional[str] = None, lab_spec: Optional[Any] = None):
+    def __init__(self, client: GitHubClient, reader: RepoReader, branch: Optional[str] = None, lab_spec: Optional[Any] = None,
+                 server_ip: Optional[str] = None, lms_api_key: Optional[str] = None):
         self._client = client
         self._reader = reader
         self._branch = branch
+        self._server_ip = server_ip
+        self._lms_api_key = lms_api_key
         self._lab_spec = lab_spec
         self._data_cache = {}
         self._branch = branch  # Branch to use (overrides repo default)
@@ -1264,7 +1267,7 @@ class CheckEngine:
         tmpdir = tempfile.mkdtemp(prefix="eval_", dir=sandbox_dir)
 
         # Determine backend URL (student VM via relay proxy)
-        server_ip = os.environ.get("SERVER_IP", "localhost")
+        server_ip = self._server_ip or os.environ.get("SERVER_IP", "localhost")
         backend_port = 42002
         vm_backend_url = f"http://{server_ip}:{backend_port}"
         use_relay = (
@@ -1303,7 +1306,7 @@ class CheckEngine:
                         )
 
                     # Get LMS_API_KEY from bot (student submits via Telegram)
-                    lms_api_key = os.environ.get("STUDENT_LMS_API_KEY", "")
+                    lms_api_key = self._lms_api_key or os.environ.get("STUDENT_LMS_API_KEY", "")
                     if not lms_api_key:
                         lms_api_key = "my-secret-api-key"
 
@@ -1637,7 +1640,7 @@ with open("_eval_results.json", "w") as f:
         if not questions:
             return False, "No questions matched the filter criteria"
 
-        server_ip = os.environ.get("SERVER_IP", "")
+        server_ip = self._server_ip or os.environ.get("SERVER_IP", "")
         if not server_ip:
             return False, "SERVER_IP not set — cannot SSH to student VM"
 
@@ -1684,7 +1687,7 @@ with open("_eval_results.json", "w") as f:
             )
 
         # 4. Get student's LMS_API_KEY from bot env (or fallback)
-        lms_api_key = os.environ.get("STUDENT_LMS_API_KEY", "") or "my-secret-api-key"
+        lms_api_key = self._lms_api_key or os.environ.get("STUDENT_LMS_API_KEY", "") or "my-secret-api-key"
 
         # 5. Run each question via separate SSH call
         agent_outputs = {}
@@ -2325,13 +2328,13 @@ with open("_eval_results.json", "w") as f:
                 # If still not found, use environment variable or default
                 if not base_url_template:
                     import os
-                    server_ip = os.environ.get('SERVER_IP', 'localhost')
+                    server_ip = self._server_ip or os.environ.get('SERVER_IP', 'localhost')
                     base_url_template = f"http://{server_ip}"
                 
                 # Replace {server_ip} if present
                 if '{server_ip}' in base_url_template:
                     import os
-                    server_ip = os.environ.get('SERVER_IP', 'localhost')
+                    server_ip = self._server_ip or os.environ.get('SERVER_IP', 'localhost')
                     base_url = base_url_template.replace('{server_ip}', server_ip)
                 else:
                     base_url = base_url_template
@@ -2363,7 +2366,7 @@ with open("_eval_results.json", "w") as f:
                         else:
                             base_url_template = getattr(runtime_config, 'base_url', None)
 
-                ssh_host = os.environ.get('SERVER_IP', 'localhost')
+                ssh_host = self._server_ip or os.environ.get('SERVER_IP', 'localhost')
                 if base_url_template and '{server_ip}' in base_url_template:
                     pass  # ssh_host already set from SERVER_IP env
 
@@ -2423,7 +2426,7 @@ with open("_eval_results.json", "w") as f:
                 timeout_per_q = params.get('timeout_per_question', 60)
 
                 # Use SSH-based eval when SERVER_IP is set (student has a VM)
-                server_ip = os.environ.get("SERVER_IP", "")
+                server_ip = self._server_ip or os.environ.get("SERVER_IP", "")
                 use_ssh = bool(server_ip) and os.environ.get("RELAY_TOKEN")
 
                 if use_ssh:

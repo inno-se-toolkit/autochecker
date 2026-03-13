@@ -44,6 +44,8 @@ def check_student(
     token: Optional[str] = None,
     openrouter_api_key: Optional[str] = None,
     use_cache: bool = False,
+    server_ip: Optional[str] = None,
+    lms_api_key: Optional[str] = None,
 ) -> StudentCheckResult:
     """Check a single student's repository against a lab spec.
 
@@ -154,7 +156,8 @@ def check_student(
     llm_checks = [c for c in checks_to_run if c.runner == "llm"]
 
     # Run code checks
-    engine = CheckEngine(client, reader, branch=check_branch, lab_spec=lab_spec)
+    engine = CheckEngine(client, reader, branch=check_branch, lab_spec=lab_spec,
+                         server_ip=server_ip, lms_api_key=lms_api_key)
     results = []
     for check_spec in code_checks:
         check_description = check_spec.title or check_spec.description or check_spec.id

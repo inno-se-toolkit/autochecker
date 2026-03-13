@@ -23,15 +23,7 @@ class CheckResult:
 
 def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = None, server_ip: Optional[str] = None, lms_api_key: Optional[str] = None) -> CheckResult:
     """Synchronous wrapper that calls check_student directly."""
-    import os
     from autochecker import check_student
-
-    # Set SERVER_IP env var so the engine can resolve {server_ip} in base_url
-    if server_ip:
-        os.environ['SERVER_IP'] = server_ip
-    # Set STUDENT_LMS_API_KEY so agent eval can authenticate with the student's backend
-    if lms_api_key:
-        os.environ['STUDENT_LMS_API_KEY'] = lms_api_key
 
     try:
         result = check_student(
@@ -40,6 +32,8 @@ def _run_check_sync(student_name: str, lab_id: str, task_id: Optional[str] = Non
             task_filter=task_id,
             platform="github",
             output_dir=str(RESULTS_DIR),
+            server_ip=server_ip,
+            lms_api_key=lms_api_key,
         )
 
         return CheckResult(
