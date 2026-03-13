@@ -1405,7 +1405,14 @@ class CheckEngine:
                 llm_api_base = llm_api_base[: -len("/chat/completions")]
             llm_model = os.environ.get("LLM_MODEL", "")
 
-            # 4. Write questions file and runner script into cloned repo
+            # 4. Write .env.agent.secret so agents that require the file can find it
+            env_secret_path = os.path.join(tmpdir, ".env.agent.secret")
+            with open(env_secret_path, "w") as f:
+                f.write(f"LLM_API_KEY={llm_api_key}\n")
+                f.write(f"LLM_API_BASE={llm_api_base}\n")
+                f.write(f"LLM_MODEL={llm_model}\n")
+
+            # Write questions file and runner script into cloned repo
             questions_path = os.path.join(tmpdir, "_eval_questions.json")
             with open(questions_path, "w") as f:
                 json.dump([{"index": q["index"], "question": q["question"]} for q in questions], f)
@@ -1427,7 +1434,7 @@ for qi, q in enumerate(questions):
     cmd = f"uv run --python-preference only-system agent.py '{escaped}'"
     try:
         r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=90)
-        results[str(idx)] = {"rc": r.returncode, "stdout": r.stdout.strip()[-4096:], "stderr": r.stderr.strip()[-500:]}
+        results[str(idx)] = {"rc": r.returncode, "stdout": r.stdout.strip()[:65536], "stderr": r.stderr.strip()[-500:]}
     except subprocess.TimeoutExpired:
         results[str(idx)] = {"rc": -1, "stdout": "", "stderr": "timeout"}
 
