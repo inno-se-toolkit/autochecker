@@ -912,16 +912,17 @@ async def _send_relay_job(job: dict, timeout: int) -> JSONResponse:
             return JSONResponse(result)
         except asyncio.TimeoutError:
             _relay_jobs.pop(job_id, None)
-            if attempt < 2:
-                logger.warning("Relay job %s timed out (attempt %d), marking worker stale...", job_id, attempt + 1)
-                _relay_worker = None  # Force reconnection wait
-                continue
+            # Don't clear _relay_worker on timeout — the WebSocket is likely
+            # still alive, the job just took too long (worker busy with other
+            # SSH jobs).  Clearing it here caused ALL subsequent requests to
+            # fail with "no worker connected" even though the worker was fine.
+            logger.warning("Relay job %s timed out (attempt %d)", job_id, attempt + 1)
             return JSONResponse({"error": "worker timeout", "job_id": job_id,
                                  "status_code": 0, "exit_code": -1}, status_code=504)
         except Exception as e:
             _relay_jobs.pop(job_id, None)
             logger.warning("Relay send failed (attempt %d): %s", attempt + 1, e)
-            _relay_worker = None  # Connection is stale, force reconnection
+            _relay_worker = None  # Connection is actually broken
             if attempt < 2:
                 continue
             return JSONResponse({"error": "worker connection lost", "job_id": job_id,
@@ -977,7 +978,14 @@ async def relay_status(request: Request):
     auth = request.headers.get("Authorization", "")
     if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
         return JSONResponse({"error": "unauthorized"}, status_code=403)
-    return JSONResponse({"worker_connected": _relay_worker is not None})
+    connected = False
+    if _relay_worker is not None:
+        try:
+            # Check if the WebSocket is still open
+            connected = _relay_worker.client_state.name == "CONNECTED"
+        except Exception:
+            connected = _relay_worker is not None
+    return JSONResponse({"worker_connected": connected})
 
 
 # ---------------------------------------------------------------------------
