@@ -2,6 +2,7 @@
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
@@ -21,21 +22,27 @@ async def callback_select_lab(callback: CallbackQuery, db_user: User) -> None:
     """Show tasks for the selected lab."""
     lab_id = callback.data.split(":", 1)[1]
     await callback.answer()
-    await callback.message.edit_text(
-        "Choose a task to check:",
-        reply_markup=await get_tasks_keyboard(db_user.tg_id, lab_id),
-    )
+    try:
+        await callback.message.edit_text(
+            "Choose a task to check:",
+            reply_markup=await get_tasks_keyboard(db_user.tg_id, lab_id),
+        )
+    except TelegramBadRequest:
+        pass
 
 
 @router.callback_query(F.data == "back_to_labs")
 async def callback_back_to_labs(callback: CallbackQuery, db_user: User) -> None:
     """Return to the lab selection menu."""
     await callback.answer()
-    server_ip = await get_server_ip(db_user.tg_id)
-    await callback.message.edit_text(
-        "Choose a lab:",
-        reply_markup=get_labs_keyboard(server_ip=server_ip),
-    )
+    try:
+        server_ip = await get_server_ip(db_user.tg_id)
+        await callback.message.edit_text(
+            "Choose a lab:",
+            reply_markup=get_labs_keyboard(server_ip=server_ip),
+        )
+    except TelegramBadRequest:
+        pass
 
 
 @router.callback_query(F.data == "change_ip")
