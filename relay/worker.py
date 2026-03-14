@@ -158,7 +158,7 @@ async def _run_worker():
         try:
             log.info("Connecting to %s ...", SERVER)
             async with websockets.connect(
-                SERVER, close_timeout=5, ping_interval=10, ping_timeout=10,
+                SERVER, close_timeout=5, ping_interval=20, ping_timeout=30,
             ) as ws:
                 # Authenticate
                 await ws.send(json.dumps({"type": "auth", "token": TOKEN}))
@@ -169,21 +169,26 @@ async def _run_worker():
                     continue
                 log.info("Connected and authenticated")
 
-                async for raw in ws:
-                    job = json.loads(raw)
+                async def _handle_job(ws, job):
+                    """Process a single job concurrently."""
                     job_type = job.get("type", "http")
                     loop = asyncio.get_event_loop()
+                    try:
+                        if job_type == "ssh":
+                            log.info("SSH job %s: %s@%s", job.get("job_id"), job.get("username", "autochecker"), job.get("host"))
+                            result = await loop.run_in_executor(None, _do_ssh_check, job)
+                            log.info("SSH job %s: exit=%s", job.get("job_id"), result["exit_code"])
+                        else:
+                            log.info("HTTP job %s: %s", job.get("job_id"), job.get("url"))
+                            result = await loop.run_in_executor(None, _do_check, job)
+                            log.info("HTTP job %s: status=%s", job.get("job_id"), result["status_code"])
+                        await ws.send(json.dumps(result))
+                    except Exception as e:
+                        log.warning("Job %s failed to send result: %s", job.get("job_id"), e)
 
-                    if job_type == "ssh":
-                        log.info("SSH job %s: %s@%s", job.get("job_id"), job.get("username", "autochecker"), job.get("host"))
-                        result = await loop.run_in_executor(None, _do_ssh_check, job)
-                        log.info("SSH job %s: exit=%s", job.get("job_id"), result["exit_code"])
-                    else:
-                        log.info("HTTP job %s: %s", job.get("job_id"), job.get("url"))
-                        result = await loop.run_in_executor(None, _do_check, job)
-                        log.info("HTTP job %s: status=%s", job.get("job_id"), result["status_code"])
-
-                    await ws.send(json.dumps(result))
+                async for raw in ws:
+                    job = json.loads(raw)
+                    asyncio.create_task(_handle_job(ws, job))
 
         except (websockets.ConnectionClosed, ConnectionError, OSError) as e:
             log.warning("Connection lost (%s), reconnecting in %ds...", e, RECONNECT_DELAY)
