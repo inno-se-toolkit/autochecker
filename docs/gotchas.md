@@ -166,3 +166,23 @@ set -a && . <(tr -d '\r' < .env.agent.secret) && set +a
 **How to check:** `ss -tlnp | grep node` — look for the listening port. Or check `HOST_PORT` in `~/qwen-code-oai-proxy/.env`.
 
 **Where we hit this:** Lab 6, nurlingo had `LLM_API_BASE=http://127.0.0.1:8080/v1` but proxy was on `42005`.
+
+---
+
+## Always scope DELETE queries with `lab_id`
+
+**Symptom:** All lab-05 task-3 results vanished after resetting lab-06 task-3 attempts.
+
+**Root cause:** `DELETE FROM results WHERE task_id = 'task-3'` — no `lab_id` filter. This deleted task-3 results across **all labs**.
+
+**Rule:** Every DELETE on `results` or `attempts` must include both `lab_id` and `task_id`:
+
+```sql
+-- Wrong — nukes task-3 across all labs
+DELETE FROM results WHERE task_id = 'task-3';
+
+-- Correct
+DELETE FROM results WHERE lab_id = 'lab-06' AND task_id = 'task-3';
+```
+
+**Where we hit this:** Resetting lab-06 task-3 attempts accidentally wiped lab-05 task-3 completions from March 6-7. No recovery possible.
