@@ -177,7 +177,7 @@ class Reporter:
                 # Show details if available and different from hint
                 details = res.get('details', '').strip()
                 if details and details != hint:
-                    lines.append(f"    Details: {details[:200]}")
+                    lines.append(f"    Details: {details[:2000]}")
 
                 # Show LLM reasons if available
                 reasons = res.get('reasons', [])
