@@ -61,6 +61,28 @@ Every `docker compose up -d` on Hetzner restarts the dashboard container, which 
 - Multiple rapid deploys can exhaust the reconnect timing window
 - The worker process stays alive but the WebSocket stays disconnected
 
+### Health check cron (auto-recovery)
+A cron job runs every minute on the university VM (`deploy` user) that tests real relay connectivity and restarts the worker if it fails:
+```
+* * * * * /home/deploy/relay/health_check.sh
+```
+The script does a real SSH `echo ok` through the relay (not `/relay/status` which was unreliable). Only restarts if the actual SSH test fails.
+
+To check health check logs:
+```bash
+# Via relay from Hetzner
+docker exec autochecker-bot python3 -c "..."  # SSH to 10.93.24.120, run journalctl -t relay-health
+
+# Direct (if you have VPN/university access)
+ssh deploy@10.93.24.120 "sudo journalctl -t relay-health --since '1 hour ago'"
+```
+
+### Relay architecture notes
+- Worker processes SSH jobs **concurrently** (asyncio.create_task), not sequentially
+- Dashboard does NOT clear `_relay_worker` on job timeouts — only on actual connection errors
+- Ping interval: 20s, timeout: 30s (worker side)
+- SCP path: `scp autochecker/relay/worker.py deploy@10.93.24.120:~/relay/worker.py`
+
 ## Common pitfalls
 
 | Pitfall | How to avoid |
@@ -71,7 +93,9 @@ Every `docker compose up -d` on Hetzner restarts the dashboard container, which 
 | Relay stays disconnected after deploy | Check relay status. If disconnected, restart relay-worker on university VM |
 | Spec change breaks eval | Run `pytest tests/test_agent_eval.py -v` before deploying — it validates spec structure |
 | Student sees "No VM registered" for agent_eval | `get_tasks_needing_lms_key()` must return the task. Check that `agent_eval` check type exists in the spec for that task |
-| Reset attempts needed after breaking change | `sqlite3 /path/to/bot.db "DELETE FROM attempts WHERE task_id='task-3' AND lab_id='lab-06';"` inside the bot container |
+| Reset attempts needed after breaking change | Use the safe script: `docker exec autochecker-bot python3 scripts/reset_attempts.py --lab lab-06 --task task-3 --dry-run` (always dry-run first!) |
+| Bot unresponsive after deploy | Restart bot: `docker compose up -d bot`. Check logs for `TelegramBadRequest` backlog |
+| Relay times out under load | Worker must process jobs concurrently. Check worker version: `ssh deploy@10.93.24.120 "head -5 ~/relay/worker.py"` |
 
 ## Environment files
 

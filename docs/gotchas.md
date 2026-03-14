@@ -186,3 +186,136 @@ DELETE FROM results WHERE lab_id = 'lab-06' AND task_id = 'task-3';
 ```
 
 **Where we hit this:** Resetting lab-06 task-3 attempts accidentally wiped lab-05 task-3 completions from March 6-7. No recovery possible.
+
+---
+
+## Relay: don't clear `_relay_worker` on job timeout
+
+**Symptom:** ALL relay SSH requests return 503 "no worker connected" even though the WebSocket is open and the relay worker is running fine on the university VM.
+
+**Root cause:** In `dashboard/app.py`, `_send_relay_job()` was setting `_relay_worker = None` on `asyncio.TimeoutError`. A single slow SSH job (e.g., student VM taking 30s to respond) would trigger a timeout, which cleared the worker reference, breaking ALL subsequent requests — even though the WebSocket was still alive.
+
+**Fix:** Only clear `_relay_worker` on actual connection errors (exceptions from `ws.send_json`), never on timeouts:
+
+```python
+# Wrong — kills relay for everyone on a single slow job
+except asyncio.TimeoutError:
+    _relay_worker = None  # DON'T DO THIS
+
+# Correct — timeout is just a slow job, not a dead connection
+except asyncio.TimeoutError:
+    logger.warning("Relay job %s timed out", job_id)
+    return JSONResponse({"error": "worker timeout", ...}, status_code=504)
+```
+
+**Where we hit this:** March 14, 2026 — relay appeared down for hours but was actually connected. Every timeout cascaded into breaking all requests.
+
+---
+
+## Relay worker: process jobs concurrently, not sequentially
+
+**Symptom:** Relay SSH requests time out under moderate load (5+ students running checks simultaneously), even though the worker is connected and responsive.
+
+**Root cause:** The relay worker's message loop `await`ed each job before reading the next WebSocket message. One slow SSH job blocked all others:
+
+```python
+# Wrong — sequential, blocks the message loop
+async for raw in ws:
+    job = json.loads(raw)
+    result = await loop.run_in_executor(None, _do_ssh_check, job)  # blocks here
+    await ws.send(json.dumps(result))
+```
+
+**Fix:** Fire-and-forget with `asyncio.create_task()`:
+
+```python
+# Correct — concurrent, message loop stays free
+async for raw in ws:
+    job = json.loads(raw)
+    asyncio.create_task(_handle_job(ws, job))
+```
+
+**Where we hit this:** March 14, 2026 — every lab-06 check session. 10+ students triggered SSH jobs simultaneously; each job blocked the next.
+
+---
+
+## Health check cron: test real connectivity, not `/relay/status`
+
+**Symptom:** Relay worker restarts every 1-2 minutes even when it's working fine. Constant connect/disconnect cycle in dashboard logs.
+
+**Root cause:** The health check cron script checked `GET /relay/status` which returned `{"worker_connected": false}` even when the worker was connected (due to the `_relay_worker = None` bug above). The cron restarted the worker, which briefly connected, then the next cron run saw false again and restarted it — creating an infinite restart loop.
+
+**Fix:** Test actual SSH connectivity instead of the status endpoint:
+
+```bash
+# Wrong — status endpoint was unreliable
+curl -s https://auche.namaz.live/relay/status | grep 'worker_connected.*true'
+
+# Correct — actually test SSH through the relay
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"host":"10.93.24.120","port":22,"username":"deploy","command":"echo ok","timeout":5}' \
+  https://auche.namaz.live/relay/ssh | grep '"exit_code":0'
+```
+
+**Where we hit this:** March 14, 2026 — cron was the primary cause of relay instability for hours.
+
+---
+
+## Student VM: root SSH fails if `/root` is world-writable
+
+**Symptom:** SSH as root fails with `Permission denied (publickey,password)` even though the correct key is in `/root/.ssh/authorized_keys` with proper permissions.
+
+**Root cause:** SSH refuses key authentication if the user's home directory is world-writable (`chmod 777`). This is a security check in OpenSSH — if anyone can write to `$HOME`, they could replace `authorized_keys`.
+
+**Fix:**
+```bash
+chmod 755 /root
+```
+
+**How to debug student SSH issues:**
+1. Check `vm_username` in DB: `SELECT vm_username, server_ip FROM users WHERE github_alias = '...'`
+2. Try SSH as that user via relay
+3. If denied, check: key match, `.ssh` permissions (700), `authorized_keys` permissions (600), home dir permissions (not 777), `PermitRootLogin` in sshd_config
+
+**Where we hit this:** Student vyacheslavik07, March 14, 2026.
+
+---
+
+## Numeric regex: `[\d.]+` matches lone dots
+
+**Symptom:** `ValueError: could not convert string to float: '.'` in `run_eval.py` answer matching.
+
+**Root cause:** Regex `[\d.]+` matches a standalone `.` character (e.g., from sentence-ending punctuation). `float('.')` then crashes.
+
+**Fix:** Use a regex that requires at least one digit:
+
+```python
+# Wrong — matches lone dots
+numbers = re.findall(r"[\d.]+", text)
+
+# Correct — requires at least one digit
+numbers = re.findall(r"\d+(?:\.\d+)?", text)
+```
+
+**Where we hit this:** Lab 6, `run_eval.py` question 4 (numeric_gt check). Fixed in both upstream and forked repos.
+
+---
+
+## Bot: catch `TelegramBadRequest` on message edits
+
+**Symptom:** Bot becomes unresponsive — ignores button presses, lab selection, task selection.
+
+**Root cause:** When a student taps the same button twice quickly, Telegram rejects the `edit_message_text` call because the content is identical. The unhandled `TelegramBadRequest` exception crashes the handler, and aiogram's event loop gets backed up processing the accumulated update queue (one update took 19 minutes).
+
+**Fix:** Wrap `edit_text` calls in `try/except TelegramBadRequest: pass`:
+
+```python
+from aiogram.exceptions import TelegramBadRequest
+
+try:
+    await callback.message.edit_text("...", reply_markup=keyboard)
+except TelegramBadRequest:
+    pass
+```
+
+**Where we hit this:** March 14, 2026 — bot was unresponsive during peak lab-06 usage.
