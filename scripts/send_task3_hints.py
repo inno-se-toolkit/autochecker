@@ -40,8 +40,9 @@ HINTS = {
         "```\n\n"
         "3\\. *Home directory is world\\-writable* \\(chmod 777\\)\\. SSH rejects key auth if `~` is 777\\. Fix:\n"
         "```\nchmod 755 ~\n```\n\n"
-        "💡 *Tip:* You can install Qwen Code on your VM to help debug\\. "
-        "It can read your code, run commands, and fix issues interactively\\.\n\n"
+        "💡 *Tips:*\n"
+        "• You can change your VM username in the bot with /reset\n"
+        "• Install Qwen Code on your VM to help debug — it can read your code, run commands, and fix issues interactively\n\n"
         "Try again after fixing — press Start, choose Lab 6, then Task 3\\."
     ),
 
