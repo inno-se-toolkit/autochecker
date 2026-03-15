@@ -127,6 +127,17 @@ def categorize(details_json: str) -> str:
         return "crash"
     if "Invalid JSON" in all_details:
         return "invalid_json"
+
+    # Distinguish: both evals fail vs only hidden fails
+    check_map = {c.get("id"): c.get("status") for c in checks}
+    local_status = check_map.get("task3_local_eval")
+    hidden_status = check_map.get("task3_eval")
+
+    if local_status == "FAIL" and hidden_status == "FAIL":
+        return "eval_fail"  # both fail — send "run eval locally" hint
+    if local_status == "PASS" and hidden_status == "FAIL":
+        return "hidden_only_fail"  # passes local, fails hidden — skip hint
+
     if any(c.get("status") == "FAIL" for c in checks):
         return "eval_fail"
 
