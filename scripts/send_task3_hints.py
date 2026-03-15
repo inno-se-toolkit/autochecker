@@ -41,6 +41,8 @@ HINTS = {
         "If your `vm_username` is different from root, run the same commands as that user\\.\n\n"
         "3\\. *Home directory is world\\-writable* \\(chmod 777\\)\\. SSH rejects key auth if `~` is 777\\. Fix:\n"
         "```\nchmod 755 ~\n```\n\n"
+        "💡 *Tip:* You can install Qwen Code on your VM to help debug\\. "
+        "It can read your code, run commands, and fix issues interactively\\.\n\n"
         "Try again after fixing — press Start, choose Lab 6, then Task 3\\."
     ),
 
@@ -59,7 +61,9 @@ HINTS = {
         "• API errors → check values in `\\.env\\.agent\\.secret`\n"
         "• `Connection refused` → your Qwen proxy isn't running\\. Check `docker ps`\n"
         "• Windows line endings → `sed \\-i 's/\\\\r$//' \\.env\\.agent\\.secret`\n\n"
-        "Read the error message when you run it manually — it will tell you exactly what's wrong\\."
+        "Read the error message when you run it manually — it will tell you exactly what's wrong\\.\n\n"
+        "💡 *Tip:* You can install Qwen Code on your VM to help debug\\. "
+        "It can read your code, run commands, and fix issues interactively\\."
     ),
 
     "invalid_json": (
@@ -73,7 +77,9 @@ HINTS = {
         "```\n"
         "uv run agent.py \"What is 2+2?\" 2>/dev/null | python3 -m json.tool\n"
         "```\n"
-        "This should show valid JSON\\. If not, you have extra print statements going to stdout\\."
+        "This should show valid JSON\\. If not, you have extra print statements going to stdout\\.\n\n"
+        "💡 *Tip:* You can install Qwen Code on your VM to help debug\\. "
+        "It can read your code, run commands, and fix issues interactively\\."
     ),
 
     "eval_fail": (
@@ -92,7 +98,9 @@ HINTS = {
         "• Call the backend API via `query_api` tool\n"
         "• Reason about the answer before responding\n\n"
         "The local eval has 5 open questions \\(1 per class\\)\\. Fix those first — "
-        "the hidden eval uses the same question classes\\."
+        "the hidden eval uses the same question classes\\.\n\n"
+        "💡 *Tip:* You can install Qwen Code on your VM to help debug and improve your agent\\. "
+        "It can read your code, run evals, and suggest fixes interactively\\."
     ),
 }
 
