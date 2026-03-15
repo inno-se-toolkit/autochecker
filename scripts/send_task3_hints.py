@@ -41,7 +41,7 @@ HINTS = {
         "If your `vm_username` is different from root, run the same commands as that user\\.\n\n"
         "3\\. *Home directory is world\\-writable* \\(chmod 777\\)\\. SSH rejects key auth if `~` is 777\\. Fix:\n"
         "```\nchmod 755 ~\n```\n\n"
-        "Run `/check` again after fixing\\."
+        "Try again after fixing — press Start, choose Lab 6, then Task 3\\."
     ),
 
     "crash": (
