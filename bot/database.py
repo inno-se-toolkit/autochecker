@@ -511,7 +511,9 @@ async def save_result(
 
 
 async def get_task_stats(tg_id: int) -> dict[str, dict]:
-    """Get latest score and attempt count for each task.
+    """Get best score and attempt count for each task.
+
+    "Best" = fewest failures, then most passes (matches dashboard logic).
 
     Returns dict keyed by 'lab_id:task_id' with values:
         {'attempts': int, 'score': str|None, 'passed': int|None, 'failed': int|None, 'total': int|None}
@@ -529,29 +531,28 @@ async def get_task_stats(tg_id: int) -> dict[str, dict]:
                 key = f"{row['lab_id']}:{row['task_id']}"
                 stats[key] = {"attempts": row["cnt"], "score": None, "passed": None, "failed": None, "total": None}
 
-        # Latest result per task
+        # Best result per task (fewest failures, then most passes)
         async with db.execute("""
-            SELECT r.lab_id, r.task_id, r.score, r.passed, r.failed, r.total
-            FROM results r
-            INNER JOIN (
-                SELECT tg_id, lab_id, task_id, MAX(timestamp) AS max_ts
-                FROM results WHERE tg_id = ?
-                GROUP BY lab_id, task_id
-            ) latest
-            ON r.tg_id = latest.tg_id AND r.lab_id = latest.lab_id
-               AND r.task_id = latest.task_id AND r.timestamp = latest.max_ts
-            WHERE r.tg_id = ?
-        """, (tg_id, tg_id)) as cur:
+            SELECT lab_id, task_id, score, passed, failed, total
+            FROM results WHERE tg_id = ?
+        """, (tg_id,)) as cur:
             async for row in cur:
                 key = f"{row['lab_id']}:{row['task_id']}"
                 if key not in stats:
                     stats[key] = {"attempts": 0}
-                stats[key].update({
-                    "score": row["score"],
-                    "passed": row["passed"],
-                    "failed": row["failed"],
-                    "total": row["total"],
-                })
+                cur_f = row["failed"] or 0
+                cur_p = row["passed"] or 0
+                prev = stats[key]
+                prev_f = prev.get("failed") or float("inf")
+                prev_p = prev.get("passed") or 0
+                # Better = fewer failures; tie-break by more passes
+                if prev.get("score") is None or (cur_f, -cur_p) < (prev_f, -prev_p):
+                    stats[key].update({
+                        "score": row["score"],
+                        "passed": row["passed"],
+                        "failed": row["failed"],
+                        "total": row["total"],
+                    })
 
     return stats
 

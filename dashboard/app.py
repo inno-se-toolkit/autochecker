@@ -381,11 +381,20 @@ async def student_detail(
                         pass
                 results.append(r)
 
+        # Best result per task (fewest failures, then most passes)
         latest_by_task: dict[str, dict] = {}
         for result in results:
             key = f"{result['lab_id']}:{result['task_id']}"
             if key not in latest_by_task:
                 latest_by_task[key] = result
+            else:
+                prev = latest_by_task[key]
+                cur_f = result.get("failed") or 0
+                cur_p = result.get("passed") or 0
+                prev_f = prev.get("failed") or 0
+                prev_p = prev.get("passed") or 0
+                if (cur_f, -cur_p) < (prev_f, -prev_p):
+                    latest_by_task[key] = result
 
         task_attempts_map: dict[str, dict] = {}
         async with db.execute(
