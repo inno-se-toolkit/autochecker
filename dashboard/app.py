@@ -239,7 +239,7 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
     """Main page: students x tasks grid with color coding and stats."""
     task_meta = load_task_metadata()
     labs = sorted({t["lab_id"] for t in task_meta})
-    active_lab = lab if lab in labs else (labs[0] if labs else None)
+    active_lab = lab if lab in labs else (labs[-1] if labs else None)
 
     # Filter tasks by selected lab
     tasks = [t for t in task_meta if t["lab_id"] == active_lab] if active_lab else task_meta
@@ -391,6 +391,14 @@ async def student_detail(
                         pass
                 results.append(r)
 
+        # Track tasks with manual overrides
+        has_override: set[str] = set()
+        for result in results:
+            key = f"{result['lab_id']}:{result['task_id']}"
+            details_str = result.get("details") or ""
+            if isinstance(details_str, str) and "manual_override" in details_str:
+                has_override.add(key)
+
         # Best result per task (fewest failures, then most passes)
         latest_by_task: dict[str, dict] = {}
         for result in results:
@@ -427,6 +435,7 @@ async def student_detail(
                     "last_attempt": row["last_attempt"] or "",
                     "score": latest.get("score") or "—",
                     "status": latest.get("status", "none"),
+                    "has_override": key in has_override,
                 }
 
         task_attempts = sorted(
@@ -611,12 +620,45 @@ async def student_mark_done(
     return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
 
 
+@app.post("/student/{github_alias}/revert-done")
+async def student_revert_done(
+    github_alias: str,
+    lab_id: str = Form(...),
+    task_id: str = Form(...),
+):
+    """Remove manual override results for a student's task."""
+    lab_id = lab_id.strip()
+    task_id = task_id.strip()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        await db.execute(
+            """DELETE FROM results
+               WHERE tg_id = ? AND lab_id = ? AND task_id = ?
+               AND details LIKE '%manual_override%'""",
+            (tg_id, lab_id, task_id),
+        )
+        await db.commit()
+
+    query = urlencode({"info": "reverted_done", "lab": lab_id, "task": task_id})
+    return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
+
+
 @app.get("/export/csv")
 async def export_csv(lab: Optional[str] = Query(default=None)):
     """Download CSV with best scores per student per task."""
     task_meta = load_task_metadata()
     labs = sorted({t["lab_id"] for t in task_meta})
-    active_lab = lab if lab in labs else (labs[0] if labs else None)
+    active_lab = lab if lab in labs else (labs[-1] if labs else None)
     tasks = [t for t in task_meta if t["lab_id"] == active_lab] if active_lab else task_meta
 
     async with aiosqlite.connect(DB_PATH) as db:

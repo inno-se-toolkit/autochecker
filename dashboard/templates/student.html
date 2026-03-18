@@ -89,6 +89,8 @@
         .btn-add:hover { background: #f0fdf4; }
         .btn-done { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; border: 1px solid #93c5fd; background: #fff; color: #1d4ed8; cursor: pointer; }
         .btn-done:hover { background: #eff6ff; }
+        .btn-revert { padding: 0.35rem 0.65rem; border-radius: 6px; font-size: 0.78rem; font-weight: 600; border: 1px solid #fbbf24; background: #fff; color: #92400e; cursor: pointer; }
+        .btn-revert:hover { background: #fffbeb; }
         .inline-form { margin: 0; display: inline; }
         .action-btns { display: flex; gap: 0.35rem; }
     </style>
@@ -108,6 +110,8 @@
         <div class="success-banner">Freed {{ info_count or 0 }} attempt(s) for {{ info_lab }} / {{ info_task }}.</div>
         {% elif info == "marked_done" %}
         <div class="success-banner">Marked {{ info_lab }} / {{ info_task }} as done (100%).</div>
+        {% elif info == "reverted_done" %}
+        <div class="success-banner">Reverted manual override for {{ info_lab }} / {{ info_task }}.</div>
         {% endif %}
 
         <div class="student-info">
@@ -222,6 +226,13 @@
                                     <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
                                     <input type="hidden" name="task_id" value="{{ a.task_id }}">
                                     <button type="submit" class="btn-done">Done</button>
+                                </form>
+                                {% endif %}
+                                {% if a.has_override %}
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/revert-done" onsubmit="return confirm('Revert manual override? The real scores will be used instead.');">
+                                    <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
+                                    <input type="hidden" name="task_id" value="{{ a.task_id }}">
+                                    <button type="submit" class="btn-revert">Revert</button>
                                 </form>
                                 {% endif %}
                             </div>
