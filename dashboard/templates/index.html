@@ -42,6 +42,7 @@
         tbody tr:hover { background: #f9fafb; }
         .col-github { min-width: 140px; }
         .col-email { min-width: 180px; }
+        .col-tg { min-width: 120px; }
         .col-group { min-width: 110px; }
         .col-last-sub { min-width: 130px; }
         .ts { color: #6b7280; font-size: 0.8rem; }
@@ -60,6 +61,14 @@
         .cell-partial { background: #fef9c3; color: #854d0e; }
         .cell-fail { background: #fee2e2; color: #991b1b; }
         .cell-none { background: #f3f4f6; color: #9ca3af; font-weight: 400; }
+
+        /* Inline action buttons in score cells */
+        .cell-actions { display: none; gap: 0.2rem; margin-top: 0.25rem; justify-content: center; }
+        td:hover .cell-actions { display: flex; }
+        .cell-btn { padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; border: none; cursor: pointer; opacity: 0.85; }
+        .cell-btn:hover { opacity: 1; }
+        .cell-btn-add { background: #dcfce7; color: #166534; }
+        .cell-btn-done { background: #dbeafe; color: #1d4ed8; }
     </style>
 </head>
 <body>
@@ -103,11 +112,12 @@
                 <thead>
                     <tr>
                         <th class="col-github" data-col="0">GitHub <span class="sort-arrow">&#9650;</span></th>
-                        <th class="col-email" data-col="1">Email <span class="sort-arrow">&#9650;</span></th>
-                        <th class="col-group" data-col="2">Group <span class="sort-arrow">&#9650;</span></th>
-                        <th class="col-last-sub" data-col="3">Last Submission <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-tg" data-col="1">Telegram <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-email" data-col="2">Email <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-group" data-col="3">Group <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-last-sub" data-col="4">Last Submission <span class="sort-arrow">&#9650;</span></th>
                         {% for t in tasks %}
-                        <th data-col="{{ loop.index0 + 4 }}">
+                        <th data-col="{{ loop.index0 + 5 }}">
                             <div class="task-header">
                                 <span>{{ t.task_id }}</span>
                                 <span class="task-title" title="{{ t.title }}">{{ t.title }}</span>
@@ -123,6 +133,7 @@
                     {% for s in students %}
                     <tr>
                         <td><a href="/student/{{ s.github_alias }}">{{ s.github_alias }}</a></td>
+                        <td>{{ s.tg_username or "—" }}</td>
                         <td>{{ s.email }}</td>
                         <td>{{ s.student_group or "—" }}</td>
                         <td class="ts">{{ s.last_submission or "—" }}</td>
@@ -130,9 +141,25 @@
                         {% set key = t.lab_id ~ ":" ~ t.task_id %}
                         {% set entry = scores.get(s.tg_id, {}).get(key) %}
                         {% if entry %}
-                            <td data-pct="{{ entry.pct }}"><span class="cell cell-{{ entry.status }}">{{ entry.score }}</span></td>
+                            <td data-pct="{{ entry.pct }}">
+                                <span class="cell cell-{{ entry.status }}">{{ entry.score }}</span>
+                                <div class="cell-actions">
+                                    {% set used = attempts_map.get(s.tg_id, {}).get(key, 0) %}
+                                    {% if used >= max_attempts %}
+                                    <button class="cell-btn cell-btn-add" onclick="cellAction(this, '/student/{{ s.github_alias }}/attempts/free', '{{ t.lab_id }}', '{{ t.task_id }}', 'add')" title="Give +5 attempts ({{ used }}/{{ max_attempts }} used)">+5</button>
+                                    {% endif %}
+                                    {% if entry.status != 'pass' %}
+                                    <button class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
+                                    {% endif %}
+                                </div>
+                            </td>
                         {% else %}
-                            <td data-pct="-1"><span class="cell cell-none">&mdash;</span></td>
+                            <td data-pct="-1">
+                                <span class="cell cell-none">&mdash;</span>
+                                <div class="cell-actions">
+                                    <button class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
+                                </div>
+                            </td>
                         {% endif %}
                         {% endfor %}
                     </tr>
@@ -146,12 +173,12 @@
     (function() {
         const table = document.getElementById('dashboard-table');
         const headers = table.querySelectorAll('th');
-        // Default: sort by first task column (col 4), descending (highest first)
-        let currentCol = 4;
+        // Default: sort by first task column (col 5), descending (highest first)
+        let currentCol = 5;
         let ascending = false;
 
         function sortValue(td, col) {
-            if (col <= 3) return td.textContent.trim().toLowerCase() || 'zzz';
+            if (col <= 4) return td.textContent.trim().toLowerCase() || 'zzz';
             // For score columns: use numeric percentage from data-pct attribute
             var pct = parseInt(td.getAttribute('data-pct'), 10);
             return isNaN(pct) ? -1 : pct;
@@ -198,15 +225,29 @@
                     ascending = !ascending;
                 } else {
                     currentCol = col;
-                    ascending = col <= 3;  // text cols: A-Z default; score cols: high-first default
+                    ascending = col <= 4;  // text cols: A-Z default; score cols: high-first default
                 }
                 doSort(currentCol);
             });
         });
 
         // Initial sort on page load
-        if (headers.length > 4) doSort(currentCol);
+        if (headers.length > 5) doSort(currentCol);
     })();
+
+    function cellAction(btn, url, labId, taskId, action) {
+        var msg = action === 'done' ? 'Mark as 100% done?' : 'Give +5 attempts?';
+        if (!confirm(msg)) return;
+        btn.disabled = true;
+        btn.textContent = '...';
+        var form = new FormData();
+        form.append('lab_id', labId);
+        form.append('task_id', taskId);
+        if (action === 'add') form.append('amount', '5');
+        fetch(url, { method: 'POST', body: form, redirect: 'manual' })
+            .then(function() { location.reload(); })
+            .catch(function() { btn.disabled = false; btn.textContent = action === 'done' ? 'Done' : '+5'; });
+    }
     </script>
 </body>
 </html>

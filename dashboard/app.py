@@ -30,7 +30,7 @@ ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "").split(",") if l.s
 DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 
 RELAY_TOKEN = os.getenv("RELAY_TOKEN", "")
-MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "12"))
+MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "20"))
 
 COOKIE_NAME = "dash_auth"
 
@@ -264,6 +264,14 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
             async for row in cur:
                 last_submission[row["tg_id"]] = row["last_ts"] or ""
 
+        # Attempts per student per task: {tg_id: {"lab:task": count}}
+        attempts_map: dict[int, dict[str, int]] = {}
+        async with db.execute(
+            "SELECT tg_id, lab_id, task_id, COUNT(*) AS cnt FROM attempts GROUP BY tg_id, lab_id, task_id"
+        ) as cur:
+            async for row in cur:
+                attempts_map.setdefault(row["tg_id"], {})[f"{row['lab_id']}:{row['task_id']}"] = row["cnt"]
+
     # Attach last_submission to each student dict
     for s in students:
         ts = last_submission.get(s["tg_id"], "")
@@ -330,6 +338,8 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         "avg_completion": avg_completion,
         "not_started": not_started,
         "completed_count": completed_count,
+        "attempts_map": attempts_map,
+        "max_attempts": MAX_ATTEMPTS_PER_TASK,
     })
 
 
@@ -351,7 +361,7 @@ async def student_detail(
         db.row_factory = aiosqlite.Row
 
         async with db.execute(
-            "SELECT tg_id, email, github_alias, tg_username, server_ip, student_group FROM users WHERE github_alias = ?",
+            "SELECT tg_id, email, github_alias, tg_username, server_ip, student_group, vm_username FROM users WHERE github_alias = ?",
             (github_alias,)
         ) as cur:
             student_row = await cur.fetchone()
@@ -444,12 +454,14 @@ async def student_edit(
     new_github_alias: str = Form(..., alias="github_alias"),
     tg_username: str = Form(""),
     server_ip: str = Form(""),
+    vm_username: str = Form(""),
 ):
     """Update student info. Redirects back to student page."""
     email = email.strip()
     new_github_alias = new_github_alias.strip()
     tg_username = tg_username.strip()
     server_ip = server_ip.strip()
+    vm_username = vm_username.strip()
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -475,8 +487,8 @@ async def student_edit(
             )
 
         await db.execute(
-            "UPDATE users SET email = ?, github_alias = ?, tg_username = ?, server_ip = ? WHERE tg_id = ?",
-            (email, new_github_alias, tg_username, server_ip, tg_id),
+            "UPDATE users SET email = ?, github_alias = ?, tg_username = ?, server_ip = ?, vm_username = ? WHERE tg_id = ?",
+            (email, new_github_alias, tg_username, server_ip, vm_username, tg_id),
         )
         await db.commit()
 
@@ -542,6 +554,60 @@ async def student_free_attempts(
         "task": task_id,
         "count": deleted_count,
     })
+    return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
+
+
+@app.post("/student/{github_alias}/mark-done")
+async def student_mark_done(
+    github_alias: str,
+    lab_id: str = Form(...),
+    task_id: str = Form(...),
+):
+    """Insert a 100% result for a student's task (manual override)."""
+    lab_id = lab_id.strip()
+    task_id = task_id.strip()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        # Determine total checks from spec
+        task_meta = load_task_metadata()
+        total = 1
+        for t in task_meta:
+            if t["lab_id"] == lab_id and t["task_id"] == task_id:
+                # Count checks from spec
+                spec_path = SPECS_DIR / f"{lab_id}.yaml"
+                if spec_path.exists():
+                    with open(spec_path) as f:
+                        spec = yaml.safe_load(f)
+                    total = sum(1 for c in spec.get("checks", []) if c.get("task") == task_id)
+                    total = max(total, 1)
+                break
+
+        score = f"100.0% ({total}/{total})"
+        details = json.dumps([{
+            "id": "manual_override",
+            "status": "PASS",
+            "details": "Manually marked as done by instructor",
+            "description": "Manual override",
+        }])
+
+        await db.execute(
+            """INSERT INTO results (tg_id, lab_id, task_id, score, passed, failed, total, details)
+               VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
+            (tg_id, lab_id, task_id, score, total, total, details),
+        )
+        await db.commit()
+
+    query = urlencode({"info": "marked_done", "lab": lab_id, "task": task_id})
     return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
 
 
