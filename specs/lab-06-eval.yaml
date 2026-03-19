@@ -59,7 +59,7 @@
 
 - index: 3
   question: "List all API router modules in the backend. What domain does each one handle?"
-  expected: {contains_all: ["items", "interactions", "analytics", "pipeline"]}
+  expected: {contains_all: ["items", "interactions", "analytics", "pipeline", "learners"]}
   check_tools: [list_files]
   feedback: "Use list_files on the backend routers directory, then read each file's purpose."
   tier: 1
@@ -86,13 +86,13 @@
 # --- Class D: Bug diagnosis (local) ---
 
 - index: 6
-  question: "Query the /analytics/completion-rate endpoint for a lab that has no data (e.g., lab-99). What error do you get, and what is the bug in the source code?"
-  expected: {any_of: ["ZeroDivisionError", "division by zero", "divide by zero"]}
-  expected_source: {any_of: ["analytics.py", "analytics"]}
+  question: "Query the GET /interactions/ endpoint after syncing data. What error do you get, and what is the bug in the source code?"
+  expected: {any_of: ["timestamp", "created_at", "ValidationError", "field required", "missing"]}
+  expected_source: {any_of: ["interaction.py", "interactions"]}
   check_tools: [query_api, read_file]
-  feedback: "Try GET /analytics/completion-rate?lab=lab-99. Read the error response, then find the buggy line in the analytics router."
+  feedback: "Query GET /interactions/ after data is synced. Read the error, then compare the InteractionModel response schema with the InteractionLog database model — look for a field name mismatch."
   tier: 2
-  # Class D: Bug diagnosis — division by zero when no learners exist
+  # Class D: Bug diagnosis — response model field name mismatch (timestamp vs created_at)
 
 - index: 7
   question: "The /analytics/top-learners endpoint crashes for some labs. Query it, find the error, and read the source code to explain what went wrong."
@@ -108,7 +108,7 @@
 - index: 8
   question: "Read the docker-compose.yml and the backend Dockerfile. Explain the full journey of an HTTP request from the browser to the database and back."
   expected: {contains_all: ["caddy", "fastapi", "postgres"]}
-  rubric: "Answer must trace the path through: (1) Caddy reverse proxy, (2) FastAPI app inside Docker container, (3) authentication middleware, (4) router/endpoint, (5) SQLModel/SQLAlchemy ORM, (6) PostgreSQL database. At least 4 of these 6 hops must be mentioned."
+  rubric: "Answer must trace the path through: (1) Caddy reverse proxy, (2) FastAPI app inside Docker container, (3) API key verification dependency, (4) router/endpoint, (5) SQLModel/SQLAlchemy ORM, (6) PostgreSQL database. At least 4 of these 6 hops must be mentioned."
   check_tools: [read_file]
   feedback: "Read docker-compose.yml, Caddyfile, the Dockerfile, and main.py to trace the request path."
   tier: 2
@@ -192,23 +192,23 @@
 # --- Class D: Bug diagnosis (bot-only) ---
 
 - index: 16
-  question: "Read the analytics router source code (analytics.py). Which endpoints can crash, and what specific operation causes each crash? Name the endpoints and the error type."
-  expected: {contains_all: ["completion", "top"]}
+  question: "Read the analytics router source code (analytics.py). Which endpoint can crash, and what specific operation causes the crash? Name the endpoint and the error type."
+  expected: {any_of: ["top-learners", "top_learners", "TypeError", "NoneType", "sorted", "None"]}
   expected_source: {any_of: ["analytics.py", "analytics"]}
   check_tools: [read_file]
-  feedback: "Your agent needs to read analytics.py and spot the risky operations (e.g. division, sorting with None). Improve your agent's system prompt to instruct it to look for division operations and None-unsafe calls when asked about bugs."
+  feedback: "Your agent needs to read analytics.py and spot risky operations (e.g., sorting with None values). Improve your agent's system prompt to instruct it to look for None-unsafe calls when asked about bugs."
   tier: 2
   bot_only: true
-  # Class D: Proactive bug identification
+  # Class D: Proactive bug identification — TypeError sorting None scores in top-learners
 
 - index: 17
-  question: "Query /analytics/completion-rate for a lab with data (e.g., lab-04) and for one without (e.g., lab-99). Compare the responses and explain why one fails."
-  expected: {any_of: ["ZeroDivisionError", "division by zero", "zero", "no learners", "empty"]}
+  question: "Query GET /items/ and GET /interactions/ after syncing data. One succeeds and the other crashes. Read the source code and explain what causes the difference."
+  expected: {any_of: ["timestamp", "created_at", "InteractionModel", "ValidationError", "field"]}
   check_tools: [query_api, read_file]
-  feedback: "Compare successful and failing responses, then read the source to understand the difference."
+  feedback: "Compare the InteractionModel response schema with the InteractionLog database model. The response model uses 'timestamp' but the DB model uses 'created_at' — this field name mismatch causes a serialization crash."
   tier: 2
   bot_only: true
-  # Class D: Comparative bug diagnosis
+  # Class D: Comparative bug diagnosis — response model serialization mismatch
 
 # --- Class E: LLM-judged reasoning (bot-only) ---
 
