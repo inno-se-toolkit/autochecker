@@ -141,7 +141,7 @@ if task_id in get_tasks_needing_ip(lab_id) or task_id in get_tasks_needing_lms_k
 
 **Symptom:** Agent exits with code 1: `.env.agent.secret: line N: //openrouter.ai/api/v1: No such file or directory`. Agent falls back to OpenRouter default URL, gets 403.
 
-**Root cause:** Students who create `.env.agent.secret` on Windows get CRLF line endings. When bash `source`s the file, line `LLM_API_BASE=https:\r` is cut at `\r`, leaving `//openrouter.ai/api/v1` as a bare command on the next line — which bash tries to execute as a file path.
+**Root cause:** Students who create `.env.agent.secret` on Windows get CRLF line endings. When bash `source`s the file, line `LLM_API_BASE_URL=https:\r` is cut at `\r`, leaving `//openrouter.ai/api/v1` as a bare command on the next line — which bash tries to execute as a file path.
 
 **Fix:** Strip carriage returns before sourcing:
 
@@ -165,7 +165,7 @@ set -a && . <(tr -d '\r' < .env.agent.secret) && set +a
 
 **How to check:** `ss -tlnp | grep node` — look for the listening port. Or check `HOST_PORT` in `~/qwen-code-oai-proxy/.env`.
 
-**Where we hit this:** Lab 6, nurlingo had `LLM_API_BASE=http://127.0.0.1:8080/v1` but proxy was on `42005`.
+**Where we hit this:** Lab 6, nurlingo had `LLM_API_BASE_URL=http://127.0.0.1:8080/v1` but proxy was on `42005`.
 
 ---
 

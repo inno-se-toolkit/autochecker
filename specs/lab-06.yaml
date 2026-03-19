@@ -144,7 +144,7 @@ checks:
       inject its own LLM credentials when evaluating your agent.
     params:
       path: "agent.py"
-      pattern: "LLM_API_KEY|LLM_API_BASE|LLM_MODEL"
+      pattern: "LLM_API_KEY|LLM_API_BASE_URL|LLM_API_MODEL"
       min_matches: 2
 
   - id: task1_process
