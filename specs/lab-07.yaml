@@ -473,7 +473,7 @@ checks:
       username: __vm_username__
       command: >
         export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
-        APP_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i app | head -1) &&
+        APP_CONTAINER=$(docker ps --format '{{.Names}}' | grep -iE 'app|backend' | head -1) &&
         BEFORE=$(docker logs $APP_CONTAINER 2>&1 | wc -l) &&
         cd bot &&
         uv run bot.py --test 'what labs are available' >/dev/null 2>&1 &&
