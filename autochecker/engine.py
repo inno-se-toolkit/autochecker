@@ -1732,10 +1732,12 @@ with open("_eval_results.json", "w") as f:
         username = self._vm_username or "autochecker"
         ssh_timeout = 120  # relay cap
 
-        # 1. Find the agent repo in the user's home directory
+        # 1. Find agent.py at the repo root (not in subdirectories).
+        # Use test -f to check the expected location directly, avoiding
+        # find which can pick up copies in subdirectories.
         ok, result = self._ssh_check_via_relay(
             server_ip, 22, username,
-            "find $HOME -maxdepth 3 -name agent.py -path '*/se-toolkit-lab-6/*' 2>/dev/null | head -1",
+            "test -f ~/se-toolkit-lab-6/agent.py && echo ~/se-toolkit-lab-6/agent.py",
             30,
         )
         if not ok or not result.get("stdout", "").strip():
