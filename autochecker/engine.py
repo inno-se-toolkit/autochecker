@@ -2681,9 +2681,9 @@ with open("_eval_results.json", "w") as f:
 
                     # Single SSH call for all queries
                     total_timeout = timeout_per_query * len(queries)
-                    # Cap at relay max (120s) — if too many queries, split later
-                    if total_timeout > 120:
-                        total_timeout = 120
+                    # Cap at relay max (300s)
+                    if total_timeout > 300:
+                        total_timeout = 300
                     ok, data = self._ssh_exec_raw(
                         ssh_host, ssh_user, batch_cmd,
                         port=22, timeout=total_timeout
