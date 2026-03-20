@@ -104,4 +104,4 @@ ssh deploy@10.93.24.120 "sudo journalctl -t relay-health --since '1 hour ago'"
 | `deploy/.env` | Hetzner `~/autochecker/deploy/.env` | Bot + dashboard config (tokens, active labs) |
 | `deploy/.env.example` | Repo | Template — keep in sync with `.env` |
 | `.env.docker.secret` | Student VMs | Backend (LMS_API_KEY, autochecker creds) |
-| `.env.agent.secret` | Student VMs | LLM access (LLM_API_KEY, LLM_API_BASE, LLM_MODEL) |
+| `.env.agent.secret` | Student VMs | LLM access (LLM_API_KEY, LLM_API_BASE_URL, LLM_API_MODEL) |

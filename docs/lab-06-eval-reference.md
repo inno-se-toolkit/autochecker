@@ -100,8 +100,8 @@ A well-built agent with read_file + list_files + query_api should pass tier 1 ea
 | Variable | Value on Hetzner | Purpose |
 |----------|-----------------|---------|
 | `LLM_API_KEY` | Groq API key | Student agent calls LLM |
-| `LLM_API_BASE` | `https://api.groq.com/openai/v1` | LLM endpoint |
-| `LLM_MODEL` | `llama-3.1-8b-instant` | Model for agent |
+| `LLM_API_BASE_URL` | `https://api.groq.com/openai/v1` | LLM endpoint |
+| `LLM_API_MODEL` | `llama-3.1-8b-instant` | Model for agent |
 | `LMS_API_KEY` | `autochecker-eval-{port}` | Backend auth |
 | `AGENT_API_BASE_URL` | `http://127.0.0.1:{random_port}` | Backend URL |
 
