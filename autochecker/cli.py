@@ -53,10 +53,10 @@ LAB_CONFIG = {
         "ready": True,
     },
     "lab-07": {
-        "name": "Lab 07 – (Coming soon)",
-        "repo_suffix": "lab-07-tbd",
+        "name": "Lab 07 — Build a Client with an AI Coding Agent",
+        "repo_suffix": "se-toolkit-lab-7",
         "spec": "specs/lab-07.yaml",
-        "ready": False,
+        "ready": True,
     },
     "lab-08": {
         "name": "Lab 08 – (Coming soon)",
