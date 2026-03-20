@@ -488,9 +488,57 @@ checks:
       expect_regex: "PASS"
       timeout: 120
 
-  - id: t3_gitflow
-    task: task-3
-    title: "Git workflow: ≥3 merged PRs with approvals (tasks 1-3)"
+  # =====================================================
+  # TASK 4: Containerize and Document
+  # =====================================================
+
+  - id: t4_structural
+    task: task-4
+    title: "Dockerfile exists and README has deploy section"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Create bot/Dockerfile and add a "Deploy" or "Containerize" section
+      to your README with env vars, docker compose commands, and verification steps.
+    params:
+      patterns: ["bot/Dockerfile", "README.md"]
+
+  - id: t4_deployment
+    task: task-4
+    title: "Bot containerized and running alongside backend"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [repo_on_vm]
+    hint: >
+      Deploy with Docker: docker compose --env-file .env.docker.secret up --build -d
+      Bot container must be running, backend must still be healthy,
+      and deployed code must be from your GitHub repo.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
+        REMOTE=$(git remote get-url origin 2>/dev/null) &&
+        BOT_COMPOSE=$(grep -c 'bot:' docker-compose.yml 2>/dev/null || echo 0) &&
+        BOT_RUNNING=$(docker ps --format '{{.Names}}' | grep -ci bot || echo 0) &&
+        BACKEND=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:42002/docs) &&
+        echo "remote:$REMOTE compose:$BOT_COMPOSE running:$BOT_RUNNING backend:$BACKEND" &&
+        echo "$REMOTE" | grep -qi 'github.com.*se-toolkit-lab-7' &&
+        test $BOT_COMPOSE -ge 1 && test $BOT_RUNNING -ge 1 && test "$BACKEND" = "200" &&
+        echo PASS || echo FAIL
+      expect_regex: "PASS"
+      timeout: 30
+
+  - id: t4_gitflow
+    task: task-4
+    title: "Git workflow: ≥4 merged PRs with approvals (all tasks)"
     class: process
     runner: code
     type: pr_review_approvals
@@ -499,118 +547,8 @@ checks:
     depends_on: [repo_exists]
     hint: >
       Each task must follow git workflow: create an issue, branch, PR with
-      "Closes #...", get partner approval, merge. You need at least 3 merged
-      PRs (one per task) with at least 3 total approvals across all PRs.
+      "Closes #...", get partner approval, merge. You need at least 4 merged
+      PRs (one per task) with at least 4 total approvals across all PRs.
     params:
       base: "main"
-      min_total_approvals: 3
-
-  # =====================================================
-  # TASK 4: Containerize and Document
-  # =====================================================
-
-  - id: t4_dockerfile
-    task: task-4
-    title: "bot/Dockerfile exists"
-    class: structural
-    runner: code
-    type: file_exists
-    is_required: true
-    weight: 3
-    depends_on: [repo_exists]
-    hint: >
-      Create a Dockerfile in bot/ that installs dependencies with uv sync
-      and runs the bot entry point.
-    params:
-      path: "bot/Dockerfile"
-
-  - id: t4_readme_deploy
-    task: task-4
-    title: "README has a deploy/containerize section"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [repo_exists]
-    hint: >
-      Add a "Deploy" or "Containerize" section to your README explaining
-      required env vars, docker compose commands, and how to verify.
-    params:
-      path: "README.md"
-      pattern: "(?i)^#{1,3}\\s.*(deploy|containerize)"
-      min_matches: 1
-
-  - id: t4_repo_match
-    task: task-4
-    title: "Deployed code matches student's GitHub repo"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [repo_on_vm]
-    hint: >
-      The code deployed on your VM must be from your own GitHub repo.
-      Run: cd ~/se-toolkit-lab-7 && git remote get-url origin
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && git remote get-url origin"
-      expect_regex: "(?i)github.com.*se-toolkit-lab-7"
-      timeout: 15
-
-  - id: t4_compose
-    task: task-4
-    title: "docker-compose.yml includes a bot service"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [repo_on_vm]
-    hint: >
-      Add a 'bot' service to your docker-compose.yml that builds from bot/Dockerfile.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && grep -c 'bot:' docker-compose.yml"
-      expect_regex: "^[1-9]"
-      timeout: 15
-
-  - id: t4_running
-    task: task-4
-    title: "Bot container is running"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [t4_compose]
-    hint: >
-      Start the bot container: docker compose --env-file .env.docker.secret up --build -d
-      Make sure the bot container appears in 'docker ps'.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "docker ps --format '{{.Names}}' | grep -i bot | head -1"
-      expect_regex: "bot"
-      timeout: 15
-
-  - id: t4_health
-    task: task-4
-    title: "Backend still healthy alongside the bot"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [t4_running]
-    hint: >
-      The backend must still be accessible after deploying the bot container.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:42002/docs"
-      expect_regex: "200"
-      timeout: 15
+      min_total_approvals: 4
