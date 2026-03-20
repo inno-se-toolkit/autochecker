@@ -93,3 +93,4 @@ dmypy.json
 # Local configuration
 config.local.*
 settings.local.*
+CIL-utility
