@@ -1410,7 +1410,9 @@ class CheckEngine:
             with open(env_secret_path, "w") as f:
                 f.write(f"LLM_API_KEY={llm_api_key}\n")
                 f.write(f"LLM_API_BASE_URL={llm_api_base}\n")
+                f.write(f"LLM_API_BASE={llm_api_base}\n")
                 f.write(f"LLM_API_MODEL={llm_model}\n")
+                f.write(f"LLM_MODEL={llm_model}\n")
 
             # Write questions file and runner script into cloned repo
             questions_path = os.path.join(tmpdir, "_eval_questions.json")
@@ -1446,7 +1448,9 @@ with open("_eval_results.json", "w") as f:
             env_flags = [
                 "-e", f"LLM_API_KEY={llm_api_key}",
                 "-e", f"LLM_API_BASE_URL={llm_api_base}",
+                "-e", f"LLM_API_BASE={llm_api_base}",
                 "-e", f"LLM_API_MODEL={llm_model}",
+                "-e", f"LLM_MODEL={llm_model}",
                 "-e", f"LMS_API_KEY={lms_api_key}",
                 "-e", f"AGENT_API_BASE_URL={backend_url}",
             ]
@@ -1797,7 +1801,9 @@ with open("_eval_results.json", "w") as f:
                 env_content = (
                     f"LLM_API_KEY={api_key}\\n"
                     f"LLM_API_BASE_URL=http://127.0.0.1:{proxy_port}/v1\\n"
+                    f"LLM_API_BASE=http://127.0.0.1:{proxy_port}/v1\\n"
                     f"LLM_API_MODEL=qwen3-coder-plus\\n"
+                    f"LLM_MODEL=qwen3-coder-plus\\n"
                 )
                 self._ssh_check_via_relay(
                     server_ip, 22, username,
@@ -1808,7 +1814,7 @@ with open("_eval_results.json", "w") as f:
             else:
                 return False, (
                     f"No LLM credentials found on VM. Either:\n"
-                    f"1. Create {repo_dir}/.env.agent.secret with LLM_API_KEY, LLM_API_BASE_URL, LLM_API_MODEL\n"
+                    f"1. Create {repo_dir}/.env.agent.secret with LLM_API_KEY, LLM_API_BASE_URL/LLM_API_BASE, LLM_API_MODEL/LLM_MODEL\n"
                     f"2. Or set up ~/qwen-code-oai-proxy with a .env file"
                 )
 

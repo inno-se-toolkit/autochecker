@@ -139,12 +139,14 @@ checks:
     weight: 5
     depends_on: [repo_exists]
     hint: >
-      Your agent must read LLM_API_KEY, LLM_API_BASE_URL, and LLM_API_MODEL
-      from environment variables (not hardcoded). The autochecker will
-      inject its own LLM credentials when evaluating your agent.
+      Your agent must read LLM_API_KEY, LLM_API_BASE_URL (or LLM_API_BASE),
+      and LLM_API_MODEL (or LLM_MODEL) from environment variables (not
+      hardcoded). Both old and new variable names are accepted. The
+      autochecker will inject its own LLM credentials when evaluating
+      your agent.
     params:
       path: "agent.py"
-      pattern: "LLM_API_KEY|LLM_API_BASE_URL|LLM_API_MODEL"
+      pattern: "LLM_API_KEY|LLM_API_BASE_URL|LLM_API_BASE|LLM_API_MODEL|LLM_MODEL"
       min_matches: 2
 
   - id: task1_process
