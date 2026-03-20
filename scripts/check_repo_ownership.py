@@ -76,12 +76,15 @@ async def check_student(session, student, semaphore):
         return alias, findings, "skipped (public IP)"
 
     async with semaphore:
-        # Single SSH command to check all repos at once
+        # Single SSH command to check all repos at once.
+        # Use GIT_CONFIG to bypass "dubious ownership" errors when
+        # the repo was cloned by a different OS user.
         cmd_parts = []
         for repo in REPOS:
             cmd_parts.append(
                 f"if [ -d ~/{repo}/.git ]; then"
-                f" echo \"{repo}:$(git -C ~/{repo} remote get-url origin 2>/dev/null)\";"
+                f" echo \"{repo}:$(GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'"
+                f" git -C ~/{repo} remote get-url origin 2>/dev/null)\";"
                 f" else echo \"{repo}:NOT_FOUND\"; fi"
             )
         cmd = " && ".join(cmd_parts)
