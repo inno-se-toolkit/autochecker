@@ -286,7 +286,7 @@ checks:
       runtime: prod
       username: __vm_username__
       command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
-      min_pass_rate: 0.8
+      min_pass_rate: 0.9
       timeout_per_query: 30
       queries:
         # Core commands — check for real content, not just "non-empty"
@@ -418,7 +418,7 @@ checks:
       runtime: prod
       username: __vm_username__
       command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
-      min_pass_rate: 0.8
+      min_pass_rate: 0.9
       timeout_per_query: 60
       queries:
         # Core queries — must contain real data from backend
