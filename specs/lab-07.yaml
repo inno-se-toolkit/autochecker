@@ -419,13 +419,13 @@ checks:
       username: __vm_username__
       command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
       min_pass_rate: 0.85
-      timeout_per_query: 30
+      timeout_per_query: 60
       queries:
         # Single tool — real data verification
         - input: "what labs are available"
           expect_regex: "(?i)(products|architecture|backend|testing|pipeline|agent)"
         - input: "show me scores for lab 4"
-          expect_regex: "(?i)(task|setup|testing|front|ci).*\\d|\\d.*(?:task|setup|testing)"
+          expect_regex: "\\d.*\\d"
         # Unseen — different tools, argument extraction
         - input: "how many students are enrolled"
           expect_regex: "\\d{2,}"

@@ -2687,7 +2687,7 @@ with open("_eval_results.json", "w") as f:
                         "    try:\n"
                         "        r = subprocess.run(\n"
                         "            [python, 'bot.py', '--test', q],\n"
-                        "            capture_output=True, text=True, timeout=30,\n"
+                        f"            capture_output=True, text=True, timeout={timeout_per_query},\n"
                         "            cwd=bot_dir\n"
                         "        )\n"
                         "        print(r.stdout.strip())\n"
