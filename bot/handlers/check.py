@@ -19,7 +19,7 @@ from ..database import User, get_attempts_count, add_attempt, save_result, get_s
 from ..ip_utils import validate_ip
 from ..keyboards import get_labs_keyboard, get_tasks_keyboard
 from ..runner import run_check
-from ..config import MAX_ATTEMPTS_PER_TASK, get_max_attempts, get_tasks_needing_ip, get_tasks_needing_lms_key
+from ..config import MAX_ATTEMPTS_PER_TASK, get_max_attempts, get_tasks_needing_ip, get_tasks_needing_lms_key, get_tasks_needing_vm_username
 
 router = Router()
 
@@ -232,32 +232,26 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
             await state.update_data(lab_id=lab_id, task_id=task_id)
             return
 
-    # For tasks needing agent eval, check if we have VM username stored
+    # For tasks needing VM username (agent_eval or __vm_username__ ssh_checks)
     vm_username = ""
     lms_api_key = ""
-    if task_id in get_tasks_needing_lms_key(lab_id):
+    if task_id in get_tasks_needing_vm_username(lab_id):
         vm_username = await get_vm_username(db_user.tg_id)
         if not vm_username:
             await callback.answer()
             await callback.message.edit_text(
                 f"To check <b>{task_id}</b>, I need your VM username.\n\n"
-                f"The autochecker will SSH into your VM to run the agent eval. "
-                f"Run these commands on your VM:\n\n"
-                f"<b>1. Check your username:</b>\n"
+                f"The autochecker will SSH into your VM to run checks. "
+                f"Run this on your VM:\n\n"
                 f"<code>whoami</code>\n\n"
-                f"<b>2. Add the autochecker SSH key:</b>\n"
-                f"<code>mkdir -p ~/.ssh &amp;&amp; echo '{AUTOCHECKER_PUBKEY}' &gt;&gt; ~/.ssh/authorized_keys</code>\n\n"
-                f"<b>3. Install uv (if not installed):</b>\n"
-                f"<code>curl -LsSf https://astral.sh/uv/install.sh | sh</code>\n\n"
-                f"<b>4. Sync dependencies:</b>\n"
-                f"<code>cd ~/se-toolkit-lab-6 &amp;&amp; uv sync</code>\n\n"
-                f"Reply with the output of <code>whoami</code>:",
+                f"Reply with the output:",
             )
             await state.set_state(CheckStates.waiting_for_vm_username)
             await state.update_data(lab_id=lab_id, task_id=task_id)
             return
 
-        # Also need LMS API key
+    # For agent_eval tasks, also need LMS API key
+    if task_id in get_tasks_needing_lms_key(lab_id):
         lms_api_key = await get_lms_api_key(db_user.tg_id)
         if not lms_api_key:
             await callback.answer()

@@ -139,3 +139,26 @@ def get_tasks_needing_lms_key(lab_id: str) -> set[str]:
         if check.get("type") == "agent_eval":
             task_ids.add(check["task"])
     return task_ids
+
+
+def get_tasks_needing_vm_username(lab_id: str) -> set[str]:
+    """Return task IDs that need the student's VM username.
+
+    Matches checks with username: __vm_username__ (ssh_check) or
+    type: agent_eval (which uses vm_username implicitly).
+    """
+    spec_path = SPECS_DIR / f"{lab_id}.yaml"
+    if not spec_path.exists():
+        return set()
+
+    with open(spec_path, "r", encoding="utf-8") as f:
+        spec = yaml.safe_load(f)
+
+    task_ids: set[str] = set()
+    for check in spec.get("checks", []):
+        if check.get("type") == "agent_eval":
+            task_ids.add(check["task"])
+        params = check.get("params", {})
+        if params.get("username") == "__vm_username__":
+            task_ids.add(check["task"])
+    return task_ids
