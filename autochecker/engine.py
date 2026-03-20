@@ -2564,7 +2564,12 @@ with open("_eval_results.json", "w") as f:
                 command = params.get('command', 'echo ok')
                 expect_regex = params.get('expect_regex')
                 expect_exit = params.get('expect_exit', 0)
-                username = params.get('username', 'autochecker')
+                username_param = params.get('username', 'autochecker')
+                # Allow specs to reference the student's registered VM username
+                if username_param == '__vm_username__' and self._vm_username:
+                    username = self._vm_username
+                else:
+                    username = username_param
                 port = params.get('port', 22)
                 timeout = params.get('timeout', 10)
 
