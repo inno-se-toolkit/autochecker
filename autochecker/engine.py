@@ -2666,11 +2666,12 @@ with open("_eval_results.json", "w") as f:
                     else:
                         ssh_user = username_param
 
-                    # Build a single bash script that runs all queries with delimiters
+                    # Build a bash script that runs all queries in one SSH session.
+                    # Uses a simple loop to avoid repeated relay round-trips.
                     DELIM = "___EVAL_DELIM___"
                     script_parts = []
                     for i, q in enumerate(queries):
-                        q_input = q.get('input', '')
+                        q_input = q.get('input', '').replace("'", "'\\''")  # escape single quotes
                         cmd = command_template.replace('{input}', q_input)
                         script_parts.append(
                             f'echo "{DELIM} {i} START"; '
@@ -2679,11 +2680,8 @@ with open("_eval_results.json", "w") as f:
                         )
                     batch_cmd = "; ".join(script_parts)
 
-                    # Single SSH call for all queries
-                    total_timeout = timeout_per_query * len(queries)
-                    # Cap at relay max (300s)
-                    if total_timeout > 300:
-                        total_timeout = 300
+                    # Single SSH call — timeout covers all queries
+                    total_timeout = min(timeout_per_query * len(queries), 300)
                     ok, data = self._ssh_exec_raw(
                         ssh_host, ssh_user, batch_cmd,
                         port=22, timeout=total_timeout
