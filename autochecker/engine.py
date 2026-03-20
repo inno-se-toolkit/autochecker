@@ -2666,19 +2666,49 @@ with open("_eval_results.json", "w") as f:
                     else:
                         ssh_user = username_param
 
-                    # Build a bash script that runs all queries in one SSH session.
-                    # Uses a simple loop to avoid repeated relay round-trips.
+                    # Build a Python batch runner that executes all queries in
+                    # ONE SSH session via subprocess. Avoids repeated relay
+                    # round-trips. ~8-10s per LLM query instead of ~16s.
+                    import json as _json
                     DELIM = "___EVAL_DELIM___"
-                    script_parts = []
-                    for i, q in enumerate(queries):
-                        q_input = q.get('input', '').replace("'", "'\\''")  # escape single quotes
-                        cmd = command_template.replace('{input}', q_input)
-                        script_parts.append(
-                            f'echo "{DELIM} {i} START"; '
-                            f'{cmd}; EC=$?; '
-                            f'echo ""; echo "{DELIM} {i} EXIT:$EC"'
-                        )
-                    batch_cmd = "; ".join(script_parts)
+                    queries_json = _json.dumps([q.get('input', '') for q in queries])
+                    # Escape single quotes for shell embedding
+                    queries_shell = queries_json.replace("'", "'\\''")
+
+                    batch_cmd = (
+                        f"export PATH=$HOME/.local/bin:$PATH && "
+                        f"cd ~/se-toolkit-lab-7/bot && "
+                        f"uv run python3 /tmp/_eval_batch.py '{queries_shell}'"
+                    )
+
+                    # Write the batch runner script first, then run it.
+                    # The runner is a separate step to avoid escaping hell.
+                    runner_write_cmd = (
+                        "cat > /tmp/_eval_batch.py << 'EVALEOF'\n"
+                        "import sys, os, json, subprocess\n"
+                        "bot_dir = os.path.expanduser('~/se-toolkit-lab-7/bot')\n"
+                        "queries = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []\n"
+                        "python = sys.executable\n"
+                        f"DELIM = '{DELIM}'\n"
+                        "for i, q in enumerate(queries):\n"
+                        "    print(f'{DELIM} {i} START')\n"
+                        "    try:\n"
+                        "        r = subprocess.run(\n"
+                        "            [python, 'bot.py', '--test', q],\n"
+                        "            capture_output=True, text=True, timeout=30,\n"
+                        "            cwd=bot_dir\n"
+                        "        )\n"
+                        "        print(r.stdout.strip())\n"
+                        "        print(f'{DELIM} {i} EXIT:{r.returncode}')\n"
+                        "    except subprocess.TimeoutExpired:\n"
+                        "        print(f'{DELIM} {i} EXIT:124')\n"
+                        "    except Exception as e:\n"
+                        "        print(f'Error: {e}')\n"
+                        "        print(f'{DELIM} {i} EXIT:1')\n"
+                        "EVALEOF"
+                    )
+                    # Combine: write script + run it
+                    batch_cmd = runner_write_cmd + " && " + batch_cmd
 
                     # Single SSH call — timeout covers all queries
                     total_timeout = min(timeout_per_query * len(queries), 300)
