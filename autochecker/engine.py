@@ -2646,6 +2646,83 @@ with open("_eval_results.json", "w") as f:
                     )
                 if passed: status = "PASS"
 
+            elif check_type == "ssh_eval_set":
+                # Run a set of queries via SSH, check each against expected patterns.
+                # Passes if >= min_pass_rate fraction of queries succeed.
+                command_template = params.get('command_template', '')
+                queries = params.get('queries', [])
+                min_pass_rate = params.get('min_pass_rate', 0.75)
+                timeout_per_query = params.get('timeout_per_query', 30)
+
+                if not queries or not command_template:
+                    status = "ERROR"
+                    details = "ssh_eval_set: no queries or command_template defined"
+                else:
+                    ssh_host = self._server_ip or os.environ.get('SERVER_IP', 'localhost')
+                    username_param = params.get('username', 'autochecker')
+                    if username_param == '__vm_username__' and self._vm_username:
+                        ssh_user = self._vm_username
+                    else:
+                        ssh_user = username_param
+
+                    passed_queries = 0
+                    failed_queries = []
+                    for i, q in enumerate(queries):
+                        q_input = q.get('input', '')
+                        q_expect_regex = q.get('expect_regex')
+                        q_expect_min_lines = q.get('expect_min_lines', 0)
+                        q_no_traceback = q.get('expect_no_traceback', True)
+
+                        cmd = command_template.replace('{input}', q_input)
+                        ok, data = self._ssh_exec_raw(
+                            ssh_host, ssh_user, cmd,
+                            port=22, timeout=timeout_per_query
+                        )
+
+                        if not ok:
+                            error = data.get("error", "SSH failed") if isinstance(data, dict) else str(data)
+                            failed_queries.append(f"[{i+1}] '{q_input}': SSH failed ({error[:60]})")
+                            continue
+
+                        exit_code = data.get("exit_code", -1)
+                        stdout = data.get("stdout", "").strip()
+
+                        if exit_code != 0:
+                            failed_queries.append(f"[{i+1}] '{q_input}': exit code {exit_code}")
+                            continue
+
+                        # Validate output against expectations
+                        q_passed = True
+                        reason = ""
+
+                        if q_no_traceback and 'Traceback' in stdout:
+                            q_passed = False
+                            reason = "contains Traceback"
+                        elif q_expect_regex and not re.search(q_expect_regex, stdout, re.IGNORECASE):
+                            q_passed = False
+                            reason = f"no match for /{q_expect_regex}/"
+                        elif q_expect_min_lines and len(stdout.splitlines()) < q_expect_min_lines:
+                            q_passed = False
+                            reason = f"got {len(stdout.splitlines())} lines, need ≥{q_expect_min_lines}"
+
+                        if q_passed:
+                            passed_queries += 1
+                        else:
+                            failed_queries.append(f"[{i+1}] '{q_input}': {reason}")
+
+                    total = len(queries)
+                    rate = passed_queries / total if total > 0 else 0
+                    passed = rate >= min_pass_rate
+
+                    if passed:
+                        status = "PASS"
+                        details = f"Eval: {passed_queries}/{total} queries passed ({rate:.0%})"
+                    else:
+                        fail_summary = "; ".join(failed_queries[:5])
+                        if len(failed_queries) > 5:
+                            fail_summary += f" ... and {len(failed_queries)-5} more"
+                        details = f"Eval: {passed_queries}/{total} passed ({rate:.0%}, need {min_pass_rate:.0%}). Failures: {fail_summary}"
+
             elif check_type == "llm_judge":
                 # LLM checks are handled separately, not through engine
                 status = "SKIP"

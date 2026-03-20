@@ -269,134 +269,51 @@ checks:
   # TASK 2: Backend Integration
   # =====================================================
 
-  - id: t2_eval_start
+  - id: t2_commands
     task: task-2
-    title: '--test "/start" returns welcome message'
+    title: "Slash commands return correct data"
     class: execution
     runner: code
-    type: ssh_check
+    type: ssh_eval_set
     is_required: true
-    weight: 3
+    weight: 10
     depends_on: [t1_install, backend_running]
     hint: >
-      /start should return a welcome message containing "welcome" or your bot's name.
+      All slash commands must work via --test mode. /start returns a welcome,
+      /help lists commands, /health shows backend status, /labs lists labs,
+      /scores shows per-task data. Edge cases (wrong lab, missing arg) must not crash.
     params:
       runtime: prod
       username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/start' 2>/dev/null"
-      expect_regex: "(?i)(welcome|bot|assistant|lms)"
-      timeout: 30
+      command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
+      min_pass_rate: 0.75
+      timeout_per_query: 30
+      queries:
+        # Core commands (from task description)
+        - input: "/start"
+          expect_regex: "(?i)(welcome|bot|assistant|lms)"
+        - input: "/help"
+          expect_regex: "/"
+          expect_min_lines: 4
+        - input: "/health"
+          expect_regex: "(?i)(health|ok|running|available|status|items)"
+        - input: "/labs"
+          expect_min_lines: 2
+        - input: "/scores lab-04"
+          expect_min_lines: 2
+        # Unseen edge cases
+        - input: "/scores lab-01"
+          expect_regex: ".{10,}"
+        - input: "/scores lab-02"
+          expect_regex: ".{10,}"
+        - input: "/scores"
+          expect_no_traceback: true
+        - input: "/scores lab-99"
+          expect_no_traceback: true
+        - input: "/unknown"
+          expect_no_traceback: true
 
-  - id: t2_eval_help
-    task: task-2
-    title: '--test "/help" lists ≥4 commands'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [t1_install]
-    hint: >
-      /help should list at least 4 slash commands with descriptions.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/help' 2>/dev/null | grep -c '/' || echo 0"
-      expect_regex: "^[4-9]|^[1-9][0-9]"
-      timeout: 30
-
-  - id: t2_eval_health
-    task: task-2
-    title: '--test "/health" reports backend status'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [t1_install, backend_running]
-    hint: >
-      /health should call the backend and report healthy/unhealthy status.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/health' 2>/dev/null"
-      expect_regex: "(?i)(health|ok|running|available|status|items)"
-      timeout: 30
-
-  - id: t2_eval_labs
-    task: task-2
-    title: '--test "/labs" returns lab list'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [t1_install, backend_running, data_synced]
-    hint: >
-      /labs should list available labs from the backend. Make sure the ETL sync
-      has been run so the database has data.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/labs' 2>/dev/null | wc -l"
-      expect_regex: "^[2-9]|^[1-9][0-9]"
-      timeout: 30
-
-  - id: t2_eval_scores
-    task: task-2
-    title: '--test "/scores lab-04" returns task scores'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [t1_install, backend_running, data_synced]
-    hint: >
-      /scores lab-04 should show per-task pass rates with percentages.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/scores lab-04' 2>/dev/null | wc -l"
-      expect_regex: "^[2-9]|^[1-9][0-9]"
-      timeout: 30
-
-  - id: t2_eval_scores_other
-    task: task-2
-    title: '--test "/scores lab-01" works for different lab (unseen)'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [t1_install, backend_running, data_synced]
-    hint: >
-      /scores should work for any lab, not just lab-04.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/scores lab-01' 2>/dev/null"
-      expect_regex: ".{10,}"
-      timeout: 30
-
-  - id: t2_eval_scores_noarg
-    task: task-2
-    title: '--test "/scores" without argument does not crash (unseen)'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [t1_install]
-    hint: >
-      /scores without an argument should return a helpful message, not a crash.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test '/scores' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -3; echo EXIT:$RC"
-      expect_regex: "EXIT:0"
-      timeout: 30
-
-  - id: t2_eval_error
+  - id: t2_error
     task: task-2
     title: "Error handling: no traceback when backend is down"
     class: execution
@@ -413,6 +330,7 @@ checks:
       runtime: prod
       username: __vm_username__
       command: >
+        export PATH=$HOME/.local/bin:$PATH &&
         cd ~/se-toolkit-lab-7 &&
         docker compose --env-file .env.docker.secret stop app 2>/dev/null;
         OUTPUT=$(cd bot && uv run bot.py --test '/health' 2>/dev/null);
@@ -421,31 +339,39 @@ checks:
       expect_regex: "NO_TRACEBACK"
       timeout: 60
 
+  - id: t2_data_quality
+    task: task-2
+    title: "Commands return real backend data (not placeholders)"
+    class: execution
+    runner: code
+    type: ssh_eval_set
+    is_required: true
+    weight: 5
+    depends_on: [t1_install, backend_running]
+    hint: >
+      /labs must list real lab names, /scores must show real percentages.
+      Make sure the ETL sync has been run so the database has data.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
+      min_pass_rate: 0.75
+      timeout_per_query: 30
+      queries:
+        - input: "/labs"
+          expect_regex: "(?i)(lab.{0,3}0[1-6]|products|backend|testing|pipeline|agent)"
+        - input: "/scores lab-04"
+          expect_regex: "\\d"
+        - input: "/health"
+          expect_regex: "\\d"
+
   # =====================================================
   # TASK 3: Intent-Based Natural Language Routing
   # =====================================================
 
-  - id: t3_buttons
+  - id: t3_structural
     task: task-3
-    title: "Source code contains keyboard/button setup"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 3
-    depends_on: [repo_exists]
-    hint: >
-      Add inline keyboard buttons or a reply keyboard for common actions.
-      Your source code should contain InlineKeyboardMarkup, ReplyKeyboardMarkup,
-      InlineKeyboardButton, or equivalent.
-    params:
-      path: "bot/"
-      pattern: "InlineKeyboard|ReplyKeyboard|keyboard|CallbackQuery"
-      min_matches: 1
-
-  - id: t3_tools
-    task: task-3
-    title: "Source code defines ≥9 tool/function schemas for LLM"
+    title: "Source code has keyboard buttons and ≥9 tool schemas"
     class: structural
     runner: code
     type: ssh_check
@@ -453,147 +379,62 @@ checks:
     weight: 5
     depends_on: [repo_on_vm]
     hint: >
-      Define all 9 backend endpoints as LLM tool schemas. Each tool needs
-      "type": "function" in the schema definition. See the task description
-      for the list of required tools.
+      Your bot needs: (1) inline keyboard buttons (InlineKeyboardMarkup or similar),
+      (2) at least 9 tool/function schemas for the LLM (one per backend endpoint).
     params:
       runtime: prod
       username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && grep -r '\"type\".*:.*\"function\"' bot/ 2>/dev/null | wc -l"
-      expect_regex: "^[9-9]$|^[1-9][0-9]"
+      command: >
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
+        TOOLS=$(grep -r '"type".*:.*"function"' bot/ 2>/dev/null | wc -l) &&
+        BUTTONS=$(grep -ri 'keyboard\|CallbackQuery' bot/ 2>/dev/null | wc -l) &&
+        echo "tools:$TOOLS buttons:$BUTTONS" &&
+        test $TOOLS -ge 9 && test $BUTTONS -ge 1 && echo PASS || echo FAIL
+      expect_regex: "PASS"
       timeout: 15
 
-  # Task 3 eval set (LLM-dependent — uses student's Qwen proxy)
-  - id: t3_eval_labs
+  - id: t3_eval
     task: task-3
-    title: 'NL: "what labs are available" returns data'
+    title: "Natural language queries return correct data"
     class: execution
     runner: code
-    type: ssh_check
+    type: ssh_eval_set
     is_required: true
-    weight: 5
+    weight: 10
     depends_on: [t1_install, backend_running, llm_available]
     hint: >
-      Plain text query (no / prefix) should use LLM to determine intent
-      and fetch data from the backend. If you see "LLM error: HTTP 401",
-      restart the Qwen proxy: cd ~/qwen-code-oai-proxy && docker compose restart
+      Plain text queries should use the LLM to determine intent, call the
+      right backend tool, and return formatted data. If you see "LLM error:
+      HTTP 401", restart the Qwen proxy: cd ~/qwen-code-oai-proxy && docker compose restart
     params:
       runtime: prod
       username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'what labs are available' 2>/dev/null | wc -c"
-      expect_regex: "^[2-9][0-9]|^[1-9][0-9][0-9]"
-      timeout: 60
-
-  - id: t3_eval_scores
-    task: task-3
-    title: 'NL: "show me scores for lab 4" returns data'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [t1_install, backend_running, llm_available]
-    hint: >
-      The LLM should call the right tool with the right argument (lab-04).
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'show me scores for lab 4' 2>/dev/null"
-      expect_regex: "\\d"
-      timeout: 60
-
-  - id: t3_eval_multi
-    task: task-3
-    title: 'NL: "which lab has the lowest pass rate" mentions a lab'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [t1_install, backend_running, llm_available]
-    hint: >
-      Multi-step query: the bot should call get_items, then get_pass_rates
-      for each lab, compare, and name the lab with the lowest rate.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'which lab has the lowest pass rate' 2>/dev/null"
-      expect_regex: "(?i)(lab.{0,5}\\d|Lab \\d)"
-      timeout: 90
-
-  - id: t3_eval_fallback
-    task: task-3
-    title: 'NL: "asdfgh" returns helpful fallback'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [t1_install]
-    hint: >
-      Gibberish input should return a helpful message listing capabilities,
-      not a crash or empty response.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test 'asdfgh' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -5; echo EXIT:$RC"
-      expect_regex: "EXIT:0"
-      timeout: 60
-
-  - id: t3_eval_top
-    task: task-3
-    title: 'NL: "top 3 students in lab 4" returns data (unseen)'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [t1_install, backend_running, llm_available]
-    hint: >
-      Unseen query — the LLM should extract the limit (3) and lab (lab-04)
-      and call get_top_learners.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'top 3 students in lab 4' 2>/dev/null"
-      expect_regex: ".{10,}"
-      timeout: 60
-
-  - id: t3_eval_learners
-    task: task-3
-    title: 'NL: "how many students are enrolled" returns data (unseen)'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [t1_install, backend_running, llm_available]
-    hint: >
-      Unseen query — the LLM should call get_learners.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'how many students are enrolled' 2>/dev/null"
-      expect_regex: "\\d"
-      timeout: 60
-
-  - id: t3_eval_greeting
-    task: task-3
-    title: 'NL: "hello" returns friendly response (unseen)'
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 2
-    depends_on: [t1_install]
-    hint: >
-      A greeting should get a friendly response, not a crash.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test 'hello' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -3; echo EXIT:$RC"
-      expect_regex: "EXIT:0"
-      timeout: 60
+      command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
+      min_pass_rate: 0.7
+      timeout_per_query: 60
+      queries:
+        # Core queries (from task description)
+        - input: "what labs are available"
+          expect_regex: "(?i)(lab|available)"
+        - input: "show me scores for lab 4"
+          expect_regex: "\\d"
+        - input: "which lab has the lowest pass rate"
+          expect_regex: "(?i)(lab.{0,5}\\d|Lab \\d)"
+        - input: "asdfgh"
+          expect_no_traceback: true
+        # Unseen queries
+        - input: "top 3 students in lab 4"
+          expect_regex: ".{10,}"
+        - input: "how many students are enrolled"
+          expect_regex: "\\d"
+        - input: "hello"
+          expect_no_traceback: true
+        - input: "show me the timeline for lab 1"
+          expect_regex: ".{10,}"
+        - input: "which group is best in lab 3"
+          expect_regex: ".{10,}"
+        - input: "what is the completion rate for lab 4"
+          expect_regex: "\\d"
 
   # =====================================================
   # TASK 4: Containerize and Document
