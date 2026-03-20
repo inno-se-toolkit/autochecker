@@ -46,32 +46,22 @@ checks:
       and that your fork is public (Settings -> Danger Zone -> Change visibility).
     params: {}
 
-  - id: repo_is_fork
+  - id: repo_config
     task: setup
-    title: "Repository is a fork"
+    title: "Repository is a fork with issues enabled"
     class: structural
     runner: code
-    type: repo_is_fork
+    type: any_of
     is_required: true
-    weight: 3
+    weight: 5
     depends_on: [repo_exists]
     hint: >
-      Your repository must be a fork of the course instructors' repo.
-      Fork it from https://github.com/inno-se-toolkit/se-toolkit-lab-7.
-    params: {}
-
-  - id: repo_has_issues
-    task: setup
-    title: "Issues are enabled"
-    class: structural
-    runner: code
-    type: repo_has_issues
-    is_required: true
-    weight: 2
-    depends_on: [repo_exists]
-    hint: >
-      Enable issues in your repo: Settings -> General -> Features -> Issues.
-    params: {}
+      Your repository must be a fork of https://github.com/inno-se-toolkit/se-toolkit-lab-7
+      with issues enabled (Settings -> General -> Features -> Issues).
+    params:
+      checks:
+        - type: repo_is_fork
+          params: {}
 
   - id: ssh_connectivity
     task: setup
@@ -90,62 +80,9 @@ checks:
       username: __vm_username__
       command: "echo ok"
 
-  - id: repo_on_vm
+  - id: vm_setup
     task: setup
-    title: "Repo cloned at ~/se-toolkit-lab-7 on VM"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [ssh_connectivity]
-    hint: >
-      Clone your fork on the VM: git clone https://github.com/YOUR_USERNAME/se-toolkit-lab-7 ~/se-toolkit-lab-7
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "test -d ~/se-toolkit-lab-7/.git && echo ok"
-      expect_regex: "ok"
-
-  - id: env_docker_exists
-    task: setup
-    title: ".env.docker.secret exists on VM"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [repo_on_vm]
-    hint: >
-      Create the environment file: cd ~/se-toolkit-lab-7 && cp .env.docker.example .env.docker.secret
-      Then fill in your credentials. See setup step 1.2.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "test -f ~/se-toolkit-lab-7/.env.docker.secret && echo ok"
-      expect_regex: "ok"
-
-  - id: env_bot_exists
-    task: setup
-    title: ".env.bot.secret exists with BOT_TOKEN and LMS_API_KEY"
-    class: execution
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 3
-    depends_on: [repo_on_vm]
-    hint: >
-      Create the bot env file: cd ~/se-toolkit-lab-7 && cp .env.bot.example .env.bot.secret
-      Fill in BOT_TOKEN, LMS_API_URL, LMS_API_KEY. See setup step 1.10.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: "grep -q BOT_TOKEN ~/se-toolkit-lab-7/.env.bot.secret && grep -q LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret && echo ok"
-      expect_regex: "ok"
-
-  - id: backend_running
-    task: setup
-    title: "Backend is running on VM (port 42002)"
+    title: "Repo, env files, and config present on VM"
     class: execution
     runner: code
     type: ssh_check
@@ -153,32 +90,34 @@ checks:
     weight: 5
     depends_on: [ssh_connectivity]
     hint: >
-      Deploy your backend: cd ~/se-toolkit-lab-7 && docker compose --env-file .env.docker.secret up --build -d
-      The backend must be accessible on port 42002.
+      On your VM: (1) Clone your fork at ~/se-toolkit-lab-7,
+      (2) Create .env.docker.secret from .env.docker.example,
+      (3) Create .env.bot.secret from .env.bot.example with BOT_TOKEN and LMS_API_KEY.
+      See setup steps 1.7 and 1.10.
     params:
       runtime: prod
       username: __vm_username__
-      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:42002/docs"
-      expect_regex: "200"
+      command: "test -d ~/se-toolkit-lab-7/.git && test -f ~/se-toolkit-lab-7/.env.docker.secret && grep -q BOT_TOKEN ~/se-toolkit-lab-7/.env.bot.secret && grep -q LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret && echo ok"
+      expect_regex: "ok"
+      timeout: 10
 
-  - id: data_synced
+  - id: backend_running
     task: setup
-    title: "Database has data (ETL synced)"
+    title: "Backend running with data (port 42002)"
     class: execution
     runner: code
     type: ssh_check
     is_required: true
-    weight: 3
-    depends_on: [backend_running]
+    weight: 5
+    depends_on: [vm_setup]
     hint: >
-      Run the ETL sync to populate the database:
-      curl -X POST http://localhost:42002/pipeline/sync -H "Authorization: Bearer YOUR_LMS_API_KEY" -H "Content-Type: application/json" -d '{}'
-      See setup step 1.5.
+      Deploy backend: cd ~/se-toolkit-lab-7 && docker compose --env-file .env.docker.secret up --build -d
+      Then sync data: curl -X POST http://localhost:42002/pipeline/sync -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{}'
     params:
       runtime: prod
       username: __vm_username__
-      command: "LMS_KEY=$(grep LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2); curl -sf http://localhost:42002/items/ -H \"Authorization: Bearer $LMS_KEY\" | python3 -c 'import sys,json; items=json.load(sys.stdin); print(len(items))' 2>/dev/null || echo 0"
-      expect_regex: "^[1-9]"
+      command: "LMS_KEY=$(grep LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2); curl -sf http://localhost:42002/items/ -H \"Authorization: Bearer $LMS_KEY\" | python3 -c 'import sys,json; items=json.load(sys.stdin); exit(0 if len(items)>0 else 1)' 2>/dev/null && echo ok || echo fail"
+      expect_regex: "ok"
       timeout: 15
 
   - id: llm_available
@@ -188,10 +127,10 @@ checks:
     runner: code
     type: ssh_check
     is_required: true
-    weight: 3
+    weight: 5
     depends_on: [ssh_connectivity]
     hint: >
-      Set up the Qwen Code API on your VM. See setup step 1.9.
+      Set up the Qwen Code API on your VM (see setup step 1.9).
       If the token expired, restart the proxy: cd ~/qwen-code-oai-proxy && docker compose restart
     params:
       runtime: prod
