@@ -531,7 +531,9 @@ async def get_task_stats(tg_id: int) -> dict[str, dict]:
                 key = f"{row['lab_id']}:{row['task_id']}"
                 stats[key] = {"attempts": row["cnt"], "score": None, "passed": None, "failed": None, "total": None}
 
-        # Best result per task (fewest failures, then most passes)
+        # Best result per task (most passes, then fewest non-passes).
+        # Uses (total - passed) instead of raw failed, because ERROR checks
+        # have failed=0 but aren't passes — they shouldn't beat real results.
         async with db.execute("""
             SELECT lab_id, task_id, score, passed, failed, total
             FROM results WHERE tg_id = ?
@@ -540,13 +542,12 @@ async def get_task_stats(tg_id: int) -> dict[str, dict]:
                 key = f"{row['lab_id']}:{row['task_id']}"
                 if key not in stats:
                     stats[key] = {"attempts": 0}
-                cur_f = row["failed"] or 0
                 cur_p = row["passed"] or 0
+                cur_np = (row["total"] or 0) - cur_p
                 prev = stats[key]
-                prev_f = prev.get("failed") or float("inf")
                 prev_p = prev.get("passed") or 0
-                # Better = fewer failures; tie-break by more passes
-                if prev.get("score") is None or (cur_f, -cur_p) < (prev_f, -prev_p):
+                prev_np = (prev.get("total") or 0) - prev_p
+                if prev.get("score") is None or (-cur_p, cur_np) < (-prev_p, prev_np):
                     stats[key].update({
                         "score": row["score"],
                         "passed": row["passed"],

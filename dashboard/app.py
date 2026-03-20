@@ -180,9 +180,10 @@ def _cell_status(passed: Optional[int], failed: Optional[int], total: Optional[i
     """Return 'pass' (100%), 'partial' (>=75%), 'fail' (<75%), or 'none'."""
     if total is None or total == 0:
         return "none"
-    if failed == 0:
+    p = passed or 0
+    if p == total and (failed or 0) == 0:
         return "pass"
-    pct = (passed or 0) / total * 100
+    pct = p / total * 100
     if pct >= 75:
         return "partial"
     return "fail"
@@ -220,12 +221,14 @@ async def _fetch_best_scores(db: aiosqlite.Connection) -> dict[int, dict[str, di
             if prev is None:
                 scores[row["tg_id"]][key] = entry
             else:
-                # Better = fewer failures; tie-break by more passes
-                prev_f = prev["failed"] if prev["failed"] is not None else 999
-                cur_f = entry["failed"] if entry["failed"] is not None else 999
+                # Better = more passes; tie-break by fewer non-passes.
+                # Use (total - passed) instead of raw failed, because ERROR
+                # checks have failed=0 but aren't passes either.
                 prev_p = prev["passed"] if prev["passed"] is not None else 0
                 cur_p = entry["passed"] if entry["passed"] is not None else 0
-                if (cur_f, -cur_p) < (prev_f, -prev_p):
+                prev_np = (prev["total"] or 0) - prev_p
+                cur_np = (entry["total"] or 0) - cur_p
+                if (-cur_p, cur_np) < (-prev_p, prev_np):
                     scores[row["tg_id"]][key] = entry
     return scores
 
@@ -399,7 +402,7 @@ async def student_detail(
             if isinstance(details_str, str) and "manual_override" in details_str:
                 has_override.add(key)
 
-        # Best result per task (fewest failures, then most passes)
+        # Best result per task (most passes, then fewest non-passes)
         latest_by_task: dict[str, dict] = {}
         for result in results:
             key = f"{result['lab_id']}:{result['task_id']}"
@@ -407,11 +410,11 @@ async def student_detail(
                 latest_by_task[key] = result
             else:
                 prev = latest_by_task[key]
-                cur_f = result.get("failed") or 0
                 cur_p = result.get("passed") or 0
-                prev_f = prev.get("failed") or 0
                 prev_p = prev.get("passed") or 0
-                if (cur_f, -cur_p) < (prev_f, -prev_p):
+                cur_np = (result.get("total") or 0) - cur_p
+                prev_np = (prev.get("total") or 0) - prev_p
+                if (-cur_p, cur_np) < (-prev_p, prev_np):
                     latest_by_task[key] = result
 
         task_attempts_map: dict[str, dict] = {}
