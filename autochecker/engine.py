@@ -2670,21 +2670,13 @@ with open("_eval_results.json", "w") as f:
                     # ONE SSH session via subprocess. Avoids repeated relay
                     # round-trips. ~8-10s per LLM query instead of ~16s.
                     import json as _json
+                    import base64 as _b64
                     DELIM = "___EVAL_DELIM___"
                     queries_json = _json.dumps([q.get('input', '') for q in queries])
-                    # Escape single quotes for shell embedding
                     queries_shell = queries_json.replace("'", "'\\''")
 
-                    batch_cmd = (
-                        f"export PATH=$HOME/.local/bin:$PATH && "
-                        f"cd ~/se-toolkit-lab-7/bot && "
-                        f"uv run python3 /tmp/_eval_batch.py '{queries_shell}'"
-                    )
-
-                    # Write the batch runner script first, then run it.
-                    # The runner is a separate step to avoid escaping hell.
-                    runner_write_cmd = (
-                        "cat > /tmp/_eval_batch.py << 'EVALEOF'\n"
+                    # Python batch runner script
+                    runner_py = (
                         "import sys, os, json, subprocess\n"
                         "bot_dir = os.path.expanduser('~/se-toolkit-lab-7/bot')\n"
                         "queries = json.loads(sys.argv[1]) if len(sys.argv) > 1 else []\n"
@@ -2705,10 +2697,16 @@ with open("_eval_results.json", "w") as f:
                         "    except Exception as e:\n"
                         "        print(f'Error: {e}')\n"
                         "        print(f'{DELIM} {i} EXIT:1')\n"
-                        "EVALEOF"
                     )
-                    # Combine: write script + run it
-                    batch_cmd = runner_write_cmd + " && " + batch_cmd
+                    # Base64 encode to avoid quoting issues with heredocs/SSH
+                    runner_b64 = _b64.b64encode(runner_py.encode()).decode()
+
+                    batch_cmd = (
+                        f"export PATH=$HOME/.local/bin:$PATH && "
+                        f"echo '{runner_b64}' | base64 -d > /tmp/_eval_batch.py && "
+                        f"cd ~/se-toolkit-lab-7/bot && "
+                        f"uv run python3 /tmp/_eval_batch.py '{queries_shell}'"
+                    )
 
                     # Single SSH call — timeout covers all queries
                     total_timeout = min(timeout_per_query * len(queries), 300)
