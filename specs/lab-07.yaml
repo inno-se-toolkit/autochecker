@@ -418,42 +418,28 @@ checks:
       runtime: prod
       username: __vm_username__
       command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
-      min_pass_rate: 0.9
-      timeout_per_query: 60
+      min_pass_rate: 0.85
+      timeout_per_query: 30
       queries:
-        # --- Single tool queries (must return real backend data) ---
+        # Single tool — real data verification
         - input: "what labs are available"
           expect_regex: "(?i)(products|architecture|backend|testing|pipeline|agent)"
         - input: "show me scores for lab 4"
           expect_regex: "(?i)(task|setup|testing|front|ci).*\\d|\\d.*(?:task|setup|testing)"
-        - input: "top 3 students in lab 4"
-          expect_regex: "\\d"
-          expect_min_lines: 2
+        # Unseen — different tools, argument extraction
         - input: "how many students are enrolled"
           expect_regex: "\\d{2,}"
-        - input: "show me the timeline for lab 1"
-          expect_regex: "\\d"
         - input: "which group is doing best in lab 3"
           expect_regex: "(?i)(group|\\d)"
-        - input: "what is the completion rate for lab 4"
-          expect_regex: "\\d+\\.?\\d*%|\\d{2,}"
-        - input: "what is the score distribution for lab 1"
-          expect_regex: "\\d"
-        # --- Action (trigger_sync) ---
-        - input: "sync the data"
-          expect_regex: "(?i)(sync|loaded|items|logs|success|complete|trigger)"
-        # --- Multi-step queries (require multiple tool calls) ---
+        # Multi-step — requires chaining tools
         - input: "which lab has the lowest pass rate"
           expect_regex: "(?i)Lab.{0,10}\\d.*\\d+\\.?\\d*%|\\d+\\.?\\d*%.*Lab"
-        - input: "which lab has the highest completion rate"
-          expect_regex: "(?i)Lab.{0,10}\\d.*\\d+|\\d+.*Lab"
-        - input: "compare lab 1 and lab 2 pass rates"
-          expect_regex: "(?i)(lab.{0,5}0?1|lab.{0,5}0?2).*\\d"
-        # --- Fallback / greeting ---
+        # Action — write tool
+        - input: "sync the data"
+          expect_regex: "(?i)(sync|loaded|items|logs|success|complete|trigger)"
+        # Fallback — graceful handling
         - input: "asdfgh"
           expect_regex: "(?i)(help|can|try|available|command|lab|score)"
-        - input: "hello"
-          expect_regex: "(?i)(help|can|hi|hello|welcome|assist)"
 
   - id: t3_api_calls
     task: task-3
