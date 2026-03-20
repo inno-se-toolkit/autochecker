@@ -429,7 +429,7 @@ checks:
         - input: "which lab has the lowest pass rate"
           expect_regex: "(?i)Lab.{0,10}\\d.*\\d+\\.?\\d*%|\\d+\\.?\\d*%.*Lab"
         - input: "asdfgh"
-          expect_no_traceback: true
+          expect_regex: "(?i)(help|can|try|available|command|lab|score)"
         # Unseen — each tests a different backend tool
         - input: "top 3 students in lab 4"
           expect_regex: "\\d"
@@ -437,13 +437,30 @@ checks:
         - input: "how many students are enrolled"
           expect_regex: "\\d{2,}"
         - input: "hello"
-          expect_no_traceback: true
+          expect_regex: "(?i)(help|can|hi|hello|welcome|assist)"
         - input: "show me the timeline for lab 1"
           expect_regex: "\\d"
         - input: "which group is doing best in lab 3"
           expect_regex: "(?i)(group|\\d)"
         - input: "what is the completion rate for lab 4"
           expect_regex: "\\d+\\.?\\d*%|\\d{2,}"
+
+  - id: t3_gitflow
+    task: task-3
+    title: "Git workflow: ≥3 merged PRs with approvals (tasks 1-3)"
+    class: process
+    runner: code
+    type: pr_review_approvals
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Each task must follow git workflow: create an issue, branch, PR with
+      "Closes #...", get partner approval, merge. You need at least 3 merged
+      PRs (one per task) with at least 3 total approvals across all PRs.
+    params:
+      base: "main"
+      min_total_approvals: 3
 
   # =====================================================
   # TASK 4: Containerize and Document
