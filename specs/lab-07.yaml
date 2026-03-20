@@ -455,6 +455,39 @@ checks:
         - input: "hello"
           expect_regex: "(?i)(help|can|hi|hello|welcome|assist)"
 
+  - id: t3_api_calls
+    task: task-3
+    title: "Bot actually calls backend API (not hardcoded)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_install, backend_running, llm_available]
+    hint: >
+      The bot must call the real backend API when answering queries.
+      This check runs queries and verifies the backend received the
+      expected HTTP requests (GET /items/, GET /analytics/pass-rates, etc.).
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
+        APP_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i app | head -1) &&
+        BEFORE=$(docker logs $APP_CONTAINER 2>&1 | wc -l) &&
+        cd bot &&
+        uv run bot.py --test 'what labs are available' 2>/dev/null &&
+        uv run bot.py --test 'show me scores for lab 4' 2>/dev/null &&
+        uv run bot.py --test 'how many students are enrolled' 2>/dev/null &&
+        LOGS=$(docker logs $APP_CONTAINER 2>&1 | tail -n +$((BEFORE+1))) &&
+        ITEMS=$(echo "$LOGS" | grep -c 'GET /items' || true) &&
+        ANALYTICS=$(echo "$LOGS" | grep -c 'GET /analytics' || true) &&
+        LEARNERS=$(echo "$LOGS" | grep -c 'GET /learners' || true) &&
+        echo "items:$ITEMS analytics:$ANALYTICS learners:$LEARNERS" &&
+        test $ITEMS -gt 0 && test $((ANALYTICS + LEARNERS)) -gt 0 && echo PASS || echo FAIL
+      expect_regex: "PASS"
+      timeout: 120
+
   - id: t3_gitflow
     task: task-3
     title: "Git workflow: ≥3 merged PRs with approvals (tasks 1-3)"
