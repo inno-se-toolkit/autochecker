@@ -476,9 +476,10 @@ checks:
         APP_CONTAINER=$(docker ps --format '{{.Names}}' | grep -i app | head -1) &&
         BEFORE=$(docker logs $APP_CONTAINER 2>&1 | wc -l) &&
         cd bot &&
-        uv run bot.py --test 'what labs are available' 2>/dev/null &&
-        uv run bot.py --test 'show me scores for lab 4' 2>/dev/null &&
-        uv run bot.py --test 'how many students are enrolled' 2>/dev/null &&
+        uv run bot.py --test 'what labs are available' >/dev/null 2>&1 &&
+        uv run bot.py --test 'show me scores for lab 4' >/dev/null 2>&1 &&
+        uv run bot.py --test 'how many students are enrolled' >/dev/null 2>&1 &&
+        cd ~/se-toolkit-lab-7 &&
         LOGS=$(docker logs $APP_CONTAINER 2>&1 | tail -n +$((BEFORE+1))) &&
         ITEMS=$(echo "$LOGS" | grep -c 'GET /items' || true) &&
         ANALYTICS=$(echo "$LOGS" | grep -c 'GET /analytics' || true) &&
