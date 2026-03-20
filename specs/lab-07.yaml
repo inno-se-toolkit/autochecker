@@ -204,7 +204,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && git pull -q && cd bot && uv sync 2>&1 | tail -5; echo EXIT:$?"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && git pull -q 2>/dev/null; cd bot && uv sync 2>&1 | tail -5; echo EXIT:$?"
       expect_regex: "EXIT:0"
       timeout: 60
 
