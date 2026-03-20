@@ -265,7 +265,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7 && git pull -q && cd bot && uv sync 2>&1 | tail -5; echo EXIT:$?"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && git pull -q && cd bot && uv sync 2>&1 | tail -5; echo EXIT:$?"
       expect_regex: "EXIT:0"
       timeout: 60
 
@@ -285,7 +285,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/start' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/start' 2>/dev/null"
       expect_regex: ".{5,}"
       timeout: 30
 
@@ -304,7 +304,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/help' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/help' 2>/dev/null"
       expect_regex: ".{5,}"
       timeout: 30
 
@@ -322,7 +322,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/foo' 2>/dev/null; echo EXIT:$?"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/foo' 2>/dev/null; echo EXIT:$?"
       expect_regex: "EXIT:0"
       timeout: 30
 
@@ -344,7 +344,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/start' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/start' 2>/dev/null"
       expect_regex: "(?i)(welcome|bot|assistant|lms)"
       timeout: 30
 
@@ -362,7 +362,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/help' 2>/dev/null | grep -c '/' || echo 0"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/help' 2>/dev/null | grep -c '/' || echo 0"
       expect_regex: "^[4-9]|^[1-9][0-9]"
       timeout: 30
 
@@ -380,7 +380,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/health' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/health' 2>/dev/null"
       expect_regex: "(?i)(health|ok|running|available|status|items)"
       timeout: 30
 
@@ -399,7 +399,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/labs' 2>/dev/null | wc -l"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/labs' 2>/dev/null | wc -l"
       expect_regex: "^[2-9]|^[1-9][0-9]"
       timeout: 30
 
@@ -417,7 +417,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/scores lab-04' 2>/dev/null | wc -l"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/scores lab-04' 2>/dev/null | wc -l"
       expect_regex: "^[2-9]|^[1-9][0-9]"
       timeout: 30
 
@@ -435,7 +435,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/scores lab-01' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/scores lab-01' 2>/dev/null"
       expect_regex: ".{10,}"
       timeout: 30
 
@@ -453,7 +453,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test '/scores' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -3; echo EXIT:$RC"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test '/scores' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -3; echo EXIT:$RC"
       expect_regex: "EXIT:0"
       timeout: 30
 
@@ -520,7 +520,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7 && grep -r '\"type\".*:.*\"function\"' bot/ 2>/dev/null | wc -l"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && grep -r '\"type\".*:.*\"function\"' bot/ 2>/dev/null | wc -l"
       expect_regex: "^[9-9]$|^[1-9][0-9]"
       timeout: 15
 
@@ -541,7 +541,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'what labs are available' 2>/dev/null | wc -c"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'what labs are available' 2>/dev/null | wc -c"
       expect_regex: "^[2-9][0-9]|^[1-9][0-9][0-9]"
       timeout: 60
 
@@ -559,7 +559,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'show me scores for lab 4' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'show me scores for lab 4' 2>/dev/null"
       expect_regex: "\\d"
       timeout: 60
 
@@ -578,7 +578,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'which lab has the lowest pass rate' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'which lab has the lowest pass rate' 2>/dev/null"
       expect_regex: "(?i)(lab.{0,5}\\d|Lab \\d)"
       timeout: 90
 
@@ -597,7 +597,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test 'asdfgh' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -5; echo EXIT:$RC"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test 'asdfgh' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -5; echo EXIT:$RC"
       expect_regex: "EXIT:0"
       timeout: 60
 
@@ -616,7 +616,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'top 3 students in lab 4' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'top 3 students in lab 4' 2>/dev/null"
       expect_regex: ".{10,}"
       timeout: 60
 
@@ -634,7 +634,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'how many students are enrolled' 2>/dev/null"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test 'how many students are enrolled' 2>/dev/null"
       expect_regex: "\\d"
       timeout: 60
 
@@ -652,7 +652,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test 'hello' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -3; echo EXIT:$RC"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && OUTPUT=$(uv run bot.py --test 'hello' 2>/dev/null); RC=$?; echo \"$OUTPUT\" | head -3; echo EXIT:$RC"
       expect_regex: "EXIT:0"
       timeout: 60
 
@@ -707,7 +707,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7 && git remote get-url origin"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && git remote get-url origin"
       expect_regex: "(?i)github.com.*se-toolkit-lab-7"
       timeout: 15
 
@@ -725,7 +725,7 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "cd ~/se-toolkit-lab-7 && grep -c 'bot:' docker-compose.yml"
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && grep -c 'bot:' docker-compose.yml"
       expect_regex: "^[1-9]"
       timeout: 15
 
