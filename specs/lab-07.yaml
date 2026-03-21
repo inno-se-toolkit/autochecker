@@ -11,6 +11,8 @@ scoring:
   pass_threshold: 0.75
   score_required_only: true
 
+requires_lms_key: false
+
 tasks:
   - id: setup
     title: "Lab setup"
@@ -32,6 +34,8 @@ checks:
   # =====================================================
   # SETUP — repo, VM, env files, backend, LLM
   # =====================================================
+
+# TODO issue title
 
   - id: repo_exists
     task: setup

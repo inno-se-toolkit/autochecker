@@ -126,7 +126,13 @@ def get_max_attempts(lab_id: str, task_id: str) -> int:
 
 
 def get_tasks_needing_lms_key(lab_id: str) -> set[str]:
-    """Return task IDs that have agent_eval checks (need LMS_API_KEY)."""
+    """Return task IDs that need the student's LMS_API_KEY.
+
+    Controlled by the top-level ``requires_lms_key`` flag in the lab spec:
+      - ``true``  → all tasks in the lab require the key
+      - ``false`` → no tasks require the key
+      - omitted   → auto-detect from check types (agent_eval)
+    """
     spec_path = SPECS_DIR / f"{lab_id}.yaml"
     if not spec_path.exists():
         return set()
@@ -134,6 +140,14 @@ def get_tasks_needing_lms_key(lab_id: str) -> set[str]:
     with open(spec_path, "r", encoding="utf-8") as f:
         spec = yaml.safe_load(f)
 
+    # Explicit override takes precedence
+    explicit = spec.get("requires_lms_key")
+    if explicit is True:
+        return {task["id"] for task in spec.get("tasks", [])}
+    if explicit is False:
+        return set()
+
+    # Default: auto-detect from agent_eval checks
     task_ids: set[str] = set()
     for check in spec.get("checks", []):
         if check.get("type") == "agent_eval":
