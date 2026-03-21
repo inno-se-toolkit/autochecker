@@ -562,17 +562,19 @@ async def process_vm_username(message: Message, db_user: User, state: FSMContext
     task_id = data["task_id"]
 
     # Now check if we also need LMS_API_KEY
-    lms_api_key = await get_lms_api_key(db_user.tg_id)
-    if not lms_api_key:
-        await state.update_data(lab_id=lab_id, task_id=task_id)
-        await state.set_state(CheckStates.waiting_for_lms_key)
-        await message.answer(
-            f"Saved VM username: <code>{text}</code>\n\n"
-            f"Now I need your <code>LMS_API_KEY</code> "
-            f"(the backend API key from your <code>.env.docker.secret</code>).\n\n"
-            f"Reply with your LMS_API_KEY:",
-        )
-        return
+    lms_api_key = ""
+    if task_id in get_tasks_needing_lms_key(lab_id):
+        lms_api_key = await get_lms_api_key(db_user.tg_id)
+        if not lms_api_key:
+            await state.update_data(lab_id=lab_id, task_id=task_id)
+            await state.set_state(CheckStates.waiting_for_lms_key)
+            await message.answer(
+                f"Saved VM username: <code>{text}</code>\n\n"
+                f"Now I need your <code>LMS_API_KEY</code> "
+                f"(the backend API key from your <code>.env.docker.secret</code>).\n\n"
+                f"Reply with your LMS_API_KEY:",
+            )
+            return
 
     await state.clear()
 
