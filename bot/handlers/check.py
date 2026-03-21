@@ -19,7 +19,7 @@ from ..database import User, get_attempts_count, add_attempt, save_result, get_s
 from ..ip_utils import validate_ip
 from ..keyboards import get_labs_keyboard, get_tasks_keyboard
 from ..runner import run_check
-from ..config import MAX_ATTEMPTS_PER_TASK, get_max_attempts, get_tasks_needing_ip, get_tasks_needing_lms_key, get_tasks_needing_vm_username
+from ..config import MAX_ATTEMPTS_PER_TASK, ACTIVE_LABS, get_max_attempts, get_tasks_needing_ip, get_tasks_needing_lms_key, get_tasks_needing_vm_username
 
 router = Router()
 
@@ -96,9 +96,11 @@ async def cmd_reset(message: Message, db_user: User, state: FSMContext) -> None:
 
     await state.clear()
 
+    any_lab_needs_lms = any(get_tasks_needing_lms_key(lab) for lab in ACTIVE_LABS)
+
     server_ip = await get_server_ip(db_user.tg_id)
     vm_user = await get_vm_username(db_user.tg_id)
-    lms_key = await get_lms_api_key(db_user.tg_id)
+    lms_key = await get_lms_api_key(db_user.tg_id) if any_lab_needs_lms else ""
 
     lines = ["<b>Your stored settings:</b>\n"]
     buttons = []
@@ -115,11 +117,12 @@ async def cmd_reset(message: Message, db_user: User, state: FSMContext) -> None:
     else:
         lines.append("VM username: <i>not set</i>")
 
-    if lms_key:
-        lines.append(f"LMS API key: <code>{lms_key[:6]}...</code>")
-        buttons.append([InlineKeyboardButton(text="Reset LMS API key", callback_data="reset:lms_api_key")])
-    else:
-        lines.append("LMS API key: <i>not set</i>")
+    if any_lab_needs_lms:
+        if lms_key:
+            lines.append(f"LMS API key: <code>{lms_key[:6]}...</code>")
+            buttons.append([InlineKeyboardButton(text="Reset LMS API key", callback_data="reset:lms_api_key")])
+        else:
+            lines.append("LMS API key: <i>not set</i>")
 
     if not buttons:
         lines.append("\nNothing to reset.")
@@ -148,10 +151,12 @@ async def callback_reset(callback: CallbackQuery, db_user: User) -> None:
         await callback.answer("Unknown setting.", show_alert=True)
         return
 
+    any_lab_needs_lms = any(get_tasks_needing_lms_key(lab) for lab in ACTIVE_LABS)
+
     # Refresh the message
     server_ip = await get_server_ip(db_user.tg_id)
     vm_user = await get_vm_username(db_user.tg_id)
-    lms_key = await get_lms_api_key(db_user.tg_id)
+    lms_key = await get_lms_api_key(db_user.tg_id) if any_lab_needs_lms else ""
 
     lines = ["<b>Your stored settings:</b>\n"]
     buttons = []
@@ -168,11 +173,12 @@ async def callback_reset(callback: CallbackQuery, db_user: User) -> None:
     else:
         lines.append("VM username: <i>not set</i>")
 
-    if lms_key:
-        lines.append(f"LMS API key: <code>{lms_key[:6]}...</code>")
-        buttons.append([InlineKeyboardButton(text="Reset LMS API key", callback_data="reset:lms_api_key")])
-    else:
-        lines.append("LMS API key: <i>not set</i>")
+    if any_lab_needs_lms:
+        if lms_key:
+            lines.append(f"LMS API key: <code>{lms_key[:6]}...</code>")
+            buttons.append([InlineKeyboardButton(text="Reset LMS API key", callback_data="reset:lms_api_key")])
+        else:
+            lines.append("LMS API key: <i>not set</i>")
 
     if not buttons:
         lines.append("\nAll settings cleared.")
@@ -556,17 +562,19 @@ async def process_vm_username(message: Message, db_user: User, state: FSMContext
     task_id = data["task_id"]
 
     # Now check if we also need LMS_API_KEY
-    lms_api_key = await get_lms_api_key(db_user.tg_id)
-    if not lms_api_key:
-        await state.update_data(lab_id=lab_id, task_id=task_id)
-        await state.set_state(CheckStates.waiting_for_lms_key)
-        await message.answer(
-            f"Saved VM username: <code>{text}</code>\n\n"
-            f"Now I need your <code>LMS_API_KEY</code> "
-            f"(the backend API key from your <code>.env.docker.secret</code>).\n\n"
-            f"Reply with your LMS_API_KEY:",
-        )
-        return
+    lms_api_key = ""
+    if task_id in get_tasks_needing_lms_key(lab_id):
+        lms_api_key = await get_lms_api_key(db_user.tg_id)
+        if not lms_api_key:
+            await state.update_data(lab_id=lab_id, task_id=task_id)
+            await state.set_state(CheckStates.waiting_for_lms_key)
+            await message.answer(
+                f"Saved VM username: <code>{text}</code>\n\n"
+                f"Now I need your <code>LMS_API_KEY</code> "
+                f"(the backend API key from your <code>.env.docker.secret</code>).\n\n"
+                f"Reply with your LMS_API_KEY:",
+            )
+            return
 
     await state.clear()
 

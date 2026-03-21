@@ -11,6 +11,8 @@ scoring:
   pass_threshold: 0.75
   score_required_only: true
 
+requires_lms_key: false
+
 tasks:
   - id: setup
     title: "Lab setup"
@@ -32,6 +34,8 @@ checks:
   # =====================================================
   # SETUP — repo, VM, env files, backend, LLM
   # =====================================================
+
+# TODO issue title
 
   - id: repo_exists
     task: setup
@@ -97,7 +101,16 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "test -d ~/se-toolkit-lab-7/.git && test -f ~/se-toolkit-lab-7/.env.docker.secret && grep -q BOT_TOKEN ~/se-toolkit-lab-7/.env.bot.secret && grep -q LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret && echo ok"
+      command: >
+        OK=1;
+        test -d ~/se-toolkit-lab-7/.git || { echo "missing: ~/se-toolkit-lab-7/.git directory"; OK=0; };
+        test -f ~/se-toolkit-lab-7/.env.docker.secret || { echo "missing: .env.docker.secret"; OK=0; };
+        test -f ~/se-toolkit-lab-7/.env.bot.secret || { echo "missing: .env.bot.secret"; OK=0; };
+        if [ -f ~/se-toolkit-lab-7/.env.bot.secret ]; then
+        grep -q BOT_TOKEN ~/se-toolkit-lab-7/.env.bot.secret || { echo "missing: BOT_TOKEN in .env.bot.secret"; OK=0; };
+        grep -q LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret || { echo "missing: LMS_API_KEY in .env.bot.secret"; OK=0; };
+        fi;
+        [ "$OK" = "1" ] && echo ok
       expect_regex: "ok"
       timeout: 10
 
@@ -116,7 +129,16 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "LMS_KEY=$(grep LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2); curl -sf http://localhost:42002/items/ -H \"Authorization: Bearer $LMS_KEY\" | python3 -c 'import sys,json; items=json.load(sys.stdin); exit(0 if len(items)>0 else 1)' 2>/dev/null && echo ok || echo fail"
+      command: >
+        LMS_KEY=$(grep '^LMS_API_KEY=' ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        if [ -z "$LMS_KEY" ]; then echo "fail: LMS_API_KEY not found in .env.bot.secret"; exit 0; fi;
+        HTTP=$(curl -s -o /tmp/_ac_items -w '%{http_code}' http://localhost:42002/items/ -H "Authorization: Bearer $LMS_KEY");
+        if [ "$HTTP" = "000" ]; then echo "fail: connection refused on port 42002 (is docker running?)"; exit 0; fi;
+        if [ "$HTTP" != "200" ]; then echo "fail: backend returned HTTP $HTTP"; exit 0; fi;
+        COUNT=$(python3 -c 'import sys,json; print(len(json.load(sys.stdin)))' < /tmp/_ac_items 2>&1);
+        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "fail: could not parse response: $COUNT"; exit 0; fi;
+        if [ "$COUNT" = "0" ]; then echo "fail: backend returned 0 items (run pipeline/sync first)"; exit 0; fi;
+        echo ok
       expect_regex: "ok"
       timeout: 15
 
@@ -135,7 +157,17 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: "LLM_KEY=$(grep LLM_API_KEY ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2); curl -sf http://localhost:42005/v1/models -H \"Authorization: Bearer $LLM_KEY\" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get(\"data\",[])))' 2>/dev/null || echo 0"
+      command: >
+        LLM_KEY=$(grep '^LLM_API_KEY=' ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        if [ -z "$LLM_KEY" ]; then echo "0 (LLM_API_KEY not found in .env.bot.secret)"; exit 0; fi;
+        HTTP=$(curl -s -o /tmp/_ac_llm -w '%{http_code}' http://localhost:42005/v1/models -H "Authorization: Bearer $LLM_KEY");
+        if [ "$HTTP" = "000" ]; then echo "0 (connection refused on port 42005 — is qwen proxy running?)"; exit 0; fi;
+        if [ "$HTTP" = "401" ]; then echo "0 (HTTP 401 — token expired, restart proxy: cd ~/qwen-code-oai-proxy && docker compose restart)"; exit 0; fi;
+        if [ "$HTTP" != "200" ]; then echo "0 (proxy returned HTTP $HTTP)"; exit 0; fi;
+        COUNT=$(python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get("data",[])))' < /tmp/_ac_llm 2>&1);
+        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "0 (failed to parse response: $COUNT)"; exit 0; fi;
+        if [ "$COUNT" = "0" ]; then echo "0 (proxy returned 0 models — token may be expired)"; exit 0; fi;
+        echo $COUNT
       expect_regex: "^[1-9]"
       timeout: 15
 
@@ -395,8 +427,12 @@ checks:
         TOOLS=$(grep -r '"type".*:.*"function"' bot/ 2>/dev/null | wc -l) &&
         BUTTONS=$(grep -ri 'keyboard\|CallbackQuery' bot/ 2>/dev/null | wc -l) &&
         REGEX_ROUTING=$(grep -rn 're\.search\|re\.match\|INTENT_PATTERN' bot/handlers/ 2>/dev/null | grep -v test | grep -v '#' | wc -l) &&
-        echo "tools:$TOOLS buttons:$BUTTONS regex_routing:$REGEX_ROUTING" &&
-        test $TOOLS -ge 9 && test $BUTTONS -ge 1 && test $REGEX_ROUTING -eq 0 && echo PASS || echo FAIL
+        echo "tools:$TOOLS buttons:$BUTTONS regex_routing:$REGEX_ROUTING";
+        FAIL="";
+        test $TOOLS -ge 9 || FAIL="${FAIL} tools<9(found $TOOLS)";
+        test $BUTTONS -ge 1 || FAIL="${FAIL} no_keyboard/callback_buttons";
+        test $REGEX_ROUTING -eq 0 || FAIL="${FAIL} regex_routing_found($REGEX_ROUTING matches)";
+        [ -z "$FAIL" ] && echo PASS || echo "FAIL:$FAIL"
       expect_regex: "PASS"
       timeout: 15
 
@@ -460,6 +496,7 @@ checks:
       command: >
         export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
         APP_CONTAINER=$(docker ps --format '{{.Names}}' | grep -iE 'app|backend' | head -1) &&
+        if [ -z "$APP_CONTAINER" ]; then echo "FAIL: no running container matching 'app' or 'backend' found"; exit 0; fi &&
         BEFORE=$(docker logs $APP_CONTAINER 2>&1 | wc -l) &&
         cd bot &&
         uv run bot.py --test 'what labs are available' >/dev/null 2>&1 &&
@@ -516,10 +553,13 @@ checks:
         BOT_COMPOSE=$(grep -c 'bot:' docker-compose.yml 2>/dev/null || echo 0) &&
         BOT_RUNNING=$(docker ps --format '{{.Names}}' | grep -ci bot || echo 0) &&
         BACKEND=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:42002/docs) &&
-        echo "remote:$REMOTE compose:$BOT_COMPOSE running:$BOT_RUNNING backend:$BACKEND" &&
-        echo "$REMOTE" | grep -qi 'github.com.*se-toolkit-lab-7' &&
-        test $BOT_COMPOSE -ge 1 && test $BOT_RUNNING -ge 1 && test "$BACKEND" = "200" &&
-        echo PASS || echo FAIL
+        echo "remote:$REMOTE compose:$BOT_COMPOSE running:$BOT_RUNNING backend:$BACKEND";
+        FAIL="";
+        echo "$REMOTE" | grep -qi 'github.com.*se-toolkit-lab-7' || FAIL="${FAIL} remote_not_github";
+        test $BOT_COMPOSE -ge 1 || FAIL="${FAIL} no_bot_service_in_compose";
+        test $BOT_RUNNING -ge 1 || FAIL="${FAIL} bot_container_not_running";
+        test "$BACKEND" = "200" || FAIL="${FAIL} backend_unhealthy(HTTP_$BACKEND)";
+        [ -z "$FAIL" ] && echo PASS || echo "FAIL:$FAIL"
       expect_regex: "PASS"
       timeout: 30
 
