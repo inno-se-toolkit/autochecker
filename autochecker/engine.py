@@ -1507,11 +1507,22 @@ with open("_eval_results.json", "w") as f:
                     continue
 
                 if ao["rc"] != 0:
-                    stderr_preview = ao["stderr"][:100]
-                    results.append(
+                    stderr_preview = ao["stderr"][:200]
+                    exit_hints = {
+                        1: "unhandled exception",
+                        2: "syntax error, missing file, or bad CLI args",
+                        126: "agent.py is not executable",
+                        127: "uv or agent.py not found",
+                    }
+                    hint = exit_hints.get(ao["rc"], "")
+                    hint_suffix = f" ({hint})" if hint else ""
+                    msg = (
                         f"  x [{q['index']}] Agent exited with code "
-                        f"{ao['rc']}: {stderr_preview}"
+                        f"{ao['rc']}{hint_suffix}"
                     )
+                    if stderr_preview:
+                        msg += f": {stderr_preview}"
+                    results.append(msg)
                     continue
 
                 stdout = ao["stdout"]
@@ -1875,7 +1886,7 @@ with open("_eval_results.json", "w") as f:
                 f"set -a && . <(tr -d '\\r' < {env_agent_file}) && set +a && "
                 f"export LMS_API_KEY='{lms_api_key}' && "
                 f"export AGENT_API_BASE_URL='http://localhost:42002' && "
-                f"uv run agent.py '{escaped_q}' 2>/dev/null"
+                f"uv run agent.py '{escaped_q}'"
             )
 
             ok, result = self._ssh_check_via_relay(
@@ -1917,11 +1928,22 @@ with open("_eval_results.json", "w") as f:
                 continue
 
             if ao["rc"] != 0:
-                stderr_preview = ao["stderr"][:100]
-                results.append(
+                stderr_preview = ao["stderr"][:200]
+                exit_hints = {
+                    1: "unhandled exception",
+                    2: "syntax error, missing file, or bad CLI args",
+                    126: "agent.py is not executable",
+                    127: "uv or agent.py not found",
+                }
+                hint = exit_hints.get(ao["rc"], "")
+                hint_suffix = f" ({hint})" if hint else ""
+                msg = (
                     f"  x [{q['index']}] Agent exited with code "
-                    f"{ao['rc']}: {stderr_preview}"
+                    f"{ao['rc']}{hint_suffix}"
                 )
+                if stderr_preview:
+                    msg += f": {stderr_preview}"
+                results.append(msg)
                 continue
 
             stdout = ao["stdout"]
