@@ -404,8 +404,11 @@ async def student_detail(
 
         # Best result per task (most passes, then fewest non-passes)
         latest_by_task: dict[str, dict] = {}
+        latest_result_timestamp_by_task: dict[str, str] = {}
         for result in results:
             key = f"{result['lab_id']}:{result['task_id']}"
+            if key not in latest_result_timestamp_by_task:
+                latest_result_timestamp_by_task[key] = result.get("timestamp") or ""
             if key not in latest_by_task:
                 latest_by_task[key] = result
             else:
@@ -418,6 +421,21 @@ async def student_detail(
                     latest_by_task[key] = result
 
         task_attempts_map: dict[str, dict] = {}
+        for key, latest in latest_by_task.items():
+            lab_id, task_id = key.split(":", 1)
+            task_attempts_map[key] = {
+                "lab_id": lab_id,
+                "task_id": task_id,
+                "title": title_map.get(key, task_id),
+                "attempts": 0,
+                "max_attempts": MAX_ATTEMPTS_PER_TASK,
+                "remaining": MAX_ATTEMPTS_PER_TASK,
+                "last_attempt": latest_result_timestamp_by_task.get(key, ""),
+                "score": latest.get("score") or "—",
+                "status": latest.get("status", "none"),
+                "has_override": key in has_override,
+            }
+
         async with db.execute(
             """SELECT lab_id, task_id, COUNT(*) AS attempts, MAX(timestamp) AS last_attempt
                FROM attempts WHERE tg_id = ? GROUP BY lab_id, task_id
