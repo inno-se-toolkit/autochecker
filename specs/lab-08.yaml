@@ -390,7 +390,7 @@ checks:
 
   - id: t3_structural
     task: task-3
-    title: "Observability MCP tools exist (separate from lms tools)"
+    title: "Observability skill and MCP tools for logs/traces exist"
     class: structural
     runner: code
     type: ssh_check
@@ -398,10 +398,10 @@ checks:
     weight: 10
     depends_on: [ssh_connectivity, otel_stack]
     hint: >
-      Task 3C requires adding NEW observability MCP tools (for logs and traces).
-      These must be separate from the existing lms tools — either a new MCP server
-      in config.json, or new Python tool code that queries VictoriaLogs/VictoriaTraces.
-      Also create nanobot/workspace/skills/observability/SKILL.md.
+      Task 3C requires adding observability MCP tools (for logs and traces).
+      Add them to the existing lms MCP server or write a new one. The tools must
+      query VictoriaLogs and/or VictoriaTraces. Also create
+      nanobot/workspace/skills/observability/SKILL.md.
     params:
       runtime: prod
       username: __vm_username__
@@ -410,9 +410,7 @@ checks:
         F=$D/nanobot/workspace/skills/observability/SKILL.md;
         test -f "$F" || { echo "missing: observability skill"; OK=0; };
         if [ -f "$F" ]; then WC=$(wc -w < "$F"); test "$WC" -ge 30 || { echo "skill too short ($WC words)"; OK=0; }; fi;
-        MCP_COUNT=$(python3 -c "import json; c=json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json')); print(len(c.get('tools',{}).get('mcpServers',c.get('tools',{}).get('mcp_servers',{}))))" 2>/dev/null);
-        test "$MCP_COUNT" -ge 2 || { echo "need >=2 MCP servers in config (have $MCP_COUNT). Add an observability server alongside lms."; OK=0; };
-        grep -rqiE 'victoria|logsql|42010|42011|logs_search|traces_list' $D/mcp/ $D/nanobot/ 2>/dev/null || { echo "no code referencing VictoriaLogs/Traces endpoints found"; OK=0; };
+        grep -rqiE 'victoria|logsql|42010|42011|9428|10428|logs_search|traces_list|logs_error' $D/mcp/ $D/nanobot/ 2>/dev/null || { echo "no code referencing VictoriaLogs/Traces endpoints found in mcp/ or nanobot/"; OK=0; };
         [ "$OK" = "1" ] && echo ok
       expect_regex: "ok"
       timeout: 10
