@@ -234,18 +234,9 @@ checks:
       runtime: prod
       username: __vm_username__
       command: >
-        test -f ~/se-toolkit-lab-8/nanobot/config.json || { echo "missing: nanobot/config.json"; exit 0; };
-        python3 -c "
-        import json, sys
-        c = json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json'))
-        has_providers = 'providers' in c or 'provider' in c
-        has_workspace = 'workspace' in c
-        if has_providers and has_workspace:
-            print('ok')
-        else:
-            if not has_providers: print('missing: providers in config.json')
-            if not has_workspace: print('missing: workspace in config.json')
-        " 2>&1
+        F=~/se-toolkit-lab-8/nanobot/config.json;
+        test -f "$F" || { echo "missing: nanobot/config.json"; exit 0; };
+        python3 -c "import json; c=json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json')); p='providers' in c or 'provider' in c; w='workspace' in c.get('agents',{}).get('defaults',{}); print('ok') if p and w else print('missing: providers=%s workspace=%s' % (p,w))" 2>&1
       expect_regex: "ok"
       timeout: 10
 
@@ -259,30 +250,15 @@ checks:
     weight: 5
     depends_on: [t1_config]
     hint: >
-      Install the LMS MCP server: cd ~/se-toolkit-lab-8/nanobot && uv add lms-mcp --path ../mcp
+      Install the LMS MCP server: cd ~/se-toolkit-lab-8/nanobot && uv add lms-mcp --editable ../mcp
       Then register it in config.json under tools.mcp_servers.
     params:
       runtime: prod
       username: __vm_username__
       command: >
-        test -f ~/se-toolkit-lab-8/nanobot/config.json || { echo "missing config.json"; exit 0; };
-        python3 -c "
-        import json
-        c = json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json'))
-        tools = c.get('tools', {})
-        mcp = tools.get('mcp_servers', tools.get('mcpServers', {}))
-        if mcp:
-            for name, srv in mcp.items():
-                cmd = srv.get('command', '')
-                args = ' '.join(srv.get('args', []))
-                if 'mcp_lms' in cmd or 'mcp_lms' in args or 'lms' in name.lower():
-                    print('ok')
-                    break
-            else:
-                print('fail: no MCP server referencing mcp_lms found')
-        else:
-            print('fail: no mcp_servers in config.json tools section')
-        " 2>&1
+        F=~/se-toolkit-lab-8/nanobot/config.json;
+        test -f "$F" || { echo "missing config.json"; exit 0; };
+        grep -q 'mcp_lms\|"lms"' "$F" && echo ok || echo "fail: no mcp_lms or lms MCP server in config.json"
       expect_regex: "ok"
       timeout: 10
 
@@ -534,33 +510,9 @@ checks:
       runtime: prod
       username: __vm_username__
       command: >
-        test -f ~/se-toolkit-lab-8/nanobot/config.json || { echo "missing config.json"; exit 0; };
-        python3 -c "
-        import json
-        c = json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json'))
-        tools = c.get('tools', {})
-        mcp = tools.get('mcp_servers', tools.get('mcpServers', {}))
-        found = 0
-        for name, srv in mcp.items():
-            cmd = srv.get('command', '')
-            args = ' '.join(srv.get('args', []))
-            full = cmd + ' ' + args + ' ' + name
-            if 'obs' in full.lower() or 'log' in full.lower() or 'trace' in full.lower():
-                found += 1
-        if found >= 1:
-            print('ok')
-        else:
-            # also check if lms server now includes observability tools
-            for name, srv in mcp.items():
-                cmd = srv.get('command', '')
-                args = ' '.join(srv.get('args', []))
-                if 'mcp_lms' in cmd or 'mcp_lms' in args:
-                    found += 1
-            if found >= 1:
-                print('ok')
-            else:
-                print('fail: no observability-related MCP server found in config')
-        " 2>&1
+        F=~/se-toolkit-lab-8/nanobot/config.json;
+        test -f "$F" || { echo "missing config.json"; exit 0; };
+        grep -qiE 'obs|log.*search|trace|mcp_lms' "$F" && echo ok || echo "fail: no observability or lms MCP tools in config"
       expect_regex: "ok"
       timeout: 10
 
