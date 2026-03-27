@@ -20,16 +20,13 @@ tasks:
     title: "Task 1: Set Up the Agent"
     prerequisite: setup
   - id: task-2
-    title: "Task 2: Deploy the Agent and Add Web Client"
+    title: "Task 2: Deploy and Connect a Web Client"
     prerequisite: setup
   - id: task-3
-    title: "Task 3: Observability Tools for the Agent"
+    title: "Task 3: Give the Agent New Eyes"
     prerequisite: setup
   - id: task-4
-    title: "Task 4: Diagnose and Fix a Bug"
-    prerequisite: setup
-  - id: task-5
-    title: "Task 5: Make the Agent Proactive"
+    title: "Task 4: Diagnose a Failure and Make the Agent Proactive"
     prerequisite: setup
 
 checks:
@@ -628,79 +625,11 @@ checks:
       min_matches: 3
 
   # =====================================================
-  # TASK 4: Diagnose and Fix a Bug
+  # TASK 4: Diagnose a Failure and Make the Agent Proactive
   # =====================================================
 
-  - id: t4_report
+  - id: t4_enhanced_skill
     task: task-4
-    title: "REPORT.md has Task 4 bug investigation section"
-    class: structural
-    runner: code
-    type: regex_in_file
-    is_required: true
-    weight: 5
-    depends_on: [repo_exists]
-    hint: >
-      Document your bug investigation in REPORT.md under ## Task 4.
-      Include: agent conversation, root cause, code fix, verification.
-    params:
-      path: "REPORT.md"
-      pattern: "##.*Task 4"
-      min_matches: 1
-
-  - id: t4_report_content
-    task: task-4
-    title: "Bug investigation report has substance (>=150 words)"
-    class: structural
-    runner: code
-    type: file_word_count
-    is_required: true
-    weight: 5
-    depends_on: [repo_exists]
-    hint: >
-      Your bug investigation report in REPORT.md must describe the agent conversation,
-      root cause analysis, code fix, and verification. Write at least 150 words total.
-    params:
-      path: "REPORT.md"
-      min_words: 150
-
-  # =====================================================
-  # TASK 5: Make the Agent Proactive
-  # =====================================================
-
-  - id: t5_cron_config
-    task: task-5
-    title: "Cron jobs config exists (nanobot/cron/jobs.json)"
-    class: structural
-    runner: code
-    type: ssh_check
-    is_required: true
-    weight: 5
-    depends_on: [ssh_connectivity]
-    hint: >
-      Create nanobot/cron/jobs.json with a periodic health check job.
-      The job should use payload_kind: agent_turn and send a health check message.
-    params:
-      runtime: prod
-      username: __vm_username__
-      command: >
-        F=~/se-toolkit-lab-8/nanobot/cron/jobs.json;
-        test -f "$F" || { echo "missing: $F"; exit 0; };
-        python3 -c "
-        import json
-        d = json.load(open('$HOME/se-toolkit-lab-8/nanobot/cron/jobs.json'))
-        if isinstance(d, list) and len(d) > 0:
-            print('ok')
-        elif isinstance(d, dict) and len(d) > 0:
-            print('ok')
-        else:
-            print('fail: jobs.json is empty')
-        " 2>&1
-      expect_regex: "ok"
-      timeout: 10
-
-  - id: t5_enhanced_skill
-    task: task-5
     title: "Observability skill updated for multi-step investigation"
     class: structural
     runner: code
@@ -722,29 +651,47 @@ checks:
       expect_regex: "ok"
       timeout: 10
 
-  - id: t5_report
-    task: task-5
-    title: "REPORT.md has Task 5 checkpoint sections"
+  - id: t4_report
+    task: task-4
+    title: "REPORT.md has Task 4 checkpoint sections (A, B, C)"
     class: structural
     runner: code
     type: regex_in_file
     is_required: true
-    weight: 3
+    weight: 5
     depends_on: [repo_exists]
     hint: >
       Add checkpoint evidence to REPORT.md under sections:
-      ## Task 5A, ## Task 5B.
+      ## Task 4A — Multi-step investigation,
+      ## Task 4B — Proactive health check,
+      ## Task 4C — Bug fix and recovery.
     params:
       path: "REPORT.md"
-      pattern: "##.*Task 5[AB]"
-      min_matches: 2
+      pattern: "##.*Task 4[ABC]"
+      min_matches: 3
+
+  - id: t4_report_content
+    task: task-4
+    title: "Task 4 report has substance (>=150 words)"
+    class: structural
+    runner: code
+    type: file_word_count
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Your REPORT.md must describe the agent investigation, proactive health check,
+      root cause analysis, code fix, and recovery verification. Write at least 150 words total.
+    params:
+      path: "REPORT.md"
+      min_words: 150
 
   # =====================================================
   # GIT WORKFLOW (across all tasks)
   # =====================================================
 
   - id: gitflow
-    task: task-5
+    task: task-4
     title: "Git workflow: >=4 merged PRs with approvals"
     class: process
     runner: code
