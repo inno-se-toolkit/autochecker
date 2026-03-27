@@ -372,16 +372,18 @@ checks:
 
   - id: t3_structural
     task: task-3
-    title: "Observability skill and tools configured, otel pipeline has data"
-    class: execution
+    title: "Observability MCP tools exist (separate from lms tools)"
+    class: structural
     runner: code
     type: ssh_check
     is_required: true
     weight: 10
-    depends_on: [ssh_connectivity, otel_stack, backend_running]
+    depends_on: [ssh_connectivity, otel_stack]
     hint: >
-      Complete Task 3: create nanobot/workspace/skills/observability/SKILL.md,
-      add observability MCP tools to config, verify VictoriaLogs and VictoriaTraces have data.
+      Task 3C requires adding NEW observability MCP tools (for logs and traces).
+      These must be separate from the existing lms tools — either a new MCP server
+      in config.json, or new Python tool code that queries VictoriaLogs/VictoriaTraces.
+      Also create nanobot/workspace/skills/observability/SKILL.md.
     params:
       runtime: prod
       username: __vm_username__
@@ -390,12 +392,35 @@ checks:
         F=$D/nanobot/workspace/skills/observability/SKILL.md;
         test -f "$F" || { echo "missing: observability skill"; OK=0; };
         if [ -f "$F" ]; then WC=$(wc -w < "$F"); test "$WC" -ge 30 || { echo "skill too short ($WC words)"; OK=0; }; fi;
-        grep -qiE 'obs|log.*search|trace|mcp_lms' $D/nanobot/config.json 2>/dev/null || { echo "missing: observability tools in config"; OK=0; };
-        curl -s "http://localhost:42010/select/logsql/query?query=_msg:*&limit=1" | grep -q '_msg' || { echo "no logs in VictoriaLogs"; OK=0; };
-        curl -s "http://localhost:42011/select/jaeger/api/services" | grep -q 'Learning Management Service' || { echo "no traces in VictoriaTraces"; OK=0; };
+        MCP_COUNT=$(python3 -c "import json; c=json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json')); print(len(c.get('tools',{}).get('mcpServers',c.get('tools',{}).get('mcp_servers',{}))))" 2>/dev/null);
+        test "$MCP_COUNT" -ge 2 || { echo "need >=2 MCP servers in config (have $MCP_COUNT). Add an observability server alongside lms."; OK=0; };
+        grep -rqiE 'victoria|logsql|42010|42011|logs_search|traces_list' $D/mcp/ $D/nanobot/ 2>/dev/null || { echo "no code referencing VictoriaLogs/Traces endpoints found"; OK=0; };
         [ "$OK" = "1" ] && echo ok
       expect_regex: "ok"
-      timeout: 15
+      timeout: 10
+
+  - id: t3_agent_observability
+    task: task-3
+    title: "Agent answers observability question with real log/trace data"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [t3_structural, backend_running, llm_available]
+    hint: >
+      The agent should be able to answer 'Any errors in the last hour?' by querying
+      VictoriaLogs via its observability MCP tools and returning real data.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH;
+        cd ~/se-toolkit-lab-8/nanobot;
+        LMS_KEY=$(grep '^LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        NANOBOT_LMS_BACKEND_URL=http://localhost:42002 NANOBOT_LMS_API_KEY=$LMS_KEY uv run nanobot agent -c ./config.json -m "Any errors in the last hour? Check the logs." 2>/dev/null | tail -20
+      expect_regex: "(?i)(error|log|no error|0 error|trace|request|status|found|search)"
+      timeout: 90
 
   - id: t3_report
     task: task-3
