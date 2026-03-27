@@ -334,7 +334,7 @@ checks:
         cd ~/se-toolkit-lab-8; OK=1;
         NANO=$(docker compose --env-file .env.docker.secret ps nanobot --format '{{.State}}' 2>/dev/null);
         echo "$NANO" | grep -qi running || { echo "FAIL: nanobot not running ($NANO)"; exit 0; };
-        curl -s http://localhost:42002/flutter/ | grep -q 'main.dart.js' || { echo "FAIL: /flutter serves empty page (flutter volume not mounted or build failed)"; exit 0; };
+        curl -s http://localhost:42002/flutter/ | grep -qE 'flutter_bootstrap|main\.dart\.js|flutter\.js' || { echo "FAIL: /flutter serves empty page (flutter volume not mounted or build failed)"; exit 0; };
         ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
         export PATH=$HOME/.local/bin:$PATH;
         RESP=$(cd ~/se-toolkit-lab-8 && uv run python3 -c "
