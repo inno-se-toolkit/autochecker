@@ -514,35 +514,42 @@ checks:
       expect_regex: "PASS"
       timeout: 30
 
-  - id: t4_report
+  - id: t4_cron_health
     task: task-4
-    title: "REPORT.md Task 4 sections verified by LLM"
-    class: content
+    title: "Agent has a scheduled health check (cron job)"
+    class: execution
     runner: code
     type: ssh_check
     is_required: true
     weight: 10
-    depends_on: [repo_exists, llm_available]
+    depends_on: [t2_deployed, llm_available]
     hint: >
-      Document in REPORT.md under ## Task 4A (multi-step investigation),
-      ## Task 4B (proactive health check), ## Task 4C (bug fix and recovery).
+      In the Flutter chat, ask the agent to create a periodic health check.
+      Example: "Create a health check that runs every 15 minutes. Each run should
+      check for backend errors and post a summary here."
+      The agent should confirm it created a scheduled job. Then ask it to list
+      scheduled jobs to verify.
     params:
       runtime: prod
       username: __vm_username__
       command: >
-        python3 -c "
-        import json,urllib.request,os;
-        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[-5000:];
-        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
-        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 4. FAIL if any of these are missing: (1) Task 4A with a PASTED agent conversation showing the agent chaining log search and trace fetch in one response - must include actual error messages or trace IDs from the output. (2) Task 4B with evidence of a proactive health report appearing in the chat (pasted message with timestamp or cron config shown). (3) Task 4C with the specific bug identified (file and line), the code fix described or shown as a diff, and verification that errors stopped. Generic summaries without concrete details = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
-        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
-        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
-        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
-        print(o['choices'][0]['message']['content'])
-        " 2>&1 || echo "FAIL: could not reach LLM"
-      expect_regex: "(?i)PASS"
-      timeout: 60
+        export PATH=$HOME/.local/bin:$PATH;
+        cd ~/se-toolkit-lab-8;
+        ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        RESP=$(uv run python3 -c "
+        import json,asyncio,websockets;
+        async def test():
+            uri='ws://localhost:42002/ws/chat?access_key=$ACCESS_KEY';
+            async with websockets.connect(uri,close_timeout=5) as ws:
+                await ws.send(json.dumps({'content':'List all scheduled jobs or cron tasks you have.'}));
+                r=await asyncio.wait_for(ws.recv(),timeout=60);
+                return r
+        print(asyncio.run(test()))
+        " 2>&1);
+        echo "$RESP";
+        echo "$RESP" | grep -qiE 'schedule|cron|health|check|job|minute|interval|no.*schedule|no.*job' && echo PASS || echo "FAIL: agent does not recognize scheduled jobs — create a health check via the Flutter chat first"
+      expect_regex: "PASS"
+      timeout: 90
 
   # =====================================================
   # GIT WORKFLOW (across all tasks)
