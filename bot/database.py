@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass
 
-from .config import DB_PATH
+from .config import DB_PATH, get_max_attempts
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class User:
 #   0 — legacy (users: tg_id, student_name, github_nick, is_admin)
 #   1 — self-registration + results table
 # ---------------------------------------------------------------------------
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 async def _get_table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
@@ -83,6 +83,8 @@ async def init_db() -> None:
             await _migrate_to_v6(db)
         if version < 7:
             await _migrate_to_v7(db)
+        if version < 8:
+            await _migrate_to_v8(db)
 
         await _set_schema_version(db, SCHEMA_VERSION)
         await db.commit()
@@ -247,6 +249,27 @@ async def _migrate_to_v7(db: aiosqlite.Connection) -> None:
         logger.info("Migration v7: adding vm_username column to users")
         await db.execute("ALTER TABLE users ADD COLUMN vm_username TEXT DEFAULT ''")
     logger.info("Migration to v7 complete")
+
+
+async def _migrate_to_v8(db: aiosqlite.Connection) -> None:
+    """Track instructor-granted attempts without deleting attempt history."""
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS attempt_grants (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            tg_id     INTEGER NOT NULL,
+            lab_id    TEXT NOT NULL,
+            task_id   TEXT NOT NULL DEFAULT '',
+            amount    INTEGER NOT NULL,
+            reason    TEXT DEFAULT '',
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (tg_id) REFERENCES users(tg_id)
+        )
+    """)
+    await db.execute(
+        """CREATE INDEX IF NOT EXISTS idx_attempt_grants_lookup
+           ON attempt_grants(tg_id, lab_id, task_id)"""
+    )
+    logger.info("Migration to v8 complete")
 
 
 async def get_vm_username(tg_id: int) -> str:
@@ -480,6 +503,44 @@ async def get_attempts_count(tg_id: int, lab_id: str, task_id: str = "") -> int:
             return row[0] if row else 0
 
 
+async def get_attempt_grants(tg_id: int, lab_id: str, task_id: str = "") -> int:
+    """Get the total number of instructor-granted attempts for a task."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            """SELECT COALESCE(SUM(amount), 0)
+               FROM attempt_grants
+               WHERE tg_id = ? AND lab_id = ? AND task_id = ?""",
+            (tg_id, lab_id, task_id),
+        ) as cursor:
+            row = await cursor.fetchone()
+            return int(row[0]) if row and row[0] is not None else 0
+
+
+async def add_attempt_grant(
+    tg_id: int,
+    lab_id: str,
+    task_id: str = "",
+    amount: int = 0,
+    reason: str = "",
+) -> None:
+    """Record extra attempts granted by an instructor."""
+    if amount <= 0:
+        return
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """INSERT INTO attempt_grants (tg_id, lab_id, task_id, amount, reason, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (tg_id, lab_id, task_id, amount, reason, datetime.now().isoformat()),
+        )
+        await db.commit()
+
+
+async def get_effective_attempt_limit(tg_id: int, lab_id: str, task_id: str = "") -> int:
+    """Return base max attempts plus any instructor-granted attempts."""
+    return get_max_attempts(lab_id, task_id) + await get_attempt_grants(tg_id, lab_id, task_id)
+
+
 async def add_attempt(tg_id: int, lab_id: str, task_id: str = "") -> None:
     """Record a new attempt for a task."""
     async with aiosqlite.connect(DB_PATH) as db:
@@ -516,7 +577,16 @@ async def get_task_stats(tg_id: int) -> dict[str, dict]:
     "Best" = fewest failures, then most passes (matches dashboard logic).
 
     Returns dict keyed by 'lab_id:task_id' with values:
-        {'attempts': int, 'score': str|None, 'passed': int|None, 'failed': int|None, 'total': int|None}
+        {
+            'attempts': int,
+            'granted_attempts': int,
+            'max_attempts': int,
+            'remaining': int,
+            'score': str|None,
+            'passed': int|None,
+            'failed': int|None,
+            'total': int|None,
+        }
     """
     stats: dict[str, dict] = {}
     async with aiosqlite.connect(DB_PATH) as db:
@@ -530,6 +600,17 @@ async def get_task_stats(tg_id: int) -> dict[str, dict]:
             async for row in cur:
                 key = f"{row['lab_id']}:{row['task_id']}"
                 stats[key] = {"attempts": row["cnt"], "score": None, "passed": None, "failed": None, "total": None}
+
+        # Instructor-granted bonus attempts
+        async with db.execute(
+            """SELECT lab_id, task_id, COALESCE(SUM(amount), 0) as granted
+               FROM attempt_grants WHERE tg_id = ? GROUP BY lab_id, task_id""",
+            (tg_id,)
+        ) as cur:
+            async for row in cur:
+                key = f"{row['lab_id']}:{row['task_id']}"
+                stats.setdefault(key, {"attempts": 0, "score": None, "passed": None, "failed": None, "total": None})
+                stats[key]["granted_attempts"] = int(row["granted"] or 0)
 
         # Best result per task (most passes, then fewest non-passes).
         # Uses (total - passed) instead of raw failed, because ERROR checks
@@ -554,6 +635,15 @@ async def get_task_stats(tg_id: int) -> dict[str, dict]:
                         "failed": row["failed"],
                         "total": row["total"],
                     })
+
+    for key, value in stats.items():
+        lab_id, task_id = key.split(":", 1)
+        granted = int(value.get("granted_attempts", 0) or 0)
+        max_attempts = get_max_attempts(lab_id, task_id) + granted
+        attempts = int(value.get("attempts", 0) or 0)
+        value["granted_attempts"] = granted
+        value["max_attempts"] = max_attempts
+        value["remaining"] = max(0, max_attempts - attempts)
 
     return stats
 
