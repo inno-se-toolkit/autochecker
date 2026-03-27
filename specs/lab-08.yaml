@@ -265,11 +265,17 @@ checks:
       runtime: prod
       username: __vm_username__
       command: >
-        REPORT=$(cat ~/se-toolkit-lab-8/REPORT.md | head -100);
-        QWEN_KEY=$(grep '^QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        PROMPT="Evaluate this lab report for Task 1. It must have sections Task 1A, 1B, 1C with real agent responses (not placeholders). Reply ONLY with PASS or FAIL followed by a one-line reason.";
-        RESULT=$(curl -s -X POST http://localhost:42005/v1/chat/completions -H "X-API-Key: $QWEN_KEY" -H "Content-Type: application/json" -d "{\"model\":\"coder-model\",\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\n\nREPORT:\n$REPORT\"}],\"max_tokens\":100}" 2>/dev/null);
-        echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'])" 2>/dev/null || echo "FAIL: could not reach LLM"
+        python3 -c "
+        import json,urllib.request,os;
+        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:4000];
+        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
+        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
+        p='Evaluate this lab report for Task 1. It MUST have sections Task 1A, 1B, 1C with real agent responses (not just placeholders like TODO). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
+        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
+        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
+        print(o['choices'][0]['message']['content'])
+        " 2>&1 || echo "FAIL: could not reach LLM"
       expect_regex: "(?i)PASS"
       timeout: 60
 
@@ -346,11 +352,17 @@ checks:
       runtime: prod
       username: __vm_username__
       command: >
-        REPORT=$(cat ~/se-toolkit-lab-8/REPORT.md | head -100);
-        QWEN_KEY=$(grep '^QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        PROMPT="Evaluate this lab report for Task 2. It must have sections Task 2A (deployed agent with log excerpt) and Task 2B (web client evidence). Reply ONLY with PASS or FAIL followed by a one-line reason.";
-        RESULT=$(curl -s -X POST http://localhost:42005/v1/chat/completions -H "X-API-Key: $QWEN_KEY" -H "Content-Type: application/json" -d "{\"model\":\"coder-model\",\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\n\nREPORT:\n$REPORT\"}],\"max_tokens\":100}" 2>/dev/null);
-        echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'])" 2>/dev/null || echo "FAIL: could not reach LLM"
+        python3 -c "
+        import json,urllib.request,os;
+        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:4000];
+        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
+        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
+        p='Evaluate this lab report for Task 2. It MUST have sections Task 2A (deployed agent with startup log) and Task 2B (web client evidence). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
+        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
+        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
+        print(o['choices'][0]['message']['content'])
+        " 2>&1 || echo "FAIL: could not reach LLM"
       expect_regex: "(?i)PASS"
       timeout: 60
 
@@ -401,11 +413,17 @@ checks:
       runtime: prod
       username: __vm_username__
       command: >
-        REPORT=$(cat ~/se-toolkit-lab-8/REPORT.md | head -150);
-        QWEN_KEY=$(grep '^QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        PROMPT="Evaluate this lab report for Task 3. It must have sections Task 3A (structured logs), 3B (traces), 3C (observability MCP tools). Reply ONLY with PASS or FAIL followed by a one-line reason.";
-        RESULT=$(curl -s -X POST http://localhost:42005/v1/chat/completions -H "X-API-Key: $QWEN_KEY" -H "Content-Type: application/json" -d "{\"model\":\"coder-model\",\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\n\nREPORT:\n$REPORT\"}],\"max_tokens\":100}" 2>/dev/null);
-        echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'])" 2>/dev/null || echo "FAIL: could not reach LLM"
+        python3 -c "
+        import json,urllib.request,os;
+        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:5000];
+        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
+        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
+        p='Evaluate this lab report for Task 3. It MUST have sections Task 3A (structured logs), 3B (traces), 3C (observability MCP tools). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
+        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
+        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
+        print(o['choices'][0]['message']['content'])
+        " 2>&1 || echo "FAIL: could not reach LLM"
       expect_regex: "(?i)PASS"
       timeout: 60
 
@@ -452,11 +470,17 @@ checks:
       runtime: prod
       username: __vm_username__
       command: >
-        REPORT=$(cat ~/se-toolkit-lab-8/REPORT.md | tail -80);
-        QWEN_KEY=$(grep '^QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        PROMPT="Evaluate this lab report for Task 4. It must have: Task 4A (multi-step agent investigation using logs and traces), Task 4B (proactive health check or cron), Task 4C (bug found, root cause, code fix, verified). Reply ONLY with PASS or FAIL followed by a one-line reason.";
-        RESULT=$(curl -s -X POST http://localhost:42005/v1/chat/completions -H "X-API-Key: $QWEN_KEY" -H "Content-Type: application/json" -d "{\"model\":\"coder-model\",\"messages\":[{\"role\":\"user\",\"content\":\"$PROMPT\n\nREPORT:\n$REPORT\"}],\"max_tokens\":100}" 2>/dev/null);
-        echo "$RESULT" | python3 -c "import sys,json; r=json.load(sys.stdin); print(r['choices'][0]['message']['content'])" 2>/dev/null || echo "FAIL: could not reach LLM"
+        python3 -c "
+        import json,urllib.request,os;
+        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[-5000:];
+        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
+        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
+        p='Evaluate this lab report for Task 4. It MUST have: Task 4A (multi-step agent investigation using logs and traces), Task 4B (proactive health check or cron), Task 4C (bug found, root cause, code fix, verified). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
+        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
+        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
+        print(o['choices'][0]['message']['content'])
+        " 2>&1 || echo "FAIL: could not reach LLM"
       expect_regex: "(?i)PASS"
       timeout: 60
 
