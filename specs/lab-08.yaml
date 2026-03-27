@@ -270,7 +270,7 @@ checks:
         r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:4000];
         e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
         k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 1. It MUST have sections Task 1A, 1B, 1C with real agent responses (not just placeholders like TODO). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        p='Evaluate this lab report for Task 1. FAIL if any of these are missing: (1) Task 1A section with a PASTED agent response showing actual text the agent said (not a summary of what happened). (2) Task 1B section with a pasted response containing real lab names like Lab 01, Lab 02 etc. (3) Task 1C section showing the agent asking which lab or listing options. Generic descriptions like \"the agent responded\" without actual pasted output = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
         d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
         q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
         o=json.loads(urllib.request.urlopen(q,timeout=30).read());
@@ -375,7 +375,7 @@ checks:
         r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:4000];
         e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
         k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 2. It MUST have sections Task 2A (deployed agent with startup log) and Task 2B (web client evidence). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        p='Evaluate this lab report for Task 2. FAIL if any of these are missing: (1) Task 2A section with PASTED nanobot startup log showing MCP tools registered or gateway started. (2) Task 2B section with evidence of a working Flutter conversation - either a pasted WebSocket response or a description of a real agent answer seen in the chat. Summaries like \"it worked\" without pasted output = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
         d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
         q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
         o=json.loads(urllib.request.urlopen(q,timeout=30).read());
@@ -459,7 +459,7 @@ checks:
         r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:5000];
         e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
         k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 3. It MUST have sections Task 3A (structured logs), 3B (traces), 3C (observability MCP tools). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        p='Evaluate this lab report for Task 3. FAIL if any of these are missing: (1) Task 3A section with PASTED structured log entries showing JSON fields like level, service, event, trace_id. (2) Task 3B section with pasted trace data or a description of specific spans seen in VictoriaTraces. (3) Task 3C section showing the agent answering an observability question with real data (error counts, trace info). Vague descriptions without actual data = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
         d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
         q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
         o=json.loads(urllib.request.urlopen(q,timeout=30).read());
@@ -516,7 +516,7 @@ checks:
         r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[-5000:];
         e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
         k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 4. It MUST have: Task 4A (multi-step agent investigation using logs and traces), Task 4B (proactive health check or cron), Task 4C (bug found, root cause, code fix, verified). Reply with exactly PASS or FAIL on the first line, then a short reason.';
+        p='Evaluate this lab report for Task 4. FAIL if any of these are missing: (1) Task 4A with a PASTED agent conversation showing the agent chaining log search and trace fetch in one response - must include actual error messages or trace IDs from the output. (2) Task 4B with evidence of a proactive health report appearing in the chat (pasted message with timestamp or cron config shown). (3) Task 4C with the specific bug identified (file and line), the code fix described or shown as a diff, and verification that errors stopped. Generic summaries without concrete details = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
         d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
         q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
         o=json.loads(urllib.request.urlopen(q,timeout=30).read());
