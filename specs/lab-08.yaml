@@ -313,28 +313,46 @@ checks:
 
   - id: t2_deployed
     task: task-2
-    title: "Nanobot running and Flutter accessible on VM"
+    title: "Full stack working: Flutter serves content, WebSocket accepts, agent responds"
     class: execution
     runner: code
     type: ssh_check
     is_required: true
     weight: 10
-    depends_on: [vm_setup, t2_structural]
+    depends_on: [vm_setup, t2_structural, llm_available]
     hint: >
-      Build and deploy: docker compose --env-file .env.docker.secret build nanobot client-web-flutter
-      then: docker compose --env-file .env.docker.secret up -d.
-      Nanobot must be running and Flutter must load at http://localhost:42002/flutter.
+      The full chain must work end-to-end:
+      1. Flutter at /flutter must serve real content (main.dart.js present).
+      2. WebSocket at /ws/chat must accept connections with the correct NANOBOT_ACCESS_KEY.
+      3. The agent must respond through the WebSocket without LLM errors.
+      Common issues: entrypoint env var names must match docker-compose.yml,
+      Caddyfile routes must be uncommented, flutter volume must be mounted in caddy.
     params:
       runtime: prod
       username: __vm_username__
       command: >
-        cd ~/se-toolkit-lab-8;
+        cd ~/se-toolkit-lab-8; OK=1;
         NANO=$(docker compose --env-file .env.docker.secret ps nanobot --format '{{.State}}' 2>/dev/null);
-        FLUTTER=$(curl -s -o /dev/null -w '%{http_code}' -L http://localhost:42002/flutter);
-        echo "nanobot:$NANO flutter:$FLUTTER";
-        echo "$NANO" | grep -qi running && test "$FLUTTER" = "200" && echo PASS || echo "FAIL: nanobot=$NANO flutter=HTTP$FLUTTER"
+        echo "$NANO" | grep -qi running || { echo "FAIL: nanobot not running ($NANO)"; exit 0; };
+        curl -s http://localhost:42002/flutter/ | grep -q 'main.dart.js' || { echo "FAIL: /flutter serves empty page (flutter volume not mounted or build failed)"; exit 0; };
+        ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        export PATH=$HOME/.local/bin:$PATH;
+        RESP=$(cd ~/se-toolkit-lab-8 && uv run python3 -c "
+        import json,asyncio,websockets;
+        async def test():
+            uri='ws://localhost:42002/ws/chat?access_key=$ACCESS_KEY';
+            async with websockets.connect(uri,close_timeout=5) as ws:
+                await ws.send(json.dumps({'content':'hello'}));
+                r=await asyncio.wait_for(ws.recv(),timeout=60);
+                return r
+        print(asyncio.run(test()))
+        " 2>&1);
+        echo "ws_response: $RESP";
+        echo "$RESP" | grep -qi 'invalid access key' && { echo "FAIL: WebSocket rejected access key (check NANOBOT_ACCESS_KEY env var)"; exit 0; };
+        echo "$RESP" | grep -qi 'Connection error\|Connection refused' && { echo "FAIL: agent cannot reach LLM (check entrypoint reads correct env vars from compose)"; exit 0; };
+        echo "$RESP" | grep -qE '.{10,}' && echo PASS || echo "FAIL: empty or short WebSocket response"
       expect_regex: "PASS"
-      timeout: 15
+      timeout: 90
 
   - id: t2_report
     task: task-2
