@@ -59,10 +59,10 @@ LAB_CONFIG = {
         "ready": True,
     },
     "lab-08": {
-        "name": "Lab 08 – (Coming soon)",
-        "repo_suffix": "lab-08-tbd",
+        "name": "Lab 08 — The Agent is the Interface",
+        "repo_suffix": "se-toolkit-lab-8",
         "spec": "specs/lab-08.yaml",
-        "ready": False,
+        "ready": True,
     },
     "lab-09": {
         "name": "Lab 09 – (Coming soon)",

@@ -1,0 +1,761 @@
+id: lab-08
+title: "Lab 08 — The Agent is the Interface"
+repo_name: "se-toolkit-lab-8"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.75
+  score_required_only: true
+
+requires_lms_key: false
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Set Up the Agent"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Deploy the Agent and Add Web Client"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Observability Tools for the Agent"
+    prerequisite: setup
+  - id: task-4
+    title: "Task 4: Diagnose and Fix a Bug"
+    prerequisite: setup
+  - id: task-5
+    title: "Task 5: Make the Agent Proactive"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP — repo, VM, env files, backend, LLM, otel
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_config
+    task: setup
+    title: "Repository is a fork with issues enabled"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of https://github.com/inno-se-toolkit/se-toolkit-lab-8
+      with issues enabled (Settings -> General -> Features -> Issues).
+    params:
+      checks:
+        - type: repo_is_fork
+          params: {}
+
+  - id: ssh_connectivity
+    task: setup
+    title: "SSH login as your main user works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      The autochecker needs to SSH into your VM as your main user.
+      Add the autochecker SSH key to ~/.ssh/authorized_keys and register
+      your VM username with the autochecker bot. See setup step 1.8.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: "echo ok"
+
+  - id: vm_setup
+    task: setup
+    title: "Repo, env file, and submodule present on VM"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      On your VM: (1) Clone your fork at ~/se-toolkit-lab-8 with --recurse-submodules,
+      (2) Create .env.docker.secret from .env.docker.example.
+      See setup steps 1.2 and 1.4.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        OK=1;
+        test -d ~/se-toolkit-lab-8/.git || { echo "missing: ~/se-toolkit-lab-8/.git directory"; OK=0; };
+        test -f ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: .env.docker.secret"; OK=0; };
+        test -d ~/se-toolkit-lab-8/qwen-code-api/.git || { echo "missing: qwen-code-api submodule (clone with --recurse-submodules)"; OK=0; };
+        if [ -f ~/se-toolkit-lab-8/.env.docker.secret ]; then
+        grep -q 'LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: LMS_API_KEY in .env.docker.secret"; OK=0; };
+        grep -q 'QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: QWEN_CODE_API_KEY in .env.docker.secret"; OK=0; };
+        fi;
+        [ "$OK" = "1" ] && echo ok
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: backend_running
+    task: setup
+    title: "Backend running with data (port 42002)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [vm_setup]
+    hint: >
+      Deploy backend: cd ~/se-toolkit-lab-8 && docker compose --env-file .env.docker.secret up --build -d
+      Then sync data: open Swagger at http://localhost:42002/docs, run POST /pipeline/sync.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        LMS_KEY=$(grep '^LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        if [ -z "$LMS_KEY" ]; then echo "fail: LMS_API_KEY not found in .env.docker.secret"; exit 0; fi;
+        HTTP=$(curl -s -o /tmp/_ac_items -w '%{http_code}' http://localhost:42002/items/ -H "Authorization: Bearer $LMS_KEY");
+        if [ "$HTTP" = "000" ]; then echo "fail: connection refused on port 42002 (is docker running?)"; exit 0; fi;
+        if [ "$HTTP" != "200" ]; then echo "fail: backend returned HTTP $HTTP"; exit 0; fi;
+        COUNT=$(python3 -c 'import sys,json; print(len(json.load(sys.stdin)))' < /tmp/_ac_items 2>&1);
+        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "fail: could not parse response: $COUNT"; exit 0; fi;
+        if [ "$COUNT" = "0" ]; then echo "fail: backend returned 0 items (run POST /pipeline/sync first)"; exit 0; fi;
+        echo ok
+      expect_regex: "ok"
+      timeout: 15
+
+  - id: llm_available
+    task: setup
+    title: "LLM API is reachable (Qwen proxy on port 42005)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [vm_setup]
+    hint: >
+      The Qwen Code API must be running on port 42005.
+      Check: docker compose --env-file .env.docker.secret ps qwen-code-api
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        QWEN_KEY=$(grep '^QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        HTTP=$(curl -s -o /tmp/_ac_llm -w '%{http_code}' http://localhost:42005/v1/models -H "X-API-Key: $QWEN_KEY");
+        if [ "$HTTP" = "000" ]; then echo "0 (connection refused on port 42005)"; exit 0; fi;
+        if [ "$HTTP" != "200" ]; then echo "0 (proxy returned HTTP $HTTP)"; exit 0; fi;
+        COUNT=$(python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get("data",[])))' < /tmp/_ac_llm 2>&1);
+        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "0 (failed to parse: $COUNT)"; exit 0; fi;
+        echo $COUNT
+      expect_regex: "^[1-9]"
+      timeout: 15
+
+  - id: otel_stack
+    task: setup
+    title: "Observability stack running (VictoriaLogs + VictoriaTraces + OTel)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [vm_setup]
+    hint: >
+      The observability stack (victorialogs, victoriatraces, otel-collector) must be running.
+      These are part of the base docker-compose.yml — just run docker compose up.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        VL=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:42010/health);
+        VT=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:42011/health);
+        OTEL=$(cd ~/se-toolkit-lab-8 && docker compose --env-file .env.docker.secret ps otel-collector --format '{{.State}}' 2>/dev/null);
+        echo "victorialogs:$VL victoriatraces:$VT otel:$OTEL";
+        test "$VL" = "200" && test "$VT" = "200" && echo "$OTEL" | grep -qi running && echo PASS || echo FAIL
+      expect_regex: "PASS"
+      timeout: 15
+
+  # =====================================================
+  # TASK 1: Set Up the Agent
+  # =====================================================
+
+  - id: t1_nanobot_project
+    task: task-1
+    title: "Repo-local nanobot/ project with nanobot-ai from pinned commit"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      Create a repo-local nanobot/ project: cd ~/se-toolkit-lab-8 && uv init nanobot && cd nanobot &&
+      uv add "nanobot-ai @ git+https://github.com/HKUDS/nanobot.git@e7d371ec1e6531b28898ec2c869ef338e8dd46ec"
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        OK=1;
+        test -f ~/se-toolkit-lab-8/nanobot/pyproject.toml || { echo "missing: nanobot/pyproject.toml"; OK=0; };
+        test -f ~/se-toolkit-lab-8/nanobot/uv.lock || { echo "missing: nanobot/uv.lock"; OK=0; };
+        if [ -f ~/se-toolkit-lab-8/nanobot/pyproject.toml ]; then
+        grep -q 'nanobot-ai' ~/se-toolkit-lab-8/nanobot/pyproject.toml || { echo "missing: nanobot-ai dependency"; OK=0; };
+        fi;
+        [ "$OK" = "1" ] && echo ok
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t1_config
+    task: task-1
+    title: "nanobot/config.json exists and references LLM provider"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_nanobot_project]
+    hint: >
+      Run: cd ~/se-toolkit-lab-8/nanobot && uv run nanobot onboard --config ./config.json --workspace ./workspace
+      Configure the LLM provider to point at http://localhost:42005/v1.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        test -f ~/se-toolkit-lab-8/nanobot/config.json || { echo "missing: nanobot/config.json"; exit 0; };
+        python3 -c "
+        import json, sys
+        c = json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json'))
+        has_providers = 'providers' in c or 'provider' in c
+        has_workspace = 'workspace' in c
+        if has_providers and has_workspace:
+            print('ok')
+        else:
+            if not has_providers: print('missing: providers in config.json')
+            if not has_workspace: print('missing: workspace in config.json')
+        " 2>&1
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t1_mcp_tools
+    task: task-1
+    title: "MCP tools configured (lms-mcp server in config)"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_config]
+    hint: >
+      Install the LMS MCP server: cd ~/se-toolkit-lab-8/nanobot && uv add lms-mcp --path ../mcp
+      Then register it in config.json under tools.mcp_servers.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        test -f ~/se-toolkit-lab-8/nanobot/config.json || { echo "missing config.json"; exit 0; };
+        python3 -c "
+        import json
+        c = json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json'))
+        tools = c.get('tools', {})
+        mcp = tools.get('mcp_servers', tools.get('mcpServers', {}))
+        if mcp:
+            for name, srv in mcp.items():
+                cmd = srv.get('command', '')
+                args = ' '.join(srv.get('args', []))
+                if 'mcp_lms' in cmd or 'mcp_lms' in args or 'lms' in name.lower():
+                    print('ok')
+                    break
+            else:
+                print('fail: no MCP server referencing mcp_lms found')
+        else:
+            print('fail: no mcp_servers in config.json tools section')
+        " 2>&1
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t1_skill_prompt
+    task: task-1
+    title: "LMS skill prompt exists (workspace/skills/lms/SKILL.md)"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_config]
+    hint: >
+      Create nanobot/workspace/skills/lms/SKILL.md with strategy for how the agent
+      should use LMS tools. See Task 1C instructions.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        F=~/se-toolkit-lab-8/nanobot/workspace/skills/lms/SKILL.md;
+        test -f "$F" || { echo "missing: $F"; exit 0; };
+        WC=$(wc -w < "$F");
+        test "$WC" -ge 30 && echo ok || echo "fail: skill prompt too short ($WC words, need >=30)"
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t1_report
+    task: task-1
+    title: "REPORT.md has Task 1 checkpoint sections"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Add checkpoint evidence to REPORT.md under sections:
+      ## Task 1A, ## Task 1B, ## Task 1C (as shown in the task instructions).
+    params:
+      path: "REPORT.md"
+      pattern: "##.*Task 1[ABC]"
+      min_matches: 3
+
+  # =====================================================
+  # TASK 2: Deploy the Agent and Add Web Client
+  # =====================================================
+
+  - id: t2_entrypoint
+    task: task-2
+    title: "nanobot/entrypoint.py exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Create nanobot/entrypoint.py that resolves environment variables into
+      config.json and starts nanobot gateway. See Task 2A instructions.
+    params:
+      path: "nanobot/entrypoint.py"
+
+  - id: t2_dockerfile
+    task: task-2
+    title: "nanobot/Dockerfile exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Create nanobot/Dockerfile with a multi-stage build that copies the workspace
+      and runs entrypoint.py. See Task 2A instructions.
+    params:
+      path: "nanobot/Dockerfile"
+
+  - id: t2_compose_nanobot
+    task: task-2
+    title: "docker-compose.yml has nanobot service"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Add a nanobot service to docker-compose.yml that builds from ./nanobot,
+      depends_on backend, and sets required environment variables.
+    params:
+      path: "docker-compose.yml"
+      pattern: "nanobot:"
+      min_matches: 1
+
+  - id: t2_compose_flutter
+    task: task-2
+    title: "docker-compose.yml has client-web-flutter service"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Add a client-web-flutter service to docker-compose.yml that builds the
+      Flutter web client and outputs to a named volume.
+    params:
+      path: "docker-compose.yml"
+      pattern: "client-web-flutter:"
+      min_matches: 1
+
+  - id: t2_caddy_ws
+    task: task-2
+    title: "Caddyfile has /ws/chat route to nanobot"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Add a reverse_proxy route for /ws/chat in caddy/Caddyfile pointing to
+      http://nanobot:{NANOBOT_WEBCHAT_CONTAINER_PORT}.
+    params:
+      path: "caddy/Caddyfile"
+      pattern: "/ws/chat"
+      min_matches: 1
+
+  - id: t2_caddy_flutter
+    task: task-2
+    title: "Caddyfile has /flutter route"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Add a route for /flutter* in caddy/Caddyfile that serves the Flutter
+      web client from the named volume.
+    params:
+      path: "caddy/Caddyfile"
+      pattern: "/flutter"
+      min_matches: 1
+
+  - id: t2_nanobot_running
+    task: task-2
+    title: "Nanobot container is running on VM"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [vm_setup]
+    hint: >
+      Deploy with: docker compose --env-file .env.docker.secret up --build -d
+      Check: docker compose --env-file .env.docker.secret ps nanobot
+      If nanobot keeps restarting, check logs: docker compose --env-file .env.docker.secret logs nanobot --tail 50
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        cd ~/se-toolkit-lab-8 &&
+        STATE=$(docker compose --env-file .env.docker.secret ps nanobot --format '{{.State}}' 2>/dev/null);
+        echo "nanobot: $STATE";
+        echo "$STATE" | grep -qi running && echo PASS || echo "FAIL: nanobot not running (state: $STATE)"
+      expect_regex: "PASS"
+      timeout: 15
+
+  - id: t2_flutter_accessible
+    task: task-2
+    title: "Flutter web client loads at /flutter"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t2_nanobot_running]
+    hint: >
+      The Flutter web client should be accessible at http://localhost:42002/flutter.
+      Make sure client-web-flutter built successfully and Caddy serves the volume.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        HTTP=$(curl -s -o /dev/null -w '%{http_code}' -L http://localhost:42002/flutter);
+        echo "flutter: HTTP $HTTP";
+        test "$HTTP" = "200" && echo PASS || echo "FAIL: /flutter returned HTTP $HTTP"
+      expect_regex: "PASS"
+      timeout: 15
+
+  - id: t2_report
+    task: task-2
+    title: "REPORT.md has Task 2 checkpoint sections"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Add checkpoint evidence to REPORT.md under sections:
+      ## Task 2A, ## Task 2B.
+    params:
+      path: "REPORT.md"
+      pattern: "##.*Task 2[AB]"
+      min_matches: 2
+
+  # =====================================================
+  # TASK 3: Observability Tools for the Agent
+  # =====================================================
+
+  - id: t3_obs_skill
+    task: task-3
+    title: "Observability skill prompt exists"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      Create nanobot/workspace/skills/observability/SKILL.md with strategy for
+      when and how to use log and trace tools.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        F=~/se-toolkit-lab-8/nanobot/workspace/skills/observability/SKILL.md;
+        test -f "$F" || { echo "missing: $F"; exit 0; };
+        WC=$(wc -w < "$F");
+        test "$WC" -ge 30 && echo ok || echo "fail: skill prompt too short ($WC words, need >=30)"
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t3_obs_tools_exist
+    task: task-3
+    title: "Observability MCP tools registered in config"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_config]
+    hint: >
+      Add observability MCP tools (log search, trace search) to your agent config.
+      These can be in the existing lms MCP server or a new one.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        test -f ~/se-toolkit-lab-8/nanobot/config.json || { echo "missing config.json"; exit 0; };
+        python3 -c "
+        import json
+        c = json.load(open('$HOME/se-toolkit-lab-8/nanobot/config.json'))
+        tools = c.get('tools', {})
+        mcp = tools.get('mcp_servers', tools.get('mcpServers', {}))
+        found = 0
+        for name, srv in mcp.items():
+            cmd = srv.get('command', '')
+            args = ' '.join(srv.get('args', []))
+            full = cmd + ' ' + args + ' ' + name
+            if 'obs' in full.lower() or 'log' in full.lower() or 'trace' in full.lower():
+                found += 1
+        if found >= 1:
+            print('ok')
+        else:
+            # also check if lms server now includes observability tools
+            for name, srv in mcp.items():
+                cmd = srv.get('command', '')
+                args = ' '.join(srv.get('args', []))
+                if 'mcp_lms' in cmd or 'mcp_lms' in args:
+                    found += 1
+            if found >= 1:
+                print('ok')
+            else:
+                print('fail: no observability-related MCP server found in config')
+        " 2>&1
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t3_logs_queryable
+    task: task-3
+    title: "VictoriaLogs has backend log data"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [otel_stack, backend_running]
+    hint: >
+      After the backend runs for a bit, VictoriaLogs should have log entries.
+      Check the UI at http://localhost:42002/utils/victorialogs/select/vmui/.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        RESULT=$(curl -s "http://localhost:42010/select/logsql/query?query=_msg:*&limit=1");
+        if echo "$RESULT" | grep -q '_msg'; then echo ok; else echo "fail: no logs in VictoriaLogs"; fi
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t3_traces_queryable
+    task: task-3
+    title: "VictoriaTraces has backend trace data"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [otel_stack, backend_running]
+    hint: >
+      After the backend handles requests, VictoriaTraces should have trace data.
+      Check the UI at http://localhost:42002/utils/victoriatraces/select/vmui.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        RESULT=$(curl -s "http://localhost:42011/select/jaeger/api/services");
+        if echo "$RESULT" | grep -q 'Learning Management Service'; then echo ok; else echo "fail: no traces in VictoriaTraces"; fi
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t3_report
+    task: task-3
+    title: "REPORT.md has Task 3 checkpoint sections"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Add checkpoint evidence to REPORT.md under sections:
+      ## Task 3A, ## Task 3B, ## Task 3C.
+    params:
+      path: "REPORT.md"
+      pattern: "##.*Task 3[ABC]"
+      min_matches: 3
+
+  # =====================================================
+  # TASK 4: Diagnose and Fix a Bug
+  # =====================================================
+
+  - id: t4_report
+    task: task-4
+    title: "REPORT.md has Task 4 bug investigation section"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Document your bug investigation in REPORT.md under ## Task 4.
+      Include: agent conversation, root cause, code fix, verification.
+    params:
+      path: "REPORT.md"
+      pattern: "##.*Task 4"
+      min_matches: 1
+
+  - id: t4_report_content
+    task: task-4
+    title: "Bug investigation report has substance (>=150 words)"
+    class: structural
+    runner: code
+    type: file_word_count
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Your bug investigation report in REPORT.md must describe the agent conversation,
+      root cause analysis, code fix, and verification. Write at least 150 words total.
+    params:
+      path: "REPORT.md"
+      min_words: 150
+
+  # =====================================================
+  # TASK 5: Make the Agent Proactive
+  # =====================================================
+
+  - id: t5_cron_config
+    task: task-5
+    title: "Cron jobs config exists (nanobot/cron/jobs.json)"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      Create nanobot/cron/jobs.json with a periodic health check job.
+      The job should use payload_kind: agent_turn and send a health check message.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        F=~/se-toolkit-lab-8/nanobot/cron/jobs.json;
+        test -f "$F" || { echo "missing: $F"; exit 0; };
+        python3 -c "
+        import json
+        d = json.load(open('$HOME/se-toolkit-lab-8/nanobot/cron/jobs.json'))
+        if isinstance(d, list) and len(d) > 0:
+            print('ok')
+        elif isinstance(d, dict) and len(d) > 0:
+            print('ok')
+        else:
+            print('fail: jobs.json is empty')
+        " 2>&1
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t5_enhanced_skill
+    task: task-5
+    title: "Observability skill updated for multi-step investigation"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t3_obs_skill]
+    hint: >
+      Update nanobot/workspace/skills/observability/SKILL.md to teach the agent
+      multi-step investigation: search logs -> extract trace IDs -> fetch traces -> summarize.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        F=~/se-toolkit-lab-8/nanobot/workspace/skills/observability/SKILL.md;
+        test -f "$F" || { echo "missing: $F"; exit 0; };
+        WC=$(wc -w < "$F");
+        test "$WC" -ge 60 && echo ok || echo "fail: skill needs more detail ($WC words, need >=60 for multi-step strategy)"
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t5_report
+    task: task-5
+    title: "REPORT.md has Task 5 checkpoint sections"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Add checkpoint evidence to REPORT.md under sections:
+      ## Task 5A, ## Task 5B.
+    params:
+      path: "REPORT.md"
+      pattern: "##.*Task 5[AB]"
+      min_matches: 2
+
+  # =====================================================
+  # GIT WORKFLOW (across all tasks)
+  # =====================================================
+
+  - id: gitflow
+    task: task-5
+    title: "Git workflow: >=4 merged PRs with approvals"
+    class: process
+    runner: code
+    type: pr_review_approvals
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Each task should follow git workflow: create an issue, branch, PR with
+      "Closes #...", get partner approval, merge. You need at least 4 merged
+      PRs with at least 4 total approvals.
+    params:
+      base: "main"
+      min_total_approvals: 4
