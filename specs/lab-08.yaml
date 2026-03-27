@@ -417,25 +417,36 @@ checks:
 
   - id: t3_agent_observability
     task: task-3
-    title: "Agent answers observability question with real log/trace data"
+    title: "Deployed agent answers observability question via WebSocket"
     class: execution
     runner: code
     type: ssh_check
     is_required: true
     weight: 10
-    depends_on: [t3_structural, backend_running, llm_available]
+    depends_on: [t3_structural, t2_deployed, llm_available]
     hint: >
-      The agent should be able to answer 'Any errors in the last hour?' by querying
-      VictoriaLogs via its observability MCP tools and returning real data.
+      The deployed agent (via WebSocket) should answer 'Any errors in the last hour?'
+      using the observability MCP tools and return real log/trace data.
     params:
       runtime: prod
       username: __vm_username__
       command: >
         export PATH=$HOME/.local/bin:$PATH;
-        cd ~/se-toolkit-lab-8/nanobot;
-        LMS_KEY=$(grep '^LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        NANOBOT_LMS_BACKEND_URL=http://localhost:42002 NANOBOT_LMS_API_KEY=$LMS_KEY uv run nanobot agent -c ./config.json -m "Any errors in the last hour? Check the logs." 2>/dev/null | tail -20
-      expect_regex: "(?i)(error|log|no error|0 error|trace|request|status|found|search)"
+        cd ~/se-toolkit-lab-8;
+        ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        RESP=$(uv run python3 -c "
+        import json,asyncio,websockets;
+        async def test():
+            uri='ws://localhost:42002/ws/chat?access_key=$ACCESS_KEY';
+            async with websockets.connect(uri,close_timeout=5) as ws:
+                await ws.send(json.dumps({'content':'Any errors in the last hour? Check the logs.'}));
+                r=await asyncio.wait_for(ws.recv(),timeout=60);
+                return r
+        print(asyncio.run(test()))
+        " 2>&1);
+        echo "$RESP";
+        echo "$RESP" | grep -qiE 'error|log|no error|trace|request|status|found|search|healthy' && echo PASS || echo "FAIL: agent did not return observability data"
+      expect_regex: "PASS"
       timeout: 90
 
   - id: t3_report
@@ -472,28 +483,36 @@ checks:
   # TASK 4: Diagnose a Failure and Make the Agent Proactive
   # =====================================================
 
-  - id: t4_enhanced_skill
+  - id: t4_bug_fixed
     task: task-4
-    title: "Observability skill enhanced for multi-step investigation"
-    class: structural
+    title: "Planted bug fixed: DB failure returns 500, not 404"
+    class: execution
     runner: code
     type: ssh_check
     is_required: true
-    weight: 5
-    depends_on: [ssh_connectivity]
+    weight: 10
+    depends_on: [vm_setup, backend_running]
     hint: >
-      Update nanobot/workspace/skills/observability/SKILL.md to teach the agent
-      multi-step investigation: search logs -> extract trace IDs -> fetch traces -> summarize.
+      The backend has a planted bug that turns database failures into misleading
+      404 responses. Find it using the agent (stop postgres, trigger /items, investigate
+      with logs/traces), fix the code, and redeploy. After the fix, a DB failure
+      should return a proper 500 error, not a 404.
     params:
       runtime: prod
       username: __vm_username__
       command: >
-        F=~/se-toolkit-lab-8/nanobot/workspace/skills/observability/SKILL.md;
-        test -f "$F" || { echo "missing: $F"; exit 0; };
-        WC=$(wc -w < "$F");
-        test "$WC" -ge 60 && echo ok || echo "fail: skill needs more detail ($WC words, need >=60)"
-      expect_regex: "ok"
-      timeout: 10
+        cd ~/se-toolkit-lab-8;
+        LMS_KEY=$(grep '^LMS_API_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        docker compose --env-file .env.docker.secret stop postgres 2>/dev/null;
+        sleep 2;
+        HTTP=$(curl -s -o /tmp/_ac_bugtest -w '%{http_code}' http://localhost:42002/items/ -H "Authorization: Bearer $LMS_KEY");
+        docker compose --env-file .env.docker.secret start postgres 2>/dev/null;
+        echo "response_code:$HTTP";
+        if [ "$HTTP" = "404" ]; then echo "FAIL: backend returns 404 on DB failure — the planted bug is still there. Find and fix it."; exit 0; fi;
+        if [ "$HTTP" = "500" ]; then echo "PASS"; exit 0; fi;
+        echo "FAIL: unexpected HTTP $HTTP (expected 500 after fix)"
+      expect_regex: "PASS"
+      timeout: 30
 
   - id: t4_report
     task: task-4
