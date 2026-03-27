@@ -337,16 +337,8 @@ checks:
         curl -s http://localhost:42002/flutter/ | grep -qE 'flutter_bootstrap|main\.dart\.js|flutter\.js' || { echo "FAIL: /flutter serves empty page (flutter volume not mounted or build failed)"; exit 0; };
         ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
         export PATH=$HOME/.local/bin:$PATH;
-        RESP=$(cd ~/se-toolkit-lab-8 && uv run python3 -c "
-        import json,asyncio,websockets;
-        async def test():
-            uri='ws://localhost:42002/ws/chat?access_key=$ACCESS_KEY';
-            async with websockets.connect(uri,close_timeout=5) as ws:
-                await ws.send(json.dumps({'content':'hello'}));
-                r=await asyncio.wait_for(ws.recv(),timeout=60);
-                return r
-        print(asyncio.run(test()))
-        " 2>&1);
+        printf 'import json,asyncio,websockets\nasync def t():\n uri="ws://localhost:42002/ws/chat?access_key=%s"\n async with websockets.connect(uri,close_timeout=5) as ws:\n  await ws.send(json.dumps({"content":"hello"}))\n  return await asyncio.wait_for(ws.recv(),timeout=60)\nprint(asyncio.run(t()))\n' "$ACCESS_KEY" > /tmp/_ac_ws.py;
+        RESP=$(cd ~/se-toolkit-lab-8 && uv run python3 /tmp/_ac_ws.py 2>&1);
         echo "ws_response: $RESP";
         echo "$RESP" | grep -qi 'invalid access key' && { echo "FAIL: WebSocket rejected access key (check NANOBOT_ACCESS_KEY env var)"; exit 0; };
         echo "$RESP" | grep -qi 'Connection error\|Connection refused' && { echo "FAIL: agent cannot reach LLM (check entrypoint reads correct env vars from compose)"; exit 0; };
@@ -434,16 +426,8 @@ checks:
         export PATH=$HOME/.local/bin:$PATH;
         cd ~/se-toolkit-lab-8;
         ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        RESP=$(uv run python3 -c "
-        import json,asyncio,websockets;
-        async def test():
-            uri='ws://localhost:42002/ws/chat?access_key=$ACCESS_KEY';
-            async with websockets.connect(uri,close_timeout=5) as ws:
-                await ws.send(json.dumps({'content':'Any errors in the last hour? Check the logs.'}));
-                r=await asyncio.wait_for(ws.recv(),timeout=60);
-                return r
-        print(asyncio.run(test()))
-        " 2>&1);
+        printf 'import json,asyncio,websockets\nasync def t():\n uri="ws://localhost:42002/ws/chat?access_key=%s"\n async with websockets.connect(uri,close_timeout=5) as ws:\n  await ws.send(json.dumps({"content":"Any errors in the last hour? Check the logs."}))\n  return await asyncio.wait_for(ws.recv(),timeout=60)\nprint(asyncio.run(t()))\n' "$ACCESS_KEY" > /tmp/_ac_ws3.py;
+        RESP=$(uv run python3 /tmp/_ac_ws3.py 2>&1);
         echo "$RESP";
         echo "$RESP" | grep -qiE 'error|log|no error|trace|request|status|found|search|healthy' && echo PASS || echo "FAIL: agent did not return observability data"
       expect_regex: "PASS"
@@ -536,16 +520,8 @@ checks:
         export PATH=$HOME/.local/bin:$PATH;
         cd ~/se-toolkit-lab-8;
         ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        RESP=$(uv run python3 -c "
-        import json,asyncio,websockets;
-        async def test():
-            uri='ws://localhost:42002/ws/chat?access_key=$ACCESS_KEY';
-            async with websockets.connect(uri,close_timeout=5) as ws:
-                await ws.send(json.dumps({'content':'List all scheduled jobs or cron tasks you have.'}));
-                r=await asyncio.wait_for(ws.recv(),timeout=60);
-                return r
-        print(asyncio.run(test()))
-        " 2>&1);
+        printf 'import json,asyncio,websockets\nasync def t():\n uri="ws://localhost:42002/ws/chat?access_key=%s"\n async with websockets.connect(uri,close_timeout=5) as ws:\n  await ws.send(json.dumps({"content":"List all scheduled jobs or cron tasks you have."}))\n  return await asyncio.wait_for(ws.recv(),timeout=60)\nprint(asyncio.run(t()))\n' "$ACCESS_KEY" > /tmp/_ac_ws4.py;
+        RESP=$(uv run python3 /tmp/_ac_ws4.py 2>&1);
         echo "$RESP";
         echo "$RESP" | grep -qiE 'schedule|cron|health|check|job|minute|interval|no.*schedule|no.*job' && echo PASS || echo "FAIL: agent does not recognize scheduled jobs — create a health check via the Flutter chat first"
       expect_regex: "PASS"
