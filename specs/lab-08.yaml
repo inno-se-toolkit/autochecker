@@ -102,7 +102,7 @@ checks:
         OK=1;
         test -d ~/se-toolkit-lab-8/.git || { echo "missing: ~/se-toolkit-lab-8/.git directory"; OK=0; };
         test -f ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: .env.docker.secret"; OK=0; };
-        test -d ~/se-toolkit-lab-8/qwen-code-api/.git || { echo "missing: qwen-code-api submodule (clone with --recurse-submodules)"; OK=0; };
+        test -e ~/se-toolkit-lab-8/qwen-code-api/.git || { echo "missing: qwen-code-api submodule (clone with --recurse-submodules)"; OK=0; };
         if [ -f ~/se-toolkit-lab-8/.env.docker.secret ]; then
         grep -q 'LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: LMS_API_KEY in .env.docker.secret"; OK=0; };
         grep -q 'QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: QWEN_CODE_API_KEY in .env.docker.secret"; OK=0; };
@@ -195,7 +195,7 @@ checks:
 
   - id: t1_nanobot_project
     task: task-1
-    title: "Repo-local nanobot/ project with nanobot-ai from pinned commit"
+    title: "Repo-local nanobot/ project with nanobot-ai installed"
     class: structural
     runner: code
     type: ssh_check
@@ -204,14 +204,13 @@ checks:
     depends_on: [ssh_connectivity]
     hint: >
       Create a repo-local nanobot/ project: cd ~/se-toolkit-lab-8 && uv init nanobot && cd nanobot &&
-      uv add "nanobot-ai @ git+https://github.com/HKUDS/nanobot.git@e7d371ec1e6531b28898ec2c869ef338e8dd46ec"
+      uv add nanobot-ai
     params:
       runtime: prod
       username: __vm_username__
       command: >
         OK=1;
         test -f ~/se-toolkit-lab-8/nanobot/pyproject.toml || { echo "missing: nanobot/pyproject.toml"; OK=0; };
-        test -f ~/se-toolkit-lab-8/nanobot/uv.lock || { echo "missing: nanobot/uv.lock"; OK=0; };
         if [ -f ~/se-toolkit-lab-8/nanobot/pyproject.toml ]; then
         grep -q 'nanobot-ai' ~/se-toolkit-lab-8/nanobot/pyproject.toml || { echo "missing: nanobot-ai dependency"; OK=0; };
         fi;
