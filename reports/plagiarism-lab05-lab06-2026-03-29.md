@@ -7,9 +7,11 @@
 
 ## 1. Methodology
 
-### 1.1 Automated Screening
+The investigation followed a multi-layered approach, each layer adding evidence beyond what the previous one provided.
 
-Batch plagiarism check was run on 261 students for both labs:
+### 1.1 Automated Screening (file hashing + git history)
+
+Batch plagiarism check was run on 261 students for both labs. The tool hashes every source file (excluding files identical to the template repo), then flags pairs of students whose repos share files above a similarity threshold. Separately, it scans git history for shared commit SHAs, identical commit messages, and cross-author emails.
 
 ```bash
 source $(pyenv root)/versions/env313/bin/activate
@@ -23,24 +25,17 @@ for r in conn.execute('SELECT DISTINCT github_alias FROM users WHERE github_alia
     print(r[0])
 \"" > /tmp/students_plag.txt
 
-# Lab-05
+# Run for each lab
 python main.py batch \
   -s /tmp/students_plag.txt -l lab-05 -p github \
   --plagiarism --threshold 0.5 \
   --template-repo inno-se-toolkit/se-toolkit-lab-5 \
   -w 3 -o /tmp/plag-lab05
-
-# Lab-06
-python main.py batch \
-  -s /tmp/students_plag.txt -l lab-06 -p github \
-  --plagiarism --threshold 0.5 \
-  --template-repo inno-se-toolkit/se-toolkit-lab-6 \
-  -w 3 -o /tmp/plag-lab06
 ```
 
-### 1.2 Deep Investigation
+### 1.2 Deep Pair Investigation (git clone + diff)
 
-Flagged pairs were investigated with:
+Flagged pairs were investigated by cloning both repos and running a detailed comparison: file categorization (identical to template / identical modified / different / only in A / only in B), git timeline reconstruction, and cross-author analysis.
 
 ```bash
 python scripts/investigate_pair.py \
@@ -50,11 +45,12 @@ python scripts/investigate_pair.py \
   --output /tmp/plag-lab05/investigations
 ```
 
-### 1.3 Core File Analysis
+### 1.3 Template Scaffold Analysis
 
-The template scaffold was analyzed to determine which files students were expected to write independently. Only **core task files** (not AI scaffolding like `.claude/skills/`) were considered for plagiarism.
+The upstream template was analyzed to distinguish scaffolding (AI-generated `.claude/skills/`, config files) from core task files that students must write independently. Only core files were considered for plagiarism verdicts.
 
 **Lab-05 core files** (must be student-written):
+
 | File | Template state | Student work |
 |------|---------------|--------------|
 | `backend/app/etl.py` | 147 lines, 5 functions with `raise NotImplementedError` + detailed TODO comments | Implement all 5 functions |
@@ -65,6 +61,7 @@ The template scaffold was analyzed to determine which files students were expect
 | `frontend/vite.config.ts` | 30 lines, complete | Add proxy routes (~1-2 lines) |
 
 **Lab-06 core files**:
+
 | File | Template state | Student work |
 |------|---------------|--------------|
 | `agent.py` | Not in template | Create LLM agent from scratch |
@@ -72,34 +69,56 @@ The template scaffold was analyzed to determine which files students were expect
 | `plans/task-{1,2,3}.md` | Not in template | Write implementation plans |
 | `run_eval.py` | Template-provided | Minimal or no changes |
 
-### 1.4 Independent Implementation Comparison
+### 1.4 Core File Comparison (byte-level diff)
 
-To verify that AI-generated solutions should differ between students, we compared `fetch_items()` from 5 independently confirmed students:
+For each cluster, all 6 core files were compared byte-for-byte using `diff`. When files differed, the actual differences were examined (whitespace-only? trailing newline? completely different implementation?).
 
-| Student | Var name | Auth style | Timeout | Error handling | Docstring |
-|---------|----------|-----------|---------|----------------|-----------|
-| Achoombers | `r` | `auth=auth` tuple | none | `raise_for_status()` | stripped |
-| 2OfClubsy | `response` | inline tuple | none | `raise_for_status()` | kept TODO |
-| Pasha12122000 | `resp` | `_auth()` helper | `timeout=30` | `raise_for_status()` | stripped |
-| EgorTytar | `response` | auth in constructor | none | manual `status_code != 200` | stripped |
-| Nematodont | `response` | `BasicAuth()` object | none | `raise_for_status()` | Russian comments |
+### 1.5 Git Timeline Analysis
 
-Every independent Qwen run produced structurally similar but textually different code. Byte-identical output across 200+ line files is not explained by AI determinism.
+Full commit history (after `git fetch --unshallow`) was examined for:
+- **Commit timestamps**: Who committed first? How far apart? Suspiciously synchronized?
+- **Commit authors**: Does student A's repo contain commits authored by student B?
+- **Branch names in merge commits**: Did anyone merge another student's branch directly?
+
+### 1.6 PR Review Analysis
+
+GitHub PR reviews were checked via `gh api repos/<user>/se-toolkit-lab-5/pulls/<n>/reviews`. The lab requires at least 1 PR approval per task. Review pairs reveal:
+- Who reviewed whose code (and therefore saw it)
+- Whether the source student approved the copy (implying awareness)
+
+### 1.7 Autochecker Bot Logs
+
+The bot database (`bot.db`) was queried for:
+- **Student profiles**: group, VM IP, registration date
+- **Check results**: score progression over time (did they iterate and debug, or pass immediately?)
+- **Attempt timestamps**: synchronized checking patterns between students
+
+### 1.8 AI Determinism Analysis
+
+Students used Qwen Code agent via the university's `qwen-code-api` proxy. We investigated whether identical code could result from deterministic AI output:
+- **Proxy default temperature**: `0.7` (source: `qwen_code_api/routes/chat.py:142`). At this temperature, LLM output is non-deterministic — identical prompts produce different outputs every run. Byte-identical code across 194-295 lines is impossible from independent runs.
+- **Independent implementation comparison**: `fetch_items()` was compared across 5 independently confirmed students — every run produced different variable names, auth patterns, error handling, and docstrings.
+- **Conclusion**: Qwen determinism is ruled out as an explanation for byte-identical code.
+
+### 1.9 Prescribed vs. Suspicious Signals
+
+The lab spec prescribes specific commit messages (e.g., `feat: implement ETL pipeline for autochecker data`), so identical commit messages are **not** evidence of plagiarism. Similarly, `.claude/skills/` directories and AI scaffolding files are expected to be similar across students using the same tools.
 
 ---
 
-## 2. Results
+## 2. Screening Results
 
-### 2.1 Lab-05 Screening Summary
+### 2.1 Lab-05
 
-- 261 students scanned
+- 261 students scanned (252 successful, 9 repo errors)
 - 78 git flags across 49 students
 - 2 critical flags (shared commit SHAs)
-- 5 file-based plagiarism clusters identified
+- 14 students flagged for file-based similarity
+- 6 clusters identified after investigation
 
-### 2.2 Lab-06 Screening Summary
+### 2.2 Lab-06
 
-- 261 students scanned
+- 261 students scanned (250 successful, 11 repo errors)
 - 220 git flags across 118 students (mostly noise — prescribed commit messages)
 - 0 critical flags
 - File-based flags were all from lab-05 code leftover in repos, **not lab-06 task code**
@@ -133,18 +152,16 @@ Every independent Qwen run produced structurally similar but textually different
 | 2026-03-08 12:33:29 | feat: dashboard | feat: dashboard (author: **Cursor**) | feat: dashboard (author: **Achoombers**) |
 | 2026-03-12 20:11-22:41 | Merge PRs | Merge PRs | Merge PRs |
 
-**Verdict: CONFIRMED**
-- rrafich's commits are literally authored by "Achoombers" with identical timestamps to the second
-- dofi4ka's commits are authored by "Cursor" (the AI IDE) with identical timestamps to the second
-- All code is byte-identical, including `Dashboard.tsx` (172 lines, not in template)
-- Source: Achoombers generated the code (likely using Cursor IDE)
+**PR reviews:** None of the three had any PR reviews — they skipped the review process entirely.
 
-**Note on authorship and awareness:**
+**Awareness analysis:**
 - Achoombers's own commits are authored "Achoombers" `<o.grekhov@innopolis.university>`
 - rrafich's copies have author "Achoombers" — matches Achoombers's repo exactly, consistent with direct copy from the public repo (rrafich could have done this without Achoombers knowing)
 - dofi4ka's copies have author "Cursor" (the AI IDE) — a different author, suggesting the code traveled through a different path (possibly generated on a machine with Cursor as git author, or dofi4ka re-committed via Cursor)
-- **None of the three had any PR reviews** — they skipped the review process entirely, so there is no review-based evidence of mutual awareness
+- No PR reviews — no review-based evidence of mutual awareness
 - Achoombers could be unaware of the copying (public repo), but cannot be confirmed either way
+
+**Verdict: CONFIRMED** — Git commit objects were copied with identical timestamps to the second. All code is byte-identical, including `Dashboard.tsx` (172 lines, not in template). Source: Achoombers.
 
 ---
 
@@ -161,7 +178,7 @@ Every independent Qwen run produced structurally similar but textually different
 | `App.css` | **DIFFERENT** | Maksim has +93 lines of dashboard CSS; 2OfClubsy has template-only CSS |
 | `vite.config.ts` (30 lines) | IDENTICAL | Same as template (no changes) |
 
-**5/6 core files identical. App.css is the only difference — Maksim added 93 lines of dashboard styling that 2OfClubsy is missing.**
+**5/6 core files identical.** App.css is the only difference — Maksim added 93 lines of dashboard styling that 2OfClubsy is missing.
 
 **Git timeline:**
 
@@ -170,26 +187,24 @@ Every independent Qwen run produced structurally similar but textually different
 | Maksim-1307 | 2026-03-07 16:29 | 2026-03-07 17:07 | 2026-03-07 22:47 |
 | 2OfClubsy | 2026-03-11 14:26 | 2026-03-11 14:54 | 2026-03-11 15:09 |
 
-**Git evidence:** No cross-authored commits. Different author emails (`andrejsagendykov@gmail.com` vs `max.07mal@gmail.com`). No shared commit SHAs.
+No cross-authored commits. Different author emails. No shared commit SHAs.
 
-**Additional evidence from autochecker logs:**
-- Both are in **group B25-DSAI-03** (classmates)
+**Autochecker logs:**
+- Both in **group B25-DSAI-03** (classmates)
+- Maksim-1307 had progressive work with failures and retries (task-1: 55%->100%, task-2: 28%->28%->100%)
 - 2OfClubsy ran setup on Mar 7 but did zero task work until Mar 11 — then passed task-1 and task-2 in quick succession
-- Maksim-1307 had progressive work with failures and retries on Mar 7 (task-1: 55%->100%, task-2: 28%->28%->100%)
 
-**Verdict: CONFIRMED**
-- Maksim-1307 submitted 4 days earlier (Mar 7 vs Mar 11) with progressive iterative work
-- 2OfClubsy did no task work for 4 days after setup, then passed tasks immediately
-- 295-line Dashboard.tsx (entirely student-created, no template) is byte-identical
-- Missing App.css in 2OfClubsy is consistent with copying code files but not the stylesheet
-- Qwen determinism ruled out: the university proxy uses **temperature=0.7** by default (not 0), which introduces randomness — byte-identical output across 295+ lines is impossible from independent runs
-- Source: Maksim-1307. 2OfClubsy copied.
+**PR reviews:** Maksim-1307 **approved all 3 of 2OfClubsy's PRs** (containing code byte-identical to Maksim's own). Maksim's own PRs were reviewed by TeraloToxin (unrelated student).
+
+**Awareness analysis:** Maksim reviewed and approved his own code in 2OfClubsy's repo — **Maksim was aware of the copying**. Both are accountable.
+
+**Verdict: CONFIRMED** — 295-line Dashboard.tsx (no template) byte-identical. 4-day gap. 2OfClubsy did no work then passed immediately. Qwen determinism ruled out (temperature=0.7). Source: Maksim-1307. Both aware (PR reviews).
 
 ---
 
-### Cluster 3: Pasha12122000 / z1nnyy / diana / kayumowanas — MIXED
+### Cluster 3: Pasha12122000 / z1nnyy / diana / kayumowanas — CONFIRMED
 
-This cluster has two sub-groups with different evidence levels.
+This cluster has two sub-groups.
 
 **File comparison matrix:**
 
@@ -204,15 +219,17 @@ This cluster has two sub-groups with different evidence levels.
 
 **etl.py details:**
 - **Pasha vs z1nnyy**: Only whitespace/formatting differences (line wrapping, trailing newline) — functionally identical code
-- **Pasha vs diana**: Completely different implementations — different imports (`sqlmodel` vs `sqlalchemy`), different auth (`_auth()` helper vs inline tuple), diana kept TODO comments
+- **Pasha vs diana**: Completely different implementations — different imports (`sqlmodel` vs `sqlalchemy`), different auth pattern (`_auth()` helper vs inline tuple), diana kept TODO comments
 - **kayumowanas**: `etl.py` is the **unchanged template** (147 lines, still has `raise NotImplementedError`) — task-1 was never implemented
 
 **App.tsx detail (Pasha vs z1nnyy):**
 - Only difference: `import { Dashboard } from './Dashboard'` vs `import { Dashboard } from './Dashboard.tsx'` (file extension in import)
 
-**Git timeline (exact timestamps):**
+#### Sub-group C3a: Pasha12122000 + z1nnyy — CONFIRMED
 
-| Time (Mar 12) | Pasha12122000 | z1nnyy |
+**Git timeline (exact timestamps, Mar 12):**
+
+| Time | Pasha12122000 | z1nnyy |
 |---|---|---|
 | 21:17:39 | — | ETL pipeline commit |
 | 21:19:07 | ETL pipeline commit | — |
@@ -225,22 +242,33 @@ This cluster has two sub-groups with different evidence levels.
 | 21:50:50 | — | Merge PR #6 |
 | 21:51:08 | Merge PR #6 | — |
 
-diana and kayumowanas timeline:
+**Autochecker logs:** z1nnyy and Pasha ran setup within 22 seconds of each other (18:01:58 vs 18:02:20), then checked tasks in lockstep.
 
-| Student | Task 1 | Task 2 | Task 3 |
-|---------|--------|--------|--------|
-| kayumowanas | 2026-03-06 12:46 (author: **Danila Danko**) | 2026-03-07 11:35 | 2026-03-12 23:13:53 |
-| diana | 2026-03-12 22:06 (3 attempts) | 2026-03-12 22:52 | 2026-03-12 23:13:54 |
+**PR reviews:** Pasha <-> z1nnyy cross-reviewed all PRs — mutual collaboration.
 
-**Verdict:**
+**Awareness:** Both fully aware — active real-time collaboration with commits within seconds.
 
-**Pasha12122000 + z1nnyy — CONFIRMED**: Commits within seconds of each other across all 3 tasks (z1nnyy consistently ~2-10 seconds ahead). The `etl.py` differences are only whitespace/formatting, and the `App.tsx` difference is a single import extension. They were clearly working together in real-time — one generating code and both pushing simultaneously.
+**Verdict: CONFIRMED** — Commits within seconds across all 3 tasks. etl.py differs only in whitespace, App.tsx by 1 character. Both working together in real-time.
 
-**diana + kayumowanas — CONFIRMED**: Both share the same `Dashboard.tsx` (194 lines, no template) with Pasha/z1nnyy. Qwen determinism ruled out: the university proxy uses **temperature=0.7** by default, making byte-identical 194-line output from independent runs impossible. Additional evidence from autochecker logs:
+#### Sub-group C3b: diana + kayumowanas — CONFIRMED
+
+**Git timeline:**
+
+| Student | Group | Task 1 | Task 2 | Task 3 |
+|---------|-------|--------|--------|--------|
+| kayumowanas | B25-CSE-04 | 2026-03-06 12:46 (author: **Danila Danko**) | 2026-03-07 11:35 | 2026-03-12 23:13:53 |
+| diana | B25-DSAI-05 | 2026-03-12 22:06 (3 failed attempts) | 2026-03-12 22:52 | 2026-03-12 23:13:54 |
+
+**Autochecker logs:**
+- diana struggled with task-1 (5 attempts, max 66.7% until attempt 5) and task-2 (6 attempts, never fully passing)
+- kayumowanas never passed task-1 beyond 77.8%; their `etl.py` is the unchanged template with `raise NotImplementedError`
 - diana (B25-DSAI-05, IP 10.93.25.171) is in the same group as z1nnyy (IP 10.93.25.170) with adjacent VM IPs
-- diana struggled with task-1 (5 attempts) and task-2 (6 attempts, never fully passing) but has a perfect Dashboard.tsx identical to students who worked together
-- kayumowanas never passed task-1 beyond 77.8% and their `etl.py` is the unchanged template with `raise NotImplementedError` — yet they have the same Dashboard.tsx
-- Both received the Dashboard code from the Pasha/z1nnyy group rather than generating it independently
+
+**PR reviews:** diana <-> kayumowanas cross-reviewed all PRs — they are each other's review partners.
+
+**Awareness:** Both aware via mutual PR reviews. diana likely received the Dashboard from z1nnyy (same group, adjacent IPs).
+
+**Verdict: CONFIRMED** — Both share the same 194-line Dashboard.tsx (no template) with Pasha/z1nnyy, despite struggling or failing at easier tasks. Qwen determinism ruled out (temperature=0.7). kayumowanas has an unimplemented etl.py but a perfect Dashboard — received code, didn't write it.
 
 ---
 
@@ -266,16 +294,15 @@ diana and kayumowanas timeline:
 | EgorTytar | 2026-03-07 11:13 | 2026-03-07 12:21 | 2026-03-07 12:38 | ~90 min |
 | beetle-2026-b | 2026-03-07 13:05 | 2026-03-07 13:14 | 2026-03-07 13:23 | **21 min** |
 
-**Verdict: CONFIRMED**
-- beetle-2026-b started 25 minutes after EgorTytar finished
-- Completed all 3 tasks in 21 minutes (vs 90 min for EgorTytar) — copy speed, not coding speed
-- EgorTytar's commits authored as "root" (unconfigured git on VM)
-- Only analytics.py differs by 1 line
-- Source: EgorTytar. beetle-2026-b copied.
+**PR reviews:** EgorTytar **approved all 3 of beetle-2026-b's PRs** (containing his own identical code). beetle-2026-b approved all 3 of EgorTytar's PRs.
+
+**Awareness:** EgorTytar reviewed and approved his own code in beetle's repo — **both were aware**.
+
+**Verdict: CONFIRMED** — 6/6 files byte-identical. beetle started 25 min after EgorTytar finished and completed all 3 tasks in 21 minutes (copy speed). EgorTytar's commits authored as "root" (unconfigured git). Both aware via mutual PR reviews.
 
 ---
 
-### Cluster 5: Nematodont / daniyagg — PAIR PROGRAMMING (not one-way copying)
+### Cluster 5: Nematodont / daniyagg — NOT PLAGIARISM (pair programming)
 
 **File comparison:**
 
@@ -290,7 +317,7 @@ diana and kayumowanas timeline:
 
 **5/6 core files identical. Dashboard.tsx differs meaningfully.**
 
-**Dashboard.tsx differences (daniyagg's additions vs Nematodont):**
+**Dashboard.tsx differences (daniyagg's version vs Nematodont's):**
 - Added section header comments (`// ==================== API Types ====================`)
 - Extracted `DEFAULT_LAB` constant instead of inline `'lab-04'`
 - Better JSX formatting (multiline error display)
@@ -315,15 +342,13 @@ This indicates one person wrote the base, the other refined with comments, const
 | 2026-03-10 23:26 | feat: dashboard | — |
 | 2026-03-10 23:29 | PR merged by **daniyagg** | — |
 
-**Verdict: PAIR PROGRAMMING / ACTIVE COLLABORATION**
-- They are cross-merging each other's PRs on both repos
-- Commit timestamps within 1-8 minutes of each other
-- Backend code shared (same source), Dashboard.tsx written independently with meaningful differences
-- Not one-way copying — bidirectional collaboration with evidence of individual contributions
+**PR reviews:** Nematodont <-> daniyagg cross-reviewed all PRs — expected for pair programming.
+
+**Verdict: NOT PLAGIARISM (pair programming)** — They are cross-merging each other's PRs on both repos. Backend code shared, but Dashboard.tsx written independently with meaningful differences showing individual contributions. Bidirectional collaboration, not one-way copying.
 
 ---
 
-### Cluster 6: the-shtorm / xleb-sha — PARTIAL (task-1 copied, tasks 2-3 independent)
+### Cluster 6: the-shtorm / xleb-sha — NOT PLAGIARISM (branch sharing, independent work)
 
 **Git history reveals:**
 
@@ -344,10 +369,9 @@ The shared commit SHA `45f2699e` (author: "senior_shit_engineer") is the-shtorm'
 | 2026-03-06 19:12 | — | feat: dashboard (own work) |
 | 2026-03-10 17:49 | feat: dashboard (own work) | — |
 
-**File comparison (all 6 core files differ):**
-xleb-sha rewrote task-1 after merging the-shtorm's branch, and wrote tasks 2-3 independently.
+**File comparison:** All 6 core files differ — xleb-sha rewrote task-1 after merging the-shtorm's branch, and wrote tasks 2-3 independently.
 
-**Verdict: PARTIAL — task-1 branch was shared via git merge, but all final code is independently written.** This may represent authorized collaboration (PR review partner) or unauthorized branch sharing. The git evidence (shared SHA + PR from the-shtorm's branch) is unambiguous, but the impact is low since all code was rewritten.
+**Verdict: NOT PLAGIARISM** — Task-1 branch was shared via git merge (shared SHA proves it), but all final code is independently written. May represent authorized collaboration (PR review partner) or unauthorized branch sharing, but impact is zero since all code was rewritten.
 
 ---
 
@@ -360,62 +384,22 @@ The file-based flags for lab-06 were false positives:
 
 ---
 
-## 5. Qwen Determinism Consideration
-
-Students used Qwen Code agent to generate solutions. Could identical code be explained by deterministic AI output?
-
-**Analysis:**
-- The university's Qwen proxy (`qwen-code-api`) uses **temperature=0.7 by default** (see `qwen_code_api/routes/chat.py:142`). This is not deterministic — it introduces significant randomness into every response.
-- At temperature=0.7, two identical prompts will produce **different outputs** every time. Byte-identical code across 194-295 line files from independent runs is impossible.
-- Even at temperature=0, comparison of 5 independently confirmed students showed **every run produces different** variable names, auth patterns, error handling, and comments
-- `Dashboard.tsx` is **not in the template** — it is entirely student-created with no scaffold constraints
-- Git history signals (cross-authored commits, 1-second timestamp gaps, 21-minute completion times) cannot be explained by AI behavior
-- **Conclusion: Qwen determinism is ruled out as an explanation for identical code in all clusters**
-
-**Experiment protocol** (for further validation):
-
-See `scripts/qwen_determinism_experiment.py` — sends N identical requests to Qwen 2.5 Coder 32B (temperature=0) via OpenRouter and measures output variance.
-
-```bash
-python scripts/qwen_determinism_experiment.py \
-  --api-key $OPENROUTER_API_KEY \
-  --count 200 \
-  --output-dir reports/qwen_experiment_results
-```
-
----
-
-## 6. Summary
+## 5. Summary
 
 ### Lab-05: 6 clusters identified
 
-| # | Students | Verdict | Evidence |
+| # | Students | Verdict | Key evidence |
 |---|----------|---------|----------|
-| C1 | **Achoombers** -> dofi4ka, rrafich | **CONFIRMED** | Git commit objects copied (same author + timestamps to the second), 6/6 core files byte-identical |
-| C2 | **Maksim-1307** -> 2OfClubsy | **CONFIRMED** | 5/6 files identical (incl. 295-line Dashboard.tsx), classmates (B25-DSAI-03), 2OfClubsy did no work for 4 days then passed immediately. Qwen determinism ruled out (temperature=0.7) |
-| C3a | **Pasha12122000** + z1nnyy | **CONFIRMED** | Commits within seconds, autochecker checks within 22s of each other, etl.py differs only in whitespace |
-| C3b | diana + kayumowanas (share Dashboard.tsx with C3a) | **CONFIRMED** | Same 194-line Dashboard.tsx despite struggling/failing at easier tasks. Qwen determinism ruled out (temperature=0.7). diana same group as z1nnyy (B25-DSAI-05, adjacent IPs) |
-| C4 | **EgorTytar** -> beetle-2026-b | **CONFIRMED** | 6/6 files byte-identical (only trailing newline diff), beetle started 25 min after EgorTytar, finished all 3 tasks in 21 min |
-| C5 | **Nematodont** <-> daniyagg | **NOT PLAGIARISM** (pair programming) | Cross-merging PRs on both repos, shared backend code, but independent Dashboard.tsx with meaningful differences (comments, constants, formatting) |
-| C6 | **the-shtorm** -> xleb-sha | **NOT PLAGIARISM** (branch sharing) | xleb-sha merged the-shtorm's task-1 branch (shared commit SHA), but rewrote the code and did tasks 2-3 independently |
+| C1 | **Achoombers** -> dofi4ka, rrafich | **CONFIRMED** | Git commit objects copied (same author + timestamps to the second), 6/6 core files byte-identical. No PR reviews. |
+| C2 | **Maksim-1307** <-> 2OfClubsy | **CONFIRMED** | 5/6 identical (incl. 295-line Dashboard.tsx), classmates, 4-day gap, Maksim approved 2OfClubsy's copied PRs. Both aware. |
+| C3a | **Pasha12122000** <-> z1nnyy | **CONFIRMED** | Commits within seconds, autochecker checks within 22s, cross-reviewed PRs. Both aware. |
+| C3b | diana + kayumowanas | **CONFIRMED** | Same 194-line Dashboard.tsx as C3a despite failing easier tasks. Cross-reviewed PRs. diana same group/adjacent IP as z1nnyy. |
+| C4 | **EgorTytar** <-> beetle-2026-b | **CONFIRMED** | 6/6 identical, beetle finished in 21 min, EgorTytar approved beetle's copied PRs. Both aware. |
+| C5 | **Nematodont** <-> daniyagg | **NOT PLAGIARISM** | Pair programming: cross-merging PRs, shared backend, but independent Dashboard.tsx with meaningful individual contributions. |
+| C6 | **the-shtorm** -> xleb-sha | **NOT PLAGIARISM** | Branch shared via git merge, but all final code independently rewritten. |
 
 **Confirmed plagiarism**: C1 (3 students), C2 (2 students), C3a (2 students), C3b (2 students), C4 (2 students) = **11 students**
 **Not plagiarism**: C5 (pair programming), C6 (branch sharing with independent work)
-
-### PR Review Pairs — Awareness Analysis
-
-The lab requires each PR to have at least 1 approval. The review pairs reveal who was aware of whose code:
-
-| Cluster | Reviewer -> Reviewed | Implication |
-|---|---|---|
-| C1 | **No reviews on any PRs** (Achoombers, dofi4ka, rrafich) | Skipped the review process entirely. No evidence of mutual awareness from reviews. |
-| C2 | **Maksim-1307 approved all 3 of 2OfClubsy's PRs** (2OfClubsy's code is byte-identical to Maksim's) | Maksim reviewed and approved his own code in 2OfClubsy's repo — **Maksim was aware of the copying** |
-| C3a | Pasha <-> z1nnyy cross-reviewed all PRs | Mutual, already confirmed as active collaboration |
-| C3b | diana <-> kayumowanas cross-reviewed all PRs | They form a review pair, and share Dashboard.tsx with C3a |
-| C4 | **EgorTytar approved all 3 of beetle-2026-b's PRs** (beetle's code is identical to EgorTytar's) | EgorTytar reviewed and approved his own code in beetle's repo — **EgorTytar was aware** |
-| C5 | Nematodont <-> daniyagg cross-reviewed all PRs | Expected for pair programming |
-
-**Key finding**: In C2 and C4, the **source students** (Maksim-1307, EgorTytar) reviewed and approved the copied PRs. They cannot claim unawareness — they saw their own identical code in the copier's repo and approved it.
 
 ### Lab-06: No plagiarism confirmed
 
@@ -423,7 +407,7 @@ All file-based flags were false positives (lab-05 leftover code in repos).
 
 ---
 
-## 7. Reproducing This Investigation
+## 6. Reproducing This Investigation
 
 ### Requirements
 ```bash
@@ -452,12 +436,29 @@ python scripts/investigate_pair.py \
 export GH=https://${GITHUB_TOKEN}@github.com
 git clone --depth 1 $GH/Achoombers/se-toolkit-lab-5.git /tmp/plag-compare/Achoombers
 git clone --depth 1 $GH/dofi4ka/se-toolkit-lab-5.git /tmp/plag-compare/dofi4ka
-# ... then use filecmp or diff to compare core files
+# then: diff Achoombers/backend/app/etl.py dofi4ka/backend/app/etl.py
 ```
 
 ### Step 4: Timeline analysis
 ```bash
 cd /tmp/plag-compare/Achoombers
 git fetch --unshallow
-git log --format="%ai | %an | %s" --all
+git log --format="%ai | %an <%ae> | %s" --all
+```
+
+### Step 5: PR review analysis
+```bash
+gh api repos/Achoombers/se-toolkit-lab-5/pulls?state=all --jq '.[].number' | while read pr; do
+  gh api repos/Achoombers/se-toolkit-lab-5/pulls/$pr/reviews \
+    --jq '.[] | "PR#'$pr' reviewed by \(.user.login) (\(.state))"'
+done
+```
+
+### Step 6: Autochecker bot logs
+```bash
+ssh nurios@188.245.43.68 "docker exec autochecker-bot python3 -c \"
+import sqlite3
+conn = sqlite3.connect('/app/data/bot.db')
+# Query users, results, attempts tables by tg_id
+\""
 ```
