@@ -139,7 +139,12 @@ Every independent Qwen run produced structurally similar but textually different
 - All code is byte-identical, including `Dashboard.tsx` (172 lines, not in template)
 - Source: Achoombers generated the code (likely using Cursor IDE)
 
-**Note on Achoombers's involvement**: rrafich's commits are authored "Achoombers" while dofi4ka's are authored "Cursor". If rrafich had independently cloned Achoombers's repo, the author field would match whatever Achoombers's git config was at commit time (which appears to be "Cursor" based on dofi4ka's copies). The fact that rrafich has "Achoombers" as author suggests the commits may have traveled through a different path — possibly Achoombers actively shared them after re-authoring, or pushed to rrafich's repo directly. **Achoombers cannot be fully exonerated** — they may have been aware of or facilitated the copying, at least for rrafich.
+**Note on authorship and awareness:**
+- Achoombers's own commits are authored "Achoombers" `<o.grekhov@innopolis.university>`
+- rrafich's copies have author "Achoombers" — matches Achoombers's repo exactly, consistent with direct copy from the public repo (rrafich could have done this without Achoombers knowing)
+- dofi4ka's copies have author "Cursor" (the AI IDE) — a different author, suggesting the code traveled through a different path (possibly generated on a machine with Cursor as git author, or dofi4ka re-committed via Cursor)
+- **None of the three had any PR reviews** — they skipped the review process entirely, so there is no review-based evidence of mutual awareness
+- Achoombers could be unaware of the copying (public repo), but cannot be confirmed either way
 
 ---
 
@@ -396,6 +401,21 @@ python scripts/qwen_determinism_experiment.py \
 
 **Confirmed plagiarism**: C1 (3 students), C2 (2 students), C3a (2 students), C3b (2 students), C4 (2 students) = **11 students**
 **Not plagiarism**: C5 (pair programming), C6 (branch sharing with independent work)
+
+### PR Review Pairs — Awareness Analysis
+
+The lab requires each PR to have at least 1 approval. The review pairs reveal who was aware of whose code:
+
+| Cluster | Reviewer -> Reviewed | Implication |
+|---|---|---|
+| C1 | **No reviews on any PRs** (Achoombers, dofi4ka, rrafich) | Skipped the review process entirely. No evidence of mutual awareness from reviews. |
+| C2 | **Maksim-1307 approved all 3 of 2OfClubsy's PRs** (2OfClubsy's code is byte-identical to Maksim's) | Maksim reviewed and approved his own code in 2OfClubsy's repo — **Maksim was aware of the copying** |
+| C3a | Pasha <-> z1nnyy cross-reviewed all PRs | Mutual, already confirmed as active collaboration |
+| C3b | diana <-> kayumowanas cross-reviewed all PRs | They form a review pair, and share Dashboard.tsx with C3a |
+| C4 | **EgorTytar approved all 3 of beetle-2026-b's PRs** (beetle's code is identical to EgorTytar's) | EgorTytar reviewed and approved his own code in beetle's repo — **EgorTytar was aware** |
+| C5 | Nematodont <-> daniyagg cross-reviewed all PRs | Expected for pair programming |
+
+**Key finding**: In C2 and C4, the **source students** (Maksim-1307, EgorTytar) reviewed and approved the copied PRs. They cannot claim unawareness — they saw their own identical code in the copier's repo and approved it.
 
 ### Lab-06: No plagiarism confirmed
 
