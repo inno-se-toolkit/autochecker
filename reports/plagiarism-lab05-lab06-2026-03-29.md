@@ -210,13 +210,13 @@ Every independent Qwen run produced structurally similar but textually different
 | Core file | Identical? |
 |-----------|-----------|
 | `etl.py` (268 lines) | IDENTICAL |
-| `analytics.py` | DIFFERENT (301 vs 300 lines) |
+| `analytics.py` | IDENTICAL (301 vs 300 lines — only difference is a trailing empty line) |
 | `Dashboard.tsx` (172 lines) | IDENTICAL |
 | `App.tsx` | IDENTICAL |
 | `App.css` | IDENTICAL |
 | `vite.config.ts` | IDENTICAL |
 
-**5/6 core files identical.**
+**6/6 core files identical** (the 1-line "difference" in analytics.py is just a trailing newline).
 
 **Git timeline:**
 
@@ -234,7 +234,7 @@ Every independent Qwen run produced structurally similar but textually different
 
 ---
 
-### Cluster 5: Nematodont / daniyagg — CONFIRMED (collaborative)
+### Cluster 5: Nematodont / daniyagg — PAIR PROGRAMMING (not one-way copying)
 
 **File comparison:**
 
@@ -242,12 +242,21 @@ Every independent Qwen run produced structurally similar but textually different
 |-----------|-----------|
 | `etl.py` (448 lines) | IDENTICAL |
 | `analytics.py` (233 lines) | IDENTICAL |
-| `Dashboard.tsx` | DIFFERENT (298 vs 315 lines) |
+| `Dashboard.tsx` | DIFFERENT (297 vs 314 lines) |
 | `App.tsx` | IDENTICAL |
 | `App.css` | IDENTICAL |
 | `vite.config.ts` | IDENTICAL |
 
-**5/6 core files identical. Dashboard.tsx differs.**
+**5/6 core files identical. Dashboard.tsx differs meaningfully.**
+
+**Dashboard.tsx differences (daniyagg's additions vs Nematodont):**
+- Added section header comments (`// ==================== API Types ====================`)
+- Extracted `DEFAULT_LAB` constant instead of inline `'lab-04'`
+- Better JSX formatting (multiline error display)
+- Added chart section comments (`{/* Bar Chart */}`)
+- Nematodont has `//meow` signature at end
+
+This indicates one person wrote the base, the other refined with comments, constants, and formatting.
 
 **Git timeline:**
 
@@ -265,11 +274,39 @@ Every independent Qwen run produced structurally similar but textually different
 | 2026-03-10 23:26 | feat: dashboard | — |
 | 2026-03-10 23:29 | PR merged by **daniyagg** | — |
 
-**Verdict: CONFIRMED (active collaboration)**
+**Verdict: PAIR PROGRAMMING / ACTIVE COLLABORATION**
 - They are cross-merging each other's PRs on both repos
 - Commit timestamps within 1-8 minutes of each other
-- They each wrote their own Dashboard.tsx but shared all backend code
-- Not a one-way copy — they are working together across both repos
+- Backend code shared (same source), Dashboard.tsx written independently with meaningful differences
+- Not one-way copying — bidirectional collaboration with evidence of individual contributions
+
+---
+
+### Cluster 6: the-shtorm / xleb-sha — PARTIAL (task-1 copied, tasks 2-3 independent)
+
+**Git history reveals:**
+
+xleb-sha's PR #2 merge commit reads: `Merge pull request #2 from the-shtorm/task/1-build-data-pipeline` — xleb-sha merged the-shtorm's task-1 branch directly into their repo.
+
+The shared commit SHA `45f2699e` (author: "senior_shit_engineer") is the-shtorm's ETL pipeline commit, which appears in both repos.
+
+**Timeline:**
+
+| Timestamp | the-shtorm | xleb-sha |
+|-----------|-----------|---------|
+| 2026-03-06 17:25 | feat: ETL pipeline (SHA 45f2699e) | — |
+| 2026-03-06 17:35 | Merge PR #2 | — |
+| 2026-03-06 17:54 | — | feat: ETL pipeline (own version, SHA 30b4b2d) |
+| 2026-03-06 17:57 | — | Merge PR #2 (from **the-shtorm**/task/1) |
+| 2026-03-06 18:23 | — | feat: analytics endpoints (own work) |
+| 2026-03-06 18:41 | feat: analytics endpoints (own work) | — |
+| 2026-03-06 19:12 | — | feat: dashboard (own work) |
+| 2026-03-10 17:49 | feat: dashboard (own work) | — |
+
+**File comparison (all 6 core files differ):**
+xleb-sha rewrote task-1 after merging the-shtorm's branch, and wrote tasks 2-3 independently.
+
+**Verdict: PARTIAL — task-1 branch was shared via git merge, but all final code is independently written.** This may represent authorized collaboration (PR review partner) or unauthorized branch sharing. The git evidence (shared SHA + PR from the-shtorm's branch) is unambiguous, but the impact is low since all code was rewritten.
 
 ---
 
@@ -308,17 +345,18 @@ python scripts/qwen_determinism_experiment.py \
 
 ## 6. Summary
 
-### Lab-05: 5 clusters confirmed
+### Lab-05: 6 clusters identified
 
-| # | Students | Direction | Evidence strength |
-|---|----------|-----------|-------------------|
-| C1 | **Achoombers** -> dofi4ka, rrafich | Achoombers is source | Critical: cross-authored commits with identical timestamps |
-| C2 | **Maksim-1307** -> 2OfClubsy | Maksim is source | High: 5/6 files identical, 4-day gap |
-| C3 | **Pasha12122000** + z1nnyy + diana + kayumowanas | Shared source, simultaneous work | High: identical Dashboard, 1-2 min timestamp gaps |
-| C4 | **EgorTytar** -> beetle-2026-b | EgorTytar is source | High: 5/6 files identical, 25-min gap, 21-min completion |
-| C5 | **Nematodont** <-> daniyagg | Active collaboration (bidirectional) | High: cross-merging PRs on both repos |
+| # | Students | Type | Evidence |
+|---|----------|------|----------|
+| C1 | **Achoombers** -> dofi4ka, rrafich | **Copy** | Commits authored by "Achoombers" in rrafich's repo, identical timestamps to the second, 6/6 core files identical |
+| C2 | **Maksim-1307** -> 2OfClubsy | **Copy** | 5/6 files identical (incl. 295-line Dashboard.tsx with no template), 4-day gap |
+| C3 | **Pasha12122000** + z1nnyy + diana + kayumowanas | **Copy** | 195-line Dashboard.tsx identical across all 4, timestamps within minutes |
+| C4 | **EgorTytar** -> beetle-2026-b | **Copy** | 6/6 files identical (trailing newline only diff), beetle finished all 3 tasks in 21 min |
+| C5 | **Nematodont** <-> daniyagg | **Pair programming** | Cross-merging PRs, shared backend code, but independent Dashboard.tsx with meaningful differences |
+| C6 | **the-shtorm** -> xleb-sha | **Partial (task-1 only)** | xleb-sha merged the-shtorm's task-1 branch (shared commit SHA), but rewrote code and did tasks 2-3 independently |
 
-**Total students involved**: 14
+**Total students involved**: 16
 
 ### Lab-06: No plagiarism confirmed
 
