@@ -82,11 +82,11 @@ Output the full Dashboard.tsx file.
 """
 
 
-def send_request(api_url, api_key, model, request_id):
+def send_request(api_url, api_key, model, request_id, temperature=0.7):
     """Send one request and return (id, content, duration_seconds, error)."""
     body = json.dumps({
         "model": model,
-        "temperature": 0,
+        "temperature": temperature,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": USER_PROMPT},
@@ -200,6 +200,7 @@ def main():
     parser.add_argument("--api-key", "-k", type=str, default="my-secret-qwen-key")
     parser.add_argument("--model", "-m", type=str, default="coder-model")
     parser.add_argument("--output-dir", "-o", type=str, default="./qwen_experiment_results")
+    parser.add_argument("--temperature", "-t", type=float, default=0.7)
     parser.add_argument("--concurrency", "-c", type=int, default=3)
     args = parser.parse_args()
 
@@ -209,7 +210,7 @@ def main():
     print(f"Qwen Determinism Experiment")
     print(f"  API URL:     {args.api_url}")
     print(f"  Model:       {args.model}")
-    print(f"  Temperature: 0")
+    print(f"  Temperature: {args.temperature}")
     print(f"  Requests:    {args.count}")
     print(f"  Concurrency: {args.concurrency}")
     print(f"  Output dir:  {output_dir.resolve()}")
@@ -221,7 +222,7 @@ def main():
 
     with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
         futures = {
-            pool.submit(send_request, args.api_url, args.api_key, args.model, i): i
+            pool.submit(send_request, args.api_url, args.api_key, args.model, i, args.temperature): i
             for i in range(1, args.count + 1)
         }
         for future in as_completed(futures):

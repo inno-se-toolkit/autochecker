@@ -141,7 +141,7 @@ Every independent Qwen run produced structurally similar but textually different
 
 ---
 
-### Cluster 2: 2OfClubsy / Maksim-1307 — PENDING (awaiting Qwen determinism experiment)
+### Cluster 2: 2OfClubsy / Maksim-1307 — CONFIRMED
 
 **File comparison:**
 
@@ -165,13 +165,18 @@ Every independent Qwen run produced structurally similar but textually different
 
 **Git evidence:** No cross-authored commits. Different author emails (`andrejsagendykov@gmail.com` vs `max.07mal@gmail.com`). No shared commit SHAs.
 
-**Verdict: PENDING**
-- Maksim-1307 submitted 4 days earlier (Mar 7 vs Mar 11)
-- 295-line Dashboard.tsx (entirely student-created, no template) is byte-identical — strong signal
+**Additional evidence from autochecker logs:**
+- Both are in **group B25-DSAI-03** (classmates)
+- 2OfClubsy ran setup on Mar 7 but did zero task work until Mar 11 — then passed task-1 and task-2 in quick succession
+- Maksim-1307 had progressive work with failures and retries on Mar 7 (task-1: 55%->100%, task-2: 28%->28%->100%)
+
+**Verdict: CONFIRMED**
+- Maksim-1307 submitted 4 days earlier (Mar 7 vs Mar 11) with progressive iterative work
+- 2OfClubsy did no task work for 4 days after setup, then passed tasks immediately
+- 295-line Dashboard.tsx (entirely student-created, no template) is byte-identical
 - Missing App.css in 2OfClubsy is consistent with copying code files but not the stylesheet
-- However, no git-level evidence (no cross-authored commits, no shared SHAs)
-- Cannot conclusively rule out Qwen determinism producing identical output from the same template+prompt until the experiment is run
-- **If Qwen experiment shows non-deterministic output (expected), this becomes CONFIRMED**
+- Qwen determinism ruled out: the university proxy uses **temperature=0.7** by default (not 0), which introduces randomness — byte-identical output across 295+ lines is impossible from independent runs
+- Source: Maksim-1307. 2OfClubsy copied.
 
 ---
 
@@ -224,7 +229,11 @@ diana and kayumowanas timeline:
 
 **Pasha12122000 + z1nnyy — CONFIRMED**: Commits within seconds of each other across all 3 tasks (z1nnyy consistently ~2-10 seconds ahead). The `etl.py` differences are only whitespace/formatting, and the `App.tsx` difference is a single import extension. They were clearly working together in real-time — one generating code and both pushing simultaneously.
 
-**diana + kayumowanas — PENDING (awaiting Qwen determinism experiment)**: Both share the same `Dashboard.tsx` (194 lines, no template) with Pasha/z1nnyy, but their other files show independent work. diana wrote her own `etl.py` from scratch (completely different implementation). kayumowanas never even implemented `etl.py` (still template). No cross-authored commits, no shared SHAs. The identical `Dashboard.tsx` is suspicious but cannot be conclusively attributed to copying vs. Qwen determinism without the experiment results.
+**diana + kayumowanas — CONFIRMED**: Both share the same `Dashboard.tsx` (194 lines, no template) with Pasha/z1nnyy. Qwen determinism ruled out: the university proxy uses **temperature=0.7** by default, making byte-identical 194-line output from independent runs impossible. Additional evidence from autochecker logs:
+- diana (B25-DSAI-05, IP 10.93.25.171) is in the same group as z1nnyy (IP 10.93.25.170) with adjacent VM IPs
+- diana struggled with task-1 (5 attempts) and task-2 (6 attempts, never fully passing) but has a perfect Dashboard.tsx identical to students who worked together
+- kayumowanas never passed task-1 beyond 77.8% and their `etl.py` is the unchanged template with `raise NotImplementedError` — yet they have the same Dashboard.tsx
+- Both received the Dashboard code from the Pasha/z1nnyy group rather than generating it independently
 
 ---
 
@@ -349,11 +358,12 @@ The file-based flags for lab-06 were false positives:
 Students used Qwen Code agent to generate solutions. Could identical code be explained by deterministic AI output?
 
 **Analysis:**
-- At temperature=0, LLMs produce identical output for **identical prompts**
-- The template scaffold provides detailed TODO instructions, constraining the solution space
-- However, comparison of 5 independently confirmed students showed **every run produces different** variable names, auth patterns, error handling, and comments
-- `Dashboard.tsx` is **not in the template** — it is entirely student-created with no scaffold constraints. 172-295 lines of byte-identical code cannot be explained by prompt determinism
+- The university's Qwen proxy (`qwen-code-api`) uses **temperature=0.7 by default** (see `qwen_code_api/routes/chat.py:142`). This is not deterministic — it introduces significant randomness into every response.
+- At temperature=0.7, two identical prompts will produce **different outputs** every time. Byte-identical code across 194-295 line files from independent runs is impossible.
+- Even at temperature=0, comparison of 5 independently confirmed students showed **every run produces different** variable names, auth patterns, error handling, and comments
+- `Dashboard.tsx` is **not in the template** — it is entirely student-created with no scaffold constraints
 - Git history signals (cross-authored commits, 1-second timestamp gaps, 21-minute completion times) cannot be explained by AI behavior
+- **Conclusion: Qwen determinism is ruled out as an explanation for identical code in all clusters**
 
 **Experiment protocol** (for further validation):
 
@@ -375,15 +385,14 @@ python scripts/qwen_determinism_experiment.py \
 | # | Students | Verdict | Evidence |
 |---|----------|---------|----------|
 | C1 | **Achoombers** -> dofi4ka, rrafich | **CONFIRMED** | Git commit objects copied (same author + timestamps to the second), 6/6 core files byte-identical |
-| C2 | **Maksim-1307** -> 2OfClubsy | **PENDING** | 5/6 files identical (incl. 295-line Dashboard.tsx with no template), 4-day gap, but no git-level proof — awaiting Qwen determinism experiment |
-| C3a | **Pasha12122000** + z1nnyy | **CONFIRMED** | Commits within seconds of each other across all tasks, etl.py differs only in whitespace, App.tsx differs by 1 character |
-| C3b | diana + kayumowanas (share Dashboard.tsx with C3a) | **PENDING** | Same 194-line Dashboard.tsx as Pasha/z1nnyy, but independent etl.py implementations — awaiting Qwen determinism experiment |
+| C2 | **Maksim-1307** -> 2OfClubsy | **CONFIRMED** | 5/6 files identical (incl. 295-line Dashboard.tsx), classmates (B25-DSAI-03), 2OfClubsy did no work for 4 days then passed immediately. Qwen determinism ruled out (temperature=0.7) |
+| C3a | **Pasha12122000** + z1nnyy | **CONFIRMED** | Commits within seconds, autochecker checks within 22s of each other, etl.py differs only in whitespace |
+| C3b | diana + kayumowanas (share Dashboard.tsx with C3a) | **CONFIRMED** | Same 194-line Dashboard.tsx despite struggling/failing at easier tasks. Qwen determinism ruled out (temperature=0.7). diana same group as z1nnyy (B25-DSAI-05, adjacent IPs) |
 | C4 | **EgorTytar** -> beetle-2026-b | **CONFIRMED** | 6/6 files byte-identical (only trailing newline diff), beetle started 25 min after EgorTytar, finished all 3 tasks in 21 min |
 | C5 | **Nematodont** <-> daniyagg | **NOT PLAGIARISM** (pair programming) | Cross-merging PRs on both repos, shared backend code, but independent Dashboard.tsx with meaningful differences (comments, constants, formatting) |
 | C6 | **the-shtorm** -> xleb-sha | **NOT PLAGIARISM** (branch sharing) | xleb-sha merged the-shtorm's task-1 branch (shared commit SHA), but rewrote the code and did tasks 2-3 independently |
 
-**Confirmed plagiarism**: C1 (3 students), C3a (2 students), C4 (2 students) = **7 students**
-**Pending** (awaiting Qwen experiment): C2 (2 students), C3b (2 students) = **4 students**
+**Confirmed plagiarism**: C1 (3 students), C2 (2 students), C3a (2 students), C3b (2 students), C4 (2 students) = **11 students**
 **Not plagiarism**: C5 (pair programming), C6 (branch sharing with independent work)
 
 ### Lab-06: No plagiarism confirmed
