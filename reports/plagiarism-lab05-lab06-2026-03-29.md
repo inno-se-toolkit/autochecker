@@ -135,9 +135,11 @@ Every independent Qwen run produced structurally similar but textually different
 
 **Verdict: CONFIRMED**
 - rrafich's commits are literally authored by "Achoombers" with identical timestamps to the second
-- dofi4ka's commits are authored by "Cursor" with identical timestamps to the second
+- dofi4ka's commits are authored by "Cursor" (the AI IDE) with identical timestamps to the second
 - All code is byte-identical, including `Dashboard.tsx` (172 lines, not in template)
-- Source: Achoombers. dofi4ka and rrafich copied the commits.
+- Source: Achoombers generated the code (likely using Cursor IDE)
+
+**Note on Achoombers's involvement**: rrafich's commits are authored "Achoombers" while dofi4ka's are authored "Cursor". If rrafich had independently cloned Achoombers's repo, the author field would match whatever Achoombers's git config was at commit time (which appears to be "Cursor" based on dofi4ka's copies). The fact that rrafich has "Achoombers" as author suggests the commits may have traveled through a different path — possibly Achoombers actively shared them after re-authoring, or pushed to rrafich's repo directly. **Achoombers cannot be fully exonerated** — they may have been aware of or facilitated the copying, at least for rrafich.
 
 ---
 
