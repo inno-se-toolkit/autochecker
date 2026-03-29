@@ -141,20 +141,20 @@ Every independent Qwen run produced structurally similar but textually different
 
 ---
 
-### Cluster 2: 2OfClubsy / Maksim-1307 — CONFIRMED
+### Cluster 2: 2OfClubsy / Maksim-1307 — PENDING (awaiting Qwen determinism experiment)
 
 **File comparison:**
 
-| Core file | Identical? |
-|-----------|-----------|
-| `etl.py` (349 lines) | IDENTICAL |
-| `analytics.py` (288 lines) | IDENTICAL |
-| `Dashboard.tsx` (295 lines) | IDENTICAL |
-| `App.tsx` (138 lines) | IDENTICAL |
-| `App.css` | DIFFERENT |
-| `vite.config.ts` | IDENTICAL |
+| Core file | Identical? | Notes |
+|-----------|-----------|-------|
+| `etl.py` (349 lines) | IDENTICAL | |
+| `analytics.py` (288 lines) | IDENTICAL | |
+| `Dashboard.tsx` (295 lines) | IDENTICAL | Not in template — entirely student-created |
+| `App.tsx` (138 lines) | IDENTICAL | |
+| `App.css` | **DIFFERENT** | Maksim has +93 lines of dashboard CSS; 2OfClubsy has template-only CSS |
+| `vite.config.ts` (30 lines) | IDENTICAL | Same as template (no changes) |
 
-**5/6 core files identical.**
+**5/6 core files identical. App.css is the only difference — Maksim added 93 lines of dashboard styling that 2OfClubsy is missing.**
 
 **Git timeline:**
 
@@ -163,43 +163,68 @@ Every independent Qwen run produced structurally similar but textually different
 | Maksim-1307 | 2026-03-07 16:29 | 2026-03-07 17:07 | 2026-03-07 22:47 |
 | 2OfClubsy | 2026-03-11 14:26 | 2026-03-11 14:54 | 2026-03-11 15:09 |
 
-**Verdict: CONFIRMED**
+**Git evidence:** No cross-authored commits. Different author emails (`andrejsagendykov@gmail.com` vs `max.07mal@gmail.com`). No shared commit SHAs.
+
+**Verdict: PENDING**
 - Maksim-1307 submitted 4 days earlier (Mar 7 vs Mar 11)
-- 295-line Dashboard.tsx (entirely student-created, no template) is byte-identical
-- Only App.css differs (likely re-styled)
-- Source: Maksim-1307. 2OfClubsy copied.
+- 295-line Dashboard.tsx (entirely student-created, no template) is byte-identical — strong signal
+- Missing App.css in 2OfClubsy is consistent with copying code files but not the stylesheet
+- However, no git-level evidence (no cross-authored commits, no shared SHAs)
+- Cannot conclusively rule out Qwen determinism producing identical output from the same template+prompt until the experiment is run
+- **If Qwen experiment shows non-deterministic output (expected), this becomes CONFIRMED**
 
 ---
 
-### Cluster 3: Pasha12122000 / z1nnyy / diana / kayumowanas — CONFIRMED
+### Cluster 3: Pasha12122000 / z1nnyy / diana / kayumowanas — MIXED
+
+This cluster has two sub-groups with different evidence levels.
 
 **File comparison matrix:**
 
-| Core file | Pasha = diana | Pasha = kayumowanas | Pasha = z1nnyy |
-|-----------|--------------|--------------------|----|
-| `etl.py` | DIFFERENT | DIFFERENT | DIFFERENT |
-| `analytics.py` | IDENTICAL | DIFFERENT | IDENTICAL |
-| `Dashboard.tsx` (195 lines) | IDENTICAL | IDENTICAL | IDENTICAL |
-| `App.tsx` | IDENTICAL | IDENTICAL | DIFFERENT |
-| `App.css` | IDENTICAL | IDENTICAL | IDENTICAL |
-| `vite.config.ts` | IDENTICAL | IDENTICAL | IDENTICAL |
+| Core file | P=Z | P=D | P=K | Notes |
+|-----------|-----|-----|-----|-------|
+| `etl.py` | **DIFF** (whitespace only) | **DIFF** (completely different impl) | **DIFF** (kayumowanas = unchanged template!) | See details below |
+| `analytics.py` (195 lines) | SAME | SAME | **DIFF** (210 lines) | |
+| `Dashboard.tsx` (194 lines) | **SAME** | **SAME** | **SAME** | Not in template |
+| `App.tsx` (155 lines) | **DIFF** (1 line) | SAME | SAME | |
+| `App.css` (109 lines) | SAME | SAME | SAME | |
+| `vite.config.ts` (31 lines) | SAME | SAME | SAME | |
 
-**Dashboard.tsx (195 lines, not in template) identical across all 4 students.**
+**etl.py details:**
+- **Pasha vs z1nnyy**: Only whitespace/formatting differences (line wrapping, trailing newline) — functionally identical code
+- **Pasha vs diana**: Completely different implementations — different imports (`sqlmodel` vs `sqlalchemy`), different auth (`_auth()` helper vs inline tuple), diana kept TODO comments
+- **kayumowanas**: `etl.py` is the **unchanged template** (147 lines, still has `raise NotImplementedError`) — task-1 was never implemented
 
-**Git timeline:**
+**App.tsx detail (Pasha vs z1nnyy):**
+- Only difference: `import { Dashboard } from './Dashboard'` vs `import { Dashboard } from './Dashboard.tsx'` (file extension in import)
+
+**Git timeline (exact timestamps):**
+
+| Time (Mar 12) | Pasha12122000 | z1nnyy |
+|---|---|---|
+| 21:17:39 | — | ETL pipeline commit |
+| 21:19:07 | ETL pipeline commit | — |
+| 21:22:03 | — | Merge PR #2 |
+| 21:22:04 | Merge PR #2 | — |
+| 21:35:14 | — | Analytics commit |
+| 21:35:24 | Analytics commit | — |
+| 21:48:25 | Dashboard commit | — |
+| 21:48:27 | — | Dashboard commit |
+| 21:50:50 | — | Merge PR #6 |
+| 21:51:08 | Merge PR #6 | — |
+
+diana and kayumowanas timeline:
 
 | Student | Task 1 | Task 2 | Task 3 |
 |---------|--------|--------|--------|
 | kayumowanas | 2026-03-06 12:46 (author: **Danila Danko**) | 2026-03-07 11:35 | 2026-03-12 23:13:53 |
-| Pasha12122000 | 2026-03-12 21:19 | 2026-03-12 21:35 | 2026-03-12 21:48 |
-| z1nnyy | 2026-03-12 21:17 | 2026-03-12 21:35 | 2026-03-12 21:48 |
-| diana | 2026-03-12 22:06 | 2026-03-12 22:52 | 2026-03-12 23:13:54 |
+| diana | 2026-03-12 22:06 (3 attempts) | 2026-03-12 22:52 | 2026-03-12 23:13:54 |
 
-**Verdict: CONFIRMED**
-- Pasha and z1nnyy timestamps within 1-2 minutes — simultaneous work
-- diana started ~1 hour after Pasha, multiple failed attempts
-- kayumowanas's task-1 authored by TA "Danila Danko"; dashboard commit 1 second before diana's
-- All 4 share byte-identical Dashboard.tsx (195 lines, no scaffold)
+**Verdict:**
+
+**Pasha12122000 + z1nnyy — CONFIRMED**: Commits within seconds of each other across all 3 tasks (z1nnyy consistently ~2-10 seconds ahead). The `etl.py` differences are only whitespace/formatting, and the `App.tsx` difference is a single import extension. They were clearly working together in real-time — one generating code and both pushing simultaneously.
+
+**diana + kayumowanas — PENDING (awaiting Qwen determinism experiment)**: Both share the same `Dashboard.tsx` (194 lines, no template) with Pasha/z1nnyy, but their other files show independent work. diana wrote her own `etl.py` from scratch (completely different implementation). kayumowanas never even implemented `etl.py` (still template). No cross-authored commits, no shared SHAs. The identical `Dashboard.tsx` is suspicious but cannot be conclusively attributed to copying vs. Qwen determinism without the experiment results.
 
 ---
 
@@ -347,16 +372,19 @@ python scripts/qwen_determinism_experiment.py \
 
 ### Lab-05: 6 clusters identified
 
-| # | Students | Type | Evidence |
-|---|----------|------|----------|
-| C1 | **Achoombers** -> dofi4ka, rrafich | **Copy** | Commits authored by "Achoombers" in rrafich's repo, identical timestamps to the second, 6/6 core files identical |
-| C2 | **Maksim-1307** -> 2OfClubsy | **Copy** | 5/6 files identical (incl. 295-line Dashboard.tsx with no template), 4-day gap |
-| C3 | **Pasha12122000** + z1nnyy + diana + kayumowanas | **Copy** | 195-line Dashboard.tsx identical across all 4, timestamps within minutes |
-| C4 | **EgorTytar** -> beetle-2026-b | **Copy** | 6/6 files identical (trailing newline only diff), beetle finished all 3 tasks in 21 min |
-| C5 | **Nematodont** <-> daniyagg | **Pair programming** | Cross-merging PRs, shared backend code, but independent Dashboard.tsx with meaningful differences |
-| C6 | **the-shtorm** -> xleb-sha | **Partial (task-1 only)** | xleb-sha merged the-shtorm's task-1 branch (shared commit SHA), but rewrote code and did tasks 2-3 independently |
+| # | Students | Verdict | Evidence |
+|---|----------|---------|----------|
+| C1 | **Achoombers** -> dofi4ka, rrafich | **CONFIRMED** | Git commit objects copied (same author + timestamps to the second), 6/6 core files byte-identical |
+| C2 | **Maksim-1307** -> 2OfClubsy | **PENDING** | 5/6 files identical (incl. 295-line Dashboard.tsx with no template), 4-day gap, but no git-level proof — awaiting Qwen determinism experiment |
+| C3a | **Pasha12122000** + z1nnyy | **CONFIRMED** | Commits within seconds of each other across all tasks, etl.py differs only in whitespace, App.tsx differs by 1 character |
+| C3b | diana + kayumowanas (share Dashboard.tsx with C3a) | **PENDING** | Same 194-line Dashboard.tsx as Pasha/z1nnyy, but independent etl.py implementations — awaiting Qwen determinism experiment |
+| C4 | **EgorTytar** -> beetle-2026-b | **CONFIRMED** | 6/6 files byte-identical (only trailing newline diff), beetle started 25 min after EgorTytar, finished all 3 tasks in 21 min |
+| C5 | **Nematodont** <-> daniyagg | **NOT PLAGIARISM** (pair programming) | Cross-merging PRs on both repos, shared backend code, but independent Dashboard.tsx with meaningful differences (comments, constants, formatting) |
+| C6 | **the-shtorm** -> xleb-sha | **NOT PLAGIARISM** (branch sharing) | xleb-sha merged the-shtorm's task-1 branch (shared commit SHA), but rewrote the code and did tasks 2-3 independently |
 
-**Total students involved**: 16
+**Confirmed plagiarism**: C1 (3 students), C3a (2 students), C4 (2 students) = **7 students**
+**Pending** (awaiting Qwen experiment): C2 (2 students), C3b (2 students) = **4 students**
+**Not plagiarism**: C5 (pair programming), C6 (branch sharing with independent work)
 
 ### Lab-06: No plagiarism confirmed
 
