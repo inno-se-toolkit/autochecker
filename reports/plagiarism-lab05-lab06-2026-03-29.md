@@ -302,29 +302,25 @@ This cluster has two sub-groups.
 
 ---
 
-### Cluster 5: Nematodont / daniyagg — NOT PLAGIARISM (pair programming)
+### Cluster 5: Nematodont / daniyagg / mccmmc — CONFIRMED
 
-**File comparison:**
+**File comparison (3-way):**
 
-| Core file | Identical? |
-|-----------|-----------|
-| `etl.py` (448 lines) | IDENTICAL |
-| `analytics.py` (233 lines) | IDENTICAL |
-| `Dashboard.tsx` | DIFFERENT (297 vs 314 lines) |
-| `App.tsx` | IDENTICAL |
-| `App.css` | IDENTICAL |
-| `vite.config.ts` | IDENTICAL |
+| Core file | N=D | N=M | D=M |
+|-----------|-----|-----|-----|
+| `etl.py` | **SAME** (448 lines) | DIFF (448 vs 316) | DIFF |
+| `analytics.py` (233 lines) | **SAME** | **SAME** | **SAME** |
+| `Dashboard.tsx` | DIFF (298 vs 315) | DIFF (1 line: `//meow`) | DIFF (22 lines) |
+| `App.tsx` (158 lines) | **SAME** | **SAME** | **SAME** |
+| `App.css` (61 lines) | **SAME** | **SAME** | **SAME** |
+| `vite.config.ts` (30 lines) | **SAME** | **SAME** | **SAME** |
 
-**5/6 core files identical. Dashboard.tsx differs meaningfully.**
+**Dashboard.tsx analysis:**
+- **Nematodont vs mccmmc**: differ by exactly 1 line — `//meow` (Nematodont's signature). mccmmc has Nematodont's code without the signature.
+- **daniyagg vs Nematodont**: daniyagg added section header comments, extracted `DEFAULT_LAB` constant, improved formatting — cosmetic changes only, not independent work.
+- **etl.py**: Nematodont=daniyagg (identical 448 lines). mccmmc has a different version (316 lines, different imports, no Russian comments) — the only file where mccmmc shows independent work.
 
-**Dashboard.tsx differences (daniyagg's version vs Nematodont's):**
-- Added section header comments (`// ==================== API Types ====================`)
-- Extracted `DEFAULT_LAB` constant instead of inline `'lab-04'`
-- Better JSX formatting (multiline error display)
-- Added chart section comments (`{/* Bar Chart */}`)
-- Nematodont has `//meow` signature at end
-
-This indicates one person wrote the base, the other refined with comments, constants, and formatting.
+**Pattern**: Nematodont wrote the code, distributed to daniyagg and mccmmc. daniyagg made cosmetic edits to Dashboard. mccmmc wrote own etl.py but copied everything else.
 
 **Git timeline:**
 
@@ -342,9 +338,11 @@ This indicates one person wrote the base, the other refined with comments, const
 | 2026-03-10 23:26 | feat: dashboard | — |
 | 2026-03-10 23:29 | PR merged by **daniyagg** | — |
 
-**PR reviews:** Nematodont <-> daniyagg cross-reviewed all PRs — expected for pair programming.
+**PR reviews:** 3-person ring — Nematodont <-> daniyagg cross-reviewed, mccmmc ("Potushinskii Maxim") approved Nematodont's task-1 PR.
 
-**Verdict: NOT PLAGIARISM (pair programming)** — They are cross-merging each other's PRs on both repos. Backend code shared, but Dashboard.tsx written independently with meaningful differences showing individual contributions. Bidirectional collaboration, not one-way copying.
+**Cross-lab confirmation:** In lab-07, all three have **12/12 files 100% identical**, forming the same 3-person review ring. The lab-07 evidence removes any doubt about lab-05.
+
+**Verdict: CONFIRMED** — Nematodont is the source. daniyagg and mccmmc received code with at most cosmetic changes. The 3-person ring is consistent across labs 05 and 07.
 
 ---
 
@@ -375,7 +373,48 @@ The shared commit SHA `45f2699e` (author: "senior_shit_engineer") is the-shtorm'
 
 ---
 
-## 4. Lab-06 — No Plagiarism Found
+## 4. Lab-07 Clusters — Detailed Findings
+
+Batch screening: 261 students, 251 successful, 172 git flags (0 critical), 2 file-based clusters.
+
+Both clusters are repeat offenders from lab-05.
+
+### Lab-07 Cluster A: EgorTytar / beetle-2026-b — CONFIRMED (repeat of lab-05 C4)
+
+**Identical files (5/7 bot files):** `lms_client.py`, `basic.py`, `bot.py`, `llm_client.py`, `router.py`
+
+**Git timeline:**
+
+| Student | Task 1 | Task 2 | Task 3 | Task 4 |
+|---------|--------|--------|--------|--------|
+| EgorTytar | 2026-03-20 19:26 | 2026-03-20 19:47 | 2026-03-20 21:46 | 2026-03-20 22:56 |
+| beetle-2026-b | 2026-03-23 15:46 | 2026-03-23 17:05 | 2026-03-23 18:01 | 2026-03-23 18:15 |
+
+EgorTytar first (Mar 20), beetle-2026-b 3 days later (Mar 23). Same pattern as lab-05.
+
+**PR reviews:** EgorTytar <-> beetle-2026-b cross-reviewed all PRs. Both aware.
+
+**Verdict: CONFIRMED** — Same pair, same pattern as lab-05 C4.
+
+### Lab-07 Cluster B: Nematodont / daniyagg / mccmmc — CONFIRMED (repeat of lab-05 C5)
+
+**12/12 bot files 100% identical** across all 3 students: `scores.py`, `lms_client.py`, `__init__.py` (services), `health.py`, `__init__.py` (handlers), `labs.py`, `bot.py`, `llm_client.py`, `intent.py`, `start.py`, `help.py`, `config.py`
+
+**Git timeline:**
+
+| Student | Task 1 | Task 2 | Task 3 | Task 4 |
+|---------|--------|--------|--------|--------|
+| Nematodont | 2026-03-23 11:54 | 2026-03-26 12:18 | 2026-03-26 19:35 | 2026-03-26 20:23 |
+| daniyagg | 2026-03-23 11:54 | 2026-03-26 12:20 | 2026-03-26 19:42 | 2026-03-26 20:23 |
+| mccmmc | 2026-03-23 21:38 | 2026-03-23 22:43 (multiple fixes through Mar 24) | 2026-03-26 19:00 | 2026-03-26 19:57 |
+
+**PR reviews:** 3-person ring — Nematodont merges mccmmc's PRs, mccmmc merges daniyagg's PRs, daniyagg merges Nematodont's PRs.
+
+**Verdict: CONFIRMED** — 100% identical code across all 3. Same trio as lab-05 C5, now with zero differences.
+
+---
+
+## 5. Lab-06 — No Plagiarism Found
 
 The file-based flags for lab-06 were false positives:
 - AndreyBadamshin / Dima280807: 79 identical files were leftover lab-05 code. All lab-06 core files (`agent.py`, `AGENT.md`, plans) were **different**.
@@ -395,15 +434,24 @@ The file-based flags for lab-06 were false positives:
 | C3a | **Pasha12122000** <-> z1nnyy | **CONFIRMED** | Commits within seconds, autochecker checks within 22s, cross-reviewed PRs. Both aware. |
 | C3b | diana + kayumowanas | **CONFIRMED** | Same 194-line Dashboard.tsx as C3a despite failing easier tasks. Cross-reviewed PRs. diana same group/adjacent IP as z1nnyy. |
 | C4 | **EgorTytar** <-> beetle-2026-b | **CONFIRMED** | 6/6 identical, beetle finished in 21 min, EgorTytar approved beetle's copied PRs. Both aware. |
-| C5 | **Nematodont** <-> daniyagg | **NOT PLAGIARISM** | Pair programming: cross-merging PRs, shared backend, but independent Dashboard.tsx with meaningful individual contributions. |
+| C5 | **Nematodont** -> daniyagg, mccmmc | **CONFIRMED** | Nematodont is source (`//meow` signature). mccmmc has code minus signature. daniyagg added cosmetic comments only. 3-person ring confirmed by lab-07 (12/12 files 100% identical). |
 | C6 | **the-shtorm** -> xleb-sha | **NOT PLAGIARISM** | Branch shared via git merge, but all final code independently rewritten. |
 
-**Confirmed plagiarism**: C1 (3 students), C2 (2 students), C3a (2 students), C3b (2 students), C4 (2 students) = **11 students**
-**Not plagiarism**: C5 (pair programming), C6 (branch sharing with independent work)
+**Confirmed plagiarism**: C1 (3), C2 (2), C3a (2), C3b (2), C4 (2), C5 (3) = **14 students**
+**Not plagiarism**: C6 (branch sharing with independent work)
 
 ### Lab-06: No plagiarism confirmed
 
 All file-based flags were false positives (lab-05 leftover code in repos).
+
+### Lab-07: 2 clusters (repeat offenders)
+
+| # | Students | Verdict | Key evidence |
+|---|----------|---------|----------|
+| A | **EgorTytar** <-> beetle-2026-b | **CONFIRMED** | 5/7 bot files identical. Same pair as lab-05 C4, same pattern. |
+| B | **Nematodont** -> daniyagg, mccmmc | **CONFIRMED** | 12/12 files 100% identical. Same trio as lab-05 C5, 3-person review ring. |
+
+**Confirmed plagiarism**: A (2), B (3) = **5 students** (all repeat offenders from lab-05)
 
 ---
 
