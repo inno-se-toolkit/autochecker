@@ -107,7 +107,7 @@
         <div class="error-banner">Email or GitHub alias already belongs to another student. No changes were made.</div>
         {% endif %}
         {% if info == "attempts_reset" %}
-        <div class="success-banner">Freed {{ info_count or 0 }} attempt(s) for {{ info_lab }} / {{ info_task }}.</div>
+        <div class="success-banner">Granted {{ info_count or 0 }} extra attempt(s) for {{ info_lab }} / {{ info_task }}.</div>
         {% elif info == "marked_done" %}
         <div class="success-banner">Marked {{ info_lab }} / {{ info_task }} as done (100%).</div>
         {% elif info == "reverted_done" %}
@@ -215,11 +215,11 @@
                                     <input type="hidden" name="amount" value="5">
                                     <button type="submit" class="btn-add">+5</button>
                                 </form>
-                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" data-confirm="Clear ALL attempts for this task? This cannot be undone.">
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" data-confirm="Restore all spent attempts for this task?">
                                     <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
                                     <input type="hidden" name="task_id" value="{{ a.task_id }}">
                                     <input type="hidden" name="amount" value="0">
-                                    <button type="submit" class="btn-reset">Clear all</button>
+                                    <button type="submit" class="btn-reset">Restore all</button>
                                 </form>
                                 {% if a.status != "pass" %}
                                 <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/mark-done" data-confirm="Mark this task as 100% done?">
