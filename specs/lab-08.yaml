@@ -98,16 +98,36 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        OK=1;
-        test -d ~/se-toolkit-lab-8/.git || { echo "missing: ~/se-toolkit-lab-8/.git directory"; OK=0; };
-        test -f ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: .env.docker.secret"; OK=0; };
-        test -e ~/se-toolkit-lab-8/qwen-code-api/.git || { echo "missing: qwen-code-api submodule (clone with --recurse-submodules)"; OK=0; };
-        if [ -f ~/se-toolkit-lab-8/.env.docker.secret ]; then
-        grep -q 'LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: LMS_API_KEY in .env.docker.secret"; OK=0; };
-        grep -q 'QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret || { echo "missing: QWEN_CODE_API_KEY in .env.docker.secret"; OK=0; };
-        fi;
-        [ "$OK" = "1" ] && echo ok
+      command: |
+        python3 << 'PYEOF'
+        import os
+
+        home = os.path.expanduser("~")
+        base = os.path.join(home, "se-toolkit-lab-8")
+        env_file = os.path.join(base, ".env.docker.secret")
+
+        errors = []
+
+        if not os.path.isdir(os.path.join(base, ".git")):
+            errors.append("~/se-toolkit-lab-8/.git directory not found — clone your fork first")
+
+        if not os.path.isfile(env_file):
+            errors.append(".env.docker.secret not found — copy from .env.docker.example")
+
+        if not os.path.exists(os.path.join(base, "qwen-code-api", ".git")):
+            errors.append("qwen-code-api submodule missing — clone with --recurse-submodules")
+
+        if os.path.isfile(env_file):
+            content = open(env_file).read()
+            for key in ("LMS_API_KEY", "QWEN_CODE_API_KEY"):
+                if key + "=" not in content:
+                    errors.append(f"{key} not set in .env.docker.secret")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
       expect_regex: "ok"
       timeout: 10
 
@@ -126,16 +146,49 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        LMS_KEY=$(grep '^LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        if [ -z "$LMS_KEY" ]; then echo "fail: LMS_API_KEY not found in .env.docker.secret"; exit 0; fi;
-        HTTP=$(curl -s -o /tmp/_ac_items -w '%{http_code}' http://localhost:42002/items/ -H "Authorization: Bearer $LMS_KEY");
-        if [ "$HTTP" = "000" ]; then echo "fail: connection refused on port 42002 (is docker running?)"; exit 0; fi;
-        if [ "$HTTP" != "200" ]; then echo "fail: backend returned HTTP $HTTP"; exit 0; fi;
-        COUNT=$(python3 -c 'import sys,json; print(len(json.load(sys.stdin)))' < /tmp/_ac_items 2>&1);
-        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "fail: could not parse response: $COUNT"; exit 0; fi;
-        if [ "$COUNT" = "0" ]; then echo "fail: backend returned 0 items (run POST /pipeline/sync first)"; exit 0; fi;
-        echo ok
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request, urllib.error
+
+        env_path = os.path.expanduser("~/se-toolkit-lab-8/.env.docker.secret")
+        try:
+            env = open(env_path).read()
+        except FileNotFoundError:
+            print("fail: .env.docker.secret not found"); raise SystemExit
+
+        api_key = None
+        for line in env.splitlines():
+            if line.startswith("LMS_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not api_key:
+            print("fail: LMS_API_KEY not set in .env.docker.secret"); raise SystemExit
+
+        url = "http://localhost:42002/items/"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+        except urllib.error.URLError as e:
+            if "Connection refused" in str(e):
+                print("fail: connection refused on port 42002 (is docker running?)")
+            else:
+                print(f"fail: could not reach backend — {e}")
+            raise SystemExit
+        except Exception as e:
+            print(f"fail: {e}"); raise SystemExit
+
+        if resp.status != 200:
+            print(f"fail: backend returned HTTP {resp.status}"); raise SystemExit
+
+        try:
+            items = json.loads(resp.read())
+        except json.JSONDecodeError:
+            print("fail: backend response is not valid JSON"); raise SystemExit
+
+        if len(items) == 0:
+            print("fail: backend returned 0 items (run POST /pipeline/sync first)")
+        else:
+            print("ok")
+        PYEOF
       expect_regex: "ok"
       timeout: 15
 
@@ -154,14 +207,45 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        QWEN_KEY=$(grep '^QWEN_CODE_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        HTTP=$(curl -s -o /tmp/_ac_llm -w '%{http_code}' http://localhost:42005/v1/models -H "X-API-Key: $QWEN_KEY");
-        if [ "$HTTP" = "000" ]; then echo "0 (connection refused on port 42005)"; exit 0; fi;
-        if [ "$HTTP" != "200" ]; then echo "0 (proxy returned HTTP $HTTP)"; exit 0; fi;
-        COUNT=$(python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get("data",[])))' < /tmp/_ac_llm 2>&1);
-        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "0 (failed to parse: $COUNT)"; exit 0; fi;
-        echo $COUNT
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request, urllib.error
+
+        env_path = os.path.expanduser("~/se-toolkit-lab-8/.env.docker.secret")
+        try:
+            env = open(env_path).read()
+        except FileNotFoundError:
+            print("0 (.env.docker.secret not found)"); raise SystemExit
+
+        api_key = None
+        for line in env.splitlines():
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not api_key:
+            print("0 (QWEN_CODE_API_KEY not set in .env.docker.secret)"); raise SystemExit
+
+        url = "http://localhost:42005/v1/models"
+        req = urllib.request.Request(url, headers={"X-API-Key": api_key})
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+        except urllib.error.URLError as e:
+            if "Connection refused" in str(e):
+                print("0 (connection refused on port 42005 — is qwen-code-api running?)")
+            else:
+                print(f"0 (could not reach LLM proxy — {e})")
+            raise SystemExit
+
+        try:
+            data = json.loads(resp.read())
+            count = len(data.get("data", []))
+        except (json.JSONDecodeError, KeyError):
+            print("0 (invalid JSON response from LLM proxy)"); raise SystemExit
+
+        if count == 0:
+            print("0 (proxy returned no models)")
+        else:
+            print(count)
+        PYEOF
       expect_regex: "^[1-9]"
       timeout: 15
 
@@ -180,12 +264,42 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        VL=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:42010/health);
-        VT=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:42011/health);
-        OTEL=$(cd ~/se-toolkit-lab-8 && docker compose --env-file .env.docker.secret ps otel-collector --format '{{.State}}' 2>/dev/null);
-        echo "victorialogs:$VL victoriatraces:$VT otel:$OTEL";
-        test "$VL" = "200" && test "$VT" = "200" && echo "$OTEL" | grep -qi running && echo PASS || echo FAIL
+      command: |
+        python3 << 'PYEOF'
+        import os, subprocess, urllib.request, urllib.error
+
+        errors = []
+
+        services = {
+            "VictoriaLogs":   "http://localhost:42010/health",
+            "VictoriaTraces": "http://localhost:42011/health",
+        }
+        for name, url in services.items():
+            try:
+                resp = urllib.request.urlopen(url, timeout=5)
+                if resp.status != 200:
+                    errors.append(f"{name} returned HTTP {resp.status}")
+            except urllib.error.URLError:
+                errors.append(f"{name} not reachable at {url}")
+
+        try:
+            r = subprocess.run(
+                ["docker", "compose", "--env-file", ".env.docker.secret",
+                 "ps", "otel-collector", "--format", "{{.State}}"],
+                capture_output=True, text=True, timeout=10,
+                cwd=os.path.expanduser("~/se-toolkit-lab-8"),
+            )
+            state = r.stdout.strip().lower()
+            if "running" not in state:
+                errors.append(f"otel-collector not running (state: {state or 'not found'})")
+        except Exception as e:
+            errors.append(f"could not check otel-collector: {e}")
+
+        if errors:
+            print("FAIL: " + "; ".join(errors))
+        else:
+            print("PASS")
+        PYEOF
       expect_regex: "PASS"
       timeout: 15
 
@@ -210,17 +324,45 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        D=~/se-toolkit-lab-8/nanobot; OK=1;
-        test -f $D/pyproject.toml || { echo "missing: nanobot/pyproject.toml"; OK=0; };
-        grep -q 'nanobot-ai' $D/pyproject.toml 2>/dev/null || { echo "missing: nanobot-ai dependency"; OK=0; };
-        test -f $D/config.json || { echo "missing: nanobot/config.json"; OK=0; };
-        grep -q '"providers"\|"provider"' $D/config.json 2>/dev/null || { echo "missing: providers in config.json"; OK=0; };
-        grep -qE 'mcp_lms|"lms"' $D/config.json 2>/dev/null || { echo "missing: lms MCP server in config.json"; OK=0; };
-        F=$D/workspace/skills/lms/SKILL.md;
-        test -f "$F" || { echo "missing: skills/lms/SKILL.md"; OK=0; };
-        if [ -f "$F" ]; then WC=$(wc -w < "$F"); test "$WC" -ge 30 || { echo "skill too short ($WC words)"; OK=0; }; fi;
-        [ "$OK" = "1" ] && echo ok
+      command: |
+        python3 << 'PYEOF'
+        import os, json
+
+        base = os.path.expanduser("~/se-toolkit-lab-8/nanobot")
+        errors = []
+
+        # Check pyproject.toml and nanobot-ai dependency
+        pyproject = os.path.join(base, "pyproject.toml")
+        if not os.path.isfile(pyproject):
+            errors.append("nanobot/pyproject.toml not found — run uv init nanobot")
+        elif "nanobot-ai" not in open(pyproject).read():
+            errors.append("nanobot-ai not in pyproject.toml — run uv add nanobot-ai")
+
+        # Check config.json structure
+        config_path = os.path.join(base, "config.json")
+        if not os.path.isfile(config_path):
+            errors.append("nanobot/config.json not found — run nanobot onboard")
+        else:
+            content = open(config_path).read()
+            if '"provider' not in content:
+                errors.append("no providers configured in config.json")
+            if "mcp_lms" not in content and '"lms"' not in content:
+                errors.append("lms MCP server not registered in config.json")
+
+        # Check skill file
+        skill = os.path.join(base, "workspace", "skills", "lms", "SKILL.md")
+        if not os.path.isfile(skill):
+            errors.append("skills/lms/SKILL.md not found")
+        else:
+            word_count = len(open(skill).read().split())
+            if word_count < 30:
+                errors.append(f"SKILL.md too short ({word_count} words, need >= 30)")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
       expect_regex: "ok"
       timeout: 10
 
@@ -264,18 +406,46 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        python3 -c "
-        import json,urllib.request,os;
-        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:4000];
-        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
-        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 1. FAIL if any of these are missing: (1) Task 1A section with a PASTED agent response showing actual text the agent said (not a summary of what happened). (2) Task 1B section with a pasted response containing real lab names like Lab 01, Lab 02 etc. (3) Task 1C section showing the agent asking which lab or listing options. Generic descriptions like \"the agent responded\" without actual pasted output = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
-        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
-        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
-        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
-        print(o['choices'][0]['message']['content'])
-        " 2>&1 || echo "FAIL: could not reach LLM"
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        report = open(os.path.join(base, "REPORT.md")).read()[:4000]
+
+        # Read LLM API key
+        api_key = None
+        for line in open(os.path.join(base, ".env.docker.secret")):
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+
+        prompt = (
+            "Evaluate this lab report for Task 1. "
+            "FAIL if any of these are missing: "
+            "(1) Task 1A section with a PASTED agent response showing actual text the agent said "
+            "(not a summary of what happened). "
+            "(2) Task 1B section with a pasted response containing real lab names like Lab 01, Lab 02 etc. "
+            "(3) Task 1C section showing the agent asking which lab or listing options. "
+            'Generic descriptions like "the agent responded" without actual pasted output = FAIL. '
+            "Reply with exactly PASS or FAIL on the first line, then a short reason."
+        )
+
+        body = json.dumps({
+            "model": "coder-model",
+            "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
+            "max_tokens": 100,
+        }).encode()
+
+        req = urllib.request.Request(
+            "http://localhost:42005/v1/chat/completions", body,
+            {"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        try:
+            resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            print(resp["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"FAIL: could not reach LLM — {e}")
+        PYEOF
       expect_regex: "(?i)PASS"
       timeout: 60
 
@@ -299,15 +469,43 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        D=~/se-toolkit-lab-8; OK=1;
-        test -f $D/nanobot/entrypoint.py || { echo "missing: nanobot/entrypoint.py"; OK=0; };
-        test -f $D/nanobot/Dockerfile || { echo "missing: nanobot/Dockerfile"; OK=0; };
-        grep -q '^  nanobot:' $D/docker-compose.yml 2>/dev/null || { echo "missing: nanobot service in compose (still commented?)"; OK=0; };
-        grep -q 'client-web-flutter:' $D/docker-compose.yml 2>/dev/null || { echo "missing: client-web-flutter service in compose"; OK=0; };
-        grep -q '/ws/chat' $D/caddy/Caddyfile 2>/dev/null && ! grep -q '# .*handle /ws/chat' $D/caddy/Caddyfile 2>/dev/null || { echo "missing: /ws/chat route in Caddyfile (still commented?)"; OK=0; };
-        grep -q '/flutter' $D/caddy/Caddyfile 2>/dev/null && ! grep -q '# .*handle.*flutter' $D/caddy/Caddyfile 2>/dev/null || { echo "missing: /flutter route in Caddyfile (still commented?)"; OK=0; };
-        [ "$OK" = "1" ] && echo ok
+      command: |
+        python3 << 'PYEOF'
+        import os, re
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        errors = []
+
+        for path, label in [
+            ("nanobot/entrypoint.py", "nanobot/entrypoint.py"),
+            ("nanobot/Dockerfile", "nanobot/Dockerfile"),
+        ]:
+            if not os.path.isfile(os.path.join(base, path)):
+                errors.append(f"{label} not found")
+
+        # Check docker-compose services are uncommented
+        compose = os.path.join(base, "docker-compose.yml")
+        if os.path.isfile(compose):
+            content = open(compose).read()
+            if not re.search(r"^\s{2}nanobot:", content, re.MULTILINE):
+                errors.append("nanobot service in docker-compose.yml still commented out")
+            if "client-web-flutter:" not in content:
+                errors.append("client-web-flutter service in docker-compose.yml still commented out")
+
+        # Check Caddyfile routes are uncommented
+        caddyfile = os.path.join(base, "caddy", "Caddyfile")
+        if os.path.isfile(caddyfile):
+            content = open(caddyfile).read()
+            if "/ws/chat" not in content or re.search(r"#\s*.*handle /ws/chat", content):
+                errors.append("/ws/chat route in Caddyfile missing or commented out")
+            if "/flutter" not in content or re.search(r"#\s*.*handle.*/flutter", content):
+                errors.append("/flutter route in Caddyfile missing or commented out")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
       expect_regex: "ok"
       timeout: 10
 
@@ -330,19 +528,70 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        cd ~/se-toolkit-lab-8; OK=1;
-        NANO=$(docker compose --env-file .env.docker.secret ps nanobot --format '{{.State}}' 2>/dev/null);
-        echo "$NANO" | grep -qi running || { echo "FAIL: nanobot not running ($NANO)"; exit 0; };
-        curl -s http://localhost:42002/flutter/ | grep -qE 'flutter_bootstrap|main\.dart\.js|flutter\.js' || { echo "FAIL: /flutter serves empty page (flutter volume not mounted or build failed)"; exit 0; };
-        ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        export PATH=$HOME/.local/bin:$PATH;
-        printf 'import json,asyncio,websockets\nasync def t():\n uri="ws://localhost:42002/ws/chat?access_key=%s"\n async with websockets.connect(uri,close_timeout=5) as ws:\n  await ws.send(json.dumps({"content":"hello"}))\n  return await asyncio.wait_for(ws.recv(),timeout=60)\nprint(asyncio.run(t()))\n' "$ACCESS_KEY" > /tmp/_ac_ws.py;
-        RESP=$(cd ~/se-toolkit-lab-8 && uv run python3 /tmp/_ac_ws.py 2>&1);
-        echo "ws_response: $RESP";
-        echo "$RESP" | grep -qi 'invalid access key' && { echo "FAIL: WebSocket rejected access key (check NANOBOT_ACCESS_KEY env var)"; exit 0; };
-        echo "$RESP" | grep -qi 'Connection error\|Connection refused' && { echo "FAIL: agent cannot reach LLM (check entrypoint reads correct env vars from compose)"; exit 0; };
-        echo "$RESP" | grep -qE '.{10,}' && echo PASS || echo "FAIL: empty or short WebSocket response"
+      command: |
+        cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        import asyncio, json, os, re, subprocess, urllib.request, urllib.error
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+
+        # 1. Check nanobot container is running
+        try:
+            r = subprocess.run(
+                ["docker", "compose", "--env-file", ".env.docker.secret",
+                 "ps", "nanobot", "--format", "{{.State}}"],
+                capture_output=True, text=True, timeout=10, cwd=base,
+            )
+            state = r.stdout.strip().lower()
+            if "running" not in state:
+                print(f"FAIL: nanobot container not running (state: {state or 'not found'})")
+                raise SystemExit
+        except subprocess.TimeoutExpired:
+            print("FAIL: timed out checking nanobot container"); raise SystemExit
+
+        # 2. Check Flutter serves real content
+        try:
+            html = urllib.request.urlopen("http://localhost:42002/flutter/", timeout=5).read().decode()
+            if not re.search(r"flutter_bootstrap|main\.dart\.js|flutter\.js", html):
+                print("FAIL: /flutter serves empty page (volume not mounted or build failed)")
+                raise SystemExit
+        except urllib.error.URLError as e:
+            print(f"FAIL: could not reach /flutter — {e}"); raise SystemExit
+
+        # 3. Read access key
+        env_path = os.path.join(base, ".env.docker.secret")
+        access_key = None
+        for line in open(env_path):
+            if line.startswith("NANOBOT_ACCESS_KEY="):
+                access_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not access_key:
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); raise SystemExit
+
+        # 4. Test WebSocket conversation
+        import websockets
+
+        async def test_ws():
+            uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
+            async with websockets.connect(uri, close_timeout=5) as ws:
+                await ws.send(json.dumps({"content": "hello"}))
+                return await asyncio.wait_for(ws.recv(), timeout=60)
+
+        try:
+            resp = asyncio.run(test_ws())
+        except Exception as e:
+            err = str(e)
+            if "invalid access key" in err.lower():
+                print("FAIL: WebSocket rejected access key (check NANOBOT_ACCESS_KEY)")
+            elif "Connection refused" in err or "Connect call failed" in err:
+                print("FAIL: WebSocket connection refused (is nanobot listening on /ws/chat?)")
+            else:
+                print(f"FAIL: WebSocket error — {err[:200]}")
+            raise SystemExit
+
+        if len(resp) < 10:
+            print("FAIL: agent returned empty or very short response")
+        else:
+            print("PASS")
+        PYEOF
       expect_regex: "PASS"
       timeout: 90
 
@@ -361,18 +610,45 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        python3 -c "
-        import json,urllib.request,os;
-        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:4000];
-        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
-        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 2. FAIL if any of these are missing: (1) Task 2A section with PASTED nanobot startup log showing MCP tools registered or gateway started. (2) Task 2B section with evidence of a working Flutter conversation - either a pasted WebSocket response or a description of a real agent answer seen in the chat. Summaries like \"it worked\" without pasted output = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
-        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
-        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
-        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
-        print(o['choices'][0]['message']['content'])
-        " 2>&1 || echo "FAIL: could not reach LLM"
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        report = open(os.path.join(base, "REPORT.md")).read()[:4000]
+
+        api_key = None
+        for line in open(os.path.join(base, ".env.docker.secret")):
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+
+        prompt = (
+            "Evaluate this lab report for Task 2. "
+            "FAIL if any of these are missing: "
+            "(1) Task 2A section with PASTED nanobot startup log showing MCP tools registered "
+            "or gateway started. "
+            "(2) Task 2B section with evidence of a working Flutter conversation — "
+            "either a pasted WebSocket response or a description of a real agent answer seen in the chat. "
+            'Summaries like "it worked" without pasted output = FAIL. '
+            "Reply with exactly PASS or FAIL on the first line, then a short reason."
+        )
+
+        body = json.dumps({
+            "model": "coder-model",
+            "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
+            "max_tokens": 100,
+        }).encode()
+
+        req = urllib.request.Request(
+            "http://localhost:42005/v1/chat/completions", body,
+            {"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        try:
+            resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            print(resp["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"FAIL: could not reach LLM — {e}")
+        PYEOF
       expect_regex: "(?i)PASS"
       timeout: 60
 
@@ -397,13 +673,54 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        D=~/se-toolkit-lab-8; OK=1;
-        F=$D/nanobot/workspace/skills/observability/SKILL.md;
-        test -f "$F" || { echo "missing: observability skill"; OK=0; };
-        if [ -f "$F" ]; then WC=$(wc -w < "$F"); test "$WC" -ge 30 || { echo "skill too short ($WC words)"; OK=0; }; fi;
-        grep -rqiE 'victoria|logsql|42010|42011|9428|10428|logs_search|traces_list|logs_error' $D/mcp/ $D/nanobot/ 2>/dev/null || { echo "no code referencing VictoriaLogs/Traces endpoints found in mcp/ or nanobot/"; OK=0; };
-        [ "$OK" = "1" ] && echo ok
+      command: |
+        python3 << 'PYEOF'
+        import os, re
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        errors = []
+
+        # Check observability skill file
+        skill = os.path.join(base, "nanobot", "workspace", "skills", "observability", "SKILL.md")
+        if not os.path.isfile(skill):
+            errors.append("skills/observability/SKILL.md not found")
+        else:
+            word_count = len(open(skill).read().split())
+            if word_count < 30:
+                errors.append(f"observability SKILL.md too short ({word_count} words, need >= 30)")
+
+        # Check for observability tool code in mcp/ or nanobot/
+        keywords = re.compile(
+            r"victoria|logsql|42010|42011|9428|10428|logs_search|traces_list|logs_error",
+            re.IGNORECASE,
+        )
+        found = False
+        for search_dir in ("mcp", "nanobot"):
+            dirpath = os.path.join(base, search_dir)
+            if not os.path.isdir(dirpath):
+                continue
+            for root, _, files in os.walk(dirpath):
+                for f in files:
+                    if f.endswith((".py", ".json", ".toml", ".md")):
+                        try:
+                            if keywords.search(open(os.path.join(root, f)).read()):
+                                found = True
+                                break
+                        except Exception:
+                            pass
+                if found:
+                    break
+            if found:
+                break
+
+        if not found:
+            errors.append("no code referencing VictoriaLogs/Traces found in mcp/ or nanobot/")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
       expect_regex: "ok"
       timeout: 10
 
@@ -422,14 +739,40 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        export PATH=$HOME/.local/bin:$PATH;
-        cd ~/se-toolkit-lab-8;
-        ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        printf 'import json,asyncio,websockets\nasync def t():\n uri="ws://localhost:42002/ws/chat?access_key=%s"\n async with websockets.connect(uri,close_timeout=5) as ws:\n  await ws.send(json.dumps({"content":"Any errors in the last hour? Check the logs."}))\n  return await asyncio.wait_for(ws.recv(),timeout=60)\nprint(asyncio.run(t()))\n' "$ACCESS_KEY" > /tmp/_ac_ws3.py;
-        RESP=$(uv run python3 /tmp/_ac_ws3.py 2>&1);
-        echo "$RESP";
-        echo "$RESP" | grep -qiE 'error|log|no error|trace|request|status|found|search|healthy' && echo PASS || echo "FAIL: agent did not return observability data"
+      command: |
+        cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        import asyncio, json, os, re
+        import websockets
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        env_path = os.path.join(base, ".env.docker.secret")
+
+        access_key = None
+        for line in open(env_path):
+            if line.startswith("NANOBOT_ACCESS_KEY="):
+                access_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not access_key:
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); raise SystemExit
+
+        async def test_observability():
+            uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
+            async with websockets.connect(uri, close_timeout=5) as ws:
+                await ws.send(json.dumps({"content": "Any errors in the last hour? Check the logs."}))
+                return await asyncio.wait_for(ws.recv(), timeout=60)
+
+        try:
+            resp = asyncio.run(test_observability())
+        except Exception as e:
+            print(f"FAIL: WebSocket error — {e}"); raise SystemExit
+
+        print(resp)
+
+        pattern = re.compile(r"error|log|no error|trace|request|status|found|search|healthy", re.IGNORECASE)
+        if pattern.search(resp):
+            print("PASS")
+        else:
+            print("FAIL: agent response does not contain observability data")
+        PYEOF
       expect_regex: "PASS"
       timeout: 90
 
@@ -448,18 +791,47 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        python3 -c "
-        import json,urllib.request,os;
-        r=open(os.path.expanduser('~/se-toolkit-lab-8/REPORT.md')).read()[:5000];
-        e=open(os.path.expanduser('~/se-toolkit-lab-8/.env.docker.secret')).read();
-        k=[l.split('=',1)[1].strip().strip('\"').strip(\"'\") for l in e.splitlines() if l.startswith('QWEN_CODE_API_KEY=')][0];
-        p='Evaluate this lab report for Task 3. FAIL if any of these are missing: (1) Task 3A section with PASTED structured log entries showing JSON fields like level, service, event, trace_id. (2) Task 3B section with pasted trace data or a description of specific spans seen in VictoriaTraces. (3) Task 3C section showing the agent answering an observability question with real data (error counts, trace info). Vague descriptions without actual data = FAIL. Reply with exactly PASS or FAIL on the first line, then a short reason.';
-        d=json.dumps({'model':'coder-model','messages':[{'role':'user','content':p+chr(10)+chr(10)+r}],'max_tokens':100}).encode();
-        q=urllib.request.Request('http://localhost:42005/v1/chat/completions',d,{'Content-Type':'application/json','X-API-Key':k});
-        o=json.loads(urllib.request.urlopen(q,timeout=30).read());
-        print(o['choices'][0]['message']['content'])
-        " 2>&1 || echo "FAIL: could not reach LLM"
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        report = open(os.path.join(base, "REPORT.md")).read()[:5000]
+
+        api_key = None
+        for line in open(os.path.join(base, ".env.docker.secret")):
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+
+        prompt = (
+            "Evaluate this lab report for Task 3. "
+            "FAIL if any of these are missing: "
+            "(1) Task 3A section with PASTED structured log entries showing JSON fields "
+            "like level, service, event, trace_id. "
+            "(2) Task 3B section with pasted trace data or a description of specific spans "
+            "seen in VictoriaTraces. "
+            "(3) Task 3C section showing the agent answering an observability question with real data "
+            "(error counts, trace info). "
+            "Vague descriptions without actual data = FAIL. "
+            "Reply with exactly PASS or FAIL on the first line, then a short reason."
+        )
+
+        body = json.dumps({
+            "model": "coder-model",
+            "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
+            "max_tokens": 100,
+        }).encode()
+
+        req = urllib.request.Request(
+            "http://localhost:42005/v1/chat/completions", body,
+            {"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        try:
+            resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            print(resp["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"FAIL: could not reach LLM — {e}")
+        PYEOF
       expect_regex: "(?i)PASS"
       timeout: 60
 
@@ -484,17 +856,49 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        cd ~/se-toolkit-lab-8;
-        LMS_KEY=$(grep '^LMS_API_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        docker compose --env-file .env.docker.secret stop postgres 2>/dev/null;
-        sleep 2;
-        HTTP=$(curl -s -o /tmp/_ac_bugtest -w '%{http_code}' http://localhost:42002/items/ -H "Authorization: Bearer $LMS_KEY");
-        docker compose --env-file .env.docker.secret start postgres 2>/dev/null;
-        echo "response_code:$HTTP";
-        if [ "$HTTP" = "404" ]; then echo "FAIL: backend returns 404 on DB failure — the planted bug is still there. Find and fix it."; exit 0; fi;
-        if [ "$HTTP" = "500" ]; then echo "PASS"; exit 0; fi;
-        echo "FAIL: unexpected HTTP $HTTP (expected 500 after fix)"
+      command: |
+        python3 << 'PYEOF'
+        import os, subprocess, time, urllib.request, urllib.error
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        env_file = os.path.join(base, ".env.docker.secret")
+        compose = ["docker", "compose", "--env-file", env_file]
+
+        # Read API key
+        api_key = None
+        for line in open(env_file):
+            if line.startswith("LMS_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not api_key:
+            print("FAIL: LMS_API_KEY not set in .env.docker.secret"); raise SystemExit
+
+        # Stop postgres, test, always restart
+        try:
+            subprocess.run(compose + ["stop", "postgres"],
+                           capture_output=True, timeout=15, cwd=base)
+            time.sleep(2)
+
+            url = "http://localhost:42002/items/"
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+            try:
+                resp = urllib.request.urlopen(req, timeout=10)
+                code = resp.status
+            except urllib.error.HTTPError as e:
+                code = e.code
+            except urllib.error.URLError as e:
+                print(f"FAIL: backend unreachable with postgres stopped — {e}")
+                raise SystemExit
+
+            if code == 404:
+                print("FAIL: backend returns 404 on DB failure — the planted bug is still present")
+            elif code == 500:
+                print("PASS")
+            else:
+                print(f"FAIL: expected HTTP 500, got {code}")
+        finally:
+            subprocess.run(compose + ["start", "postgres"],
+                           capture_output=True, timeout=15, cwd=base)
+        PYEOF
       expect_regex: "PASS"
       timeout: 30
 
@@ -516,14 +920,43 @@ checks:
     params:
       runtime: prod
       username: __vm_username__
-      command: >
-        export PATH=$HOME/.local/bin:$PATH;
-        cd ~/se-toolkit-lab-8;
-        ACCESS_KEY=$(grep '^NANOBOT_ACCESS_KEY=' .env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
-        printf 'import json,asyncio,websockets\nasync def t():\n uri="ws://localhost:42002/ws/chat?access_key=%s"\n async with websockets.connect(uri,close_timeout=5) as ws:\n  await ws.send(json.dumps({"content":"List all scheduled jobs or cron tasks you have."}))\n  return await asyncio.wait_for(ws.recv(),timeout=60)\nprint(asyncio.run(t()))\n' "$ACCESS_KEY" > /tmp/_ac_ws4.py;
-        RESP=$(uv run python3 /tmp/_ac_ws4.py 2>&1);
-        echo "$RESP";
-        echo "$RESP" | grep -qiE 'schedule|cron|health|check|job|minute|interval|no.*schedule|no.*job' && echo PASS || echo "FAIL: agent does not recognize scheduled jobs — create a health check via the Flutter chat first"
+      command: |
+        cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        import asyncio, json, os, re
+        import websockets
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        env_path = os.path.join(base, ".env.docker.secret")
+
+        access_key = None
+        for line in open(env_path):
+            if line.startswith("NANOBOT_ACCESS_KEY="):
+                access_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not access_key:
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); raise SystemExit
+
+        async def test_cron():
+            uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
+            async with websockets.connect(uri, close_timeout=5) as ws:
+                await ws.send(json.dumps({"content": "List all scheduled jobs or cron tasks you have."}))
+                return await asyncio.wait_for(ws.recv(), timeout=60)
+
+        try:
+            resp = asyncio.run(test_cron())
+        except Exception as e:
+            print(f"FAIL: WebSocket error — {e}"); raise SystemExit
+
+        print(resp)
+
+        pattern = re.compile(
+            r"schedule|cron|health|check|job|minute|interval|no.*schedule|no.*job",
+            re.IGNORECASE,
+        )
+        if pattern.search(resp):
+            print("PASS")
+        else:
+            print("FAIL: agent does not recognize scheduled jobs — create a health check via Flutter chat first")
+        PYEOF
       expect_regex: "PASS"
       timeout: 90
 
