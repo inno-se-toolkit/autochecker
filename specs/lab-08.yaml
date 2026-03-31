@@ -529,7 +529,7 @@ checks:
       runtime: prod
       username: __vm_username__
       command: |
-        cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
         import sys, asyncio, json, os, re, subprocess, urllib.request, urllib.error
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
@@ -740,7 +740,7 @@ checks:
       runtime: prod
       username: __vm_username__
       command: |
-        cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
         import sys, asyncio, json, os, re
         import websockets
 
@@ -921,7 +921,7 @@ checks:
       runtime: prod
       username: __vm_username__
       command: |
-        cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
         import sys, asyncio, json, os, re
         import websockets
 
