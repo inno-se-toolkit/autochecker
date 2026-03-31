@@ -352,16 +352,14 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         }
 
     # Average completion across required tasks (excluding optional/setup), only for students who attempted
-    required_keys = [
-        f"{t['lab_id']}:{t['task_id']}" for t in tasks
-        if not t["task_id"].startswith("optional") and t["task_id"] != "setup"
-    ]
+    all_keys = [f"{t['lab_id']}:{t['task_id']}" for t in tasks if not t["task_id"].startswith("optional")]
+    required_keys = [k for k in all_keys if not k.endswith(":setup")]
     if students and required_keys:
         completion_sum = 0
         attempted_students = 0
         for s in students:
             student_scores = scores.get(s["tg_id"], {})
-            has_any = any(student_scores.get(k) for k in required_keys)
+            has_any = any(student_scores.get(k) for k in all_keys)
             if not has_any:
                 continue
             attempted_students += 1
