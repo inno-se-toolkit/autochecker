@@ -54,6 +54,7 @@ async def _ensure_dashboard_tables():
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_api_access_email ON api_access_log(email)"
             )
+            # Schema must match bot/database.py _migrate_to_v8
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS attempt_grants (
                     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +63,8 @@ async def _ensure_dashboard_tables():
                     task_id   TEXT NOT NULL DEFAULT '',
                     amount    INTEGER NOT NULL,
                     reason    TEXT DEFAULT '',
-                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tg_id) REFERENCES users(tg_id)
                 )
             """)
             await db.execute(

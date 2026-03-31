@@ -248,12 +248,6 @@
         fetch(url, { method: 'POST', body: form })
             .then(function(response) {
                 if (!response.ok) throw new Error('Request failed');
-                if (action === 'add') {
-                    btn.disabled = true;
-                    btn.textContent = 'Added';
-                    btn.title = 'Extra attempts granted';
-                    return;
-                }
                 location.reload();
             })
             .catch(function() { btn.disabled = false; btn.textContent = action === 'done' ? 'Done' : '+5'; });
