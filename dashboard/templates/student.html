@@ -107,7 +107,7 @@
         <div class="error-banner">Email or GitHub alias already belongs to another student. No changes were made.</div>
         {% endif %}
         {% if info == "attempts_reset" %}
-        <div class="success-banner">Freed {{ info_count or 0 }} attempt(s) for {{ info_lab }} / {{ info_task }}.</div>
+        <div class="success-banner">Granted {{ info_count or 0 }} extra attempt(s) for {{ info_lab }} / {{ info_task }}.</div>
         {% elif info == "marked_done" %}
         <div class="success-banner">Marked {{ info_lab }} / {{ info_task }} as done (100%).</div>
         {% elif info == "reverted_done" %}
@@ -209,27 +209,27 @@
                         <td class="ts">{{ a.last_attempt[:16] | replace("T", " ") if a.last_attempt else "—" }}</td>
                         <td>
                             <div class="action-btns">
-                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" onsubmit="return confirm('Give +5 attempts for this task?');">
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" data-confirm="Give +5 attempts for this task?">
                                     <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
                                     <input type="hidden" name="task_id" value="{{ a.task_id }}">
                                     <input type="hidden" name="amount" value="5">
                                     <button type="submit" class="btn-add">+5</button>
                                 </form>
-                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" onsubmit="return confirm('Clear ALL attempts for this task? This cannot be undone.');">
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/attempts/free" data-confirm="Restore all spent attempts for this task?">
                                     <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
                                     <input type="hidden" name="task_id" value="{{ a.task_id }}">
                                     <input type="hidden" name="amount" value="0">
-                                    <button type="submit" class="btn-reset">Clear all</button>
+                                    <button type="submit" class="btn-reset">Restore all</button>
                                 </form>
                                 {% if a.status != "pass" %}
-                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/mark-done" onsubmit="return confirm('Mark this task as 100% done?');">
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/mark-done" data-confirm="Mark this task as 100% done?">
                                     <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
                                     <input type="hidden" name="task_id" value="{{ a.task_id }}">
                                     <button type="submit" class="btn-done">Done</button>
                                 </form>
                                 {% endif %}
                                 {% if a.has_override %}
-                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/revert-done" onsubmit="return confirm('Revert manual override? The real scores will be used instead.');">
+                                <form class="inline-form" method="post" action="/student/{{ student.github_alias }}/revert-done" data-confirm="Revert manual override? The real scores will be used instead.">
                                     <input type="hidden" name="lab_id" value="{{ a.lab_id }}">
                                     <input type="hidden" name="task_id" value="{{ a.task_id }}">
                                     <button type="submit" class="btn-revert">Revert</button>
@@ -315,26 +315,82 @@
     </div>
 
     <script>
-    // Edit form toggle
-    var editBtn = document.getElementById('edit-btn');
-    var editForm = document.getElementById('edit-form');
-    var editCancel = document.getElementById('edit-cancel');
-    if (editBtn && editForm) {
-        editBtn.addEventListener('click', function() { editForm.classList.toggle('open'); });
-        editCancel.addEventListener('click', function() { editForm.classList.remove('open'); });
+    function initStudentPage() {
+        var editBtn = document.getElementById('edit-btn');
+        var editForm = document.getElementById('edit-form');
+        var editCancel = document.getElementById('edit-cancel');
+        if (editBtn && editForm && !editBtn.dataset.bound) {
+            editBtn.dataset.bound = '1';
+            editBtn.addEventListener('click', function() { editForm.classList.toggle('open'); });
+        }
+        if (editCancel && !editCancel.dataset.bound) {
+            editCancel.dataset.bound = '1';
+            editCancel.addEventListener('click', function() { editForm.classList.remove('open'); });
+        }
+
+        document.querySelectorAll('.result-row:not(.no-details)').forEach(function(row) {
+            if (row.dataset.bound) return;
+            row.dataset.bound = '1';
+            row.addEventListener('click', function() {
+                var idx = this.dataset.idx;
+                var details = document.querySelector('.details-row[data-idx="' + idx + '"]');
+                if (details) {
+                    this.classList.toggle('open');
+                    details.classList.toggle('open');
+                }
+            });
+        });
+
+        document.querySelectorAll('.inline-form').forEach(function(form) {
+            if (form.dataset.bound) return;
+            form.dataset.bound = '1';
+            form.addEventListener('submit', function(event) {
+                event.preventDefault();
+
+                var confirmMessage = form.dataset.confirm || '';
+                if (confirmMessage && !window.confirm(confirmMessage)) return;
+
+                var submitBtn = form.querySelector('button[type="submit"]');
+                var originalLabel = submitBtn ? submitBtn.textContent : '';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = '...';
+                }
+
+                fetch(form.action, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    headers: { 'X-Requested-With': 'fetch' }
+                })
+                    .then(function(response) {
+                        if (!response.ok) throw new Error('Request failed');
+                        return response.text().then(function(html) {
+                            return { html: html, url: response.url };
+                        });
+                    })
+                    .then(function(payload) {
+                        var doc = new DOMParser().parseFromString(payload.html, 'text/html');
+                        var nextContainer = doc.querySelector('.container');
+                        var currentContainer = document.querySelector('.container');
+                        if (!nextContainer || !currentContainer) {
+                            window.location.assign(payload.url);
+                            return;
+                        }
+                        currentContainer.innerHTML = nextContainer.innerHTML;
+                        initStudentPage();
+                    })
+                    .catch(function() {
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalLabel;
+                        }
+                        window.alert('Could not apply the action. Please try again.');
+                    });
+            });
+        });
     }
 
-    // Expandable check details
-    document.querySelectorAll('.result-row:not(.no-details)').forEach(function(row) {
-        row.addEventListener('click', function() {
-            var idx = this.dataset.idx;
-            var details = document.querySelector('.details-row[data-idx="' + idx + '"]');
-            if (details) {
-                this.classList.toggle('open');
-                details.classList.toggle('open');
-            }
-        });
-    });
+    initStudentPage();
     </script>
 </body>
 </html>

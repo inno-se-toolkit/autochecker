@@ -31,6 +31,7 @@ DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
 
 RELAY_TOKEN = os.getenv("RELAY_TOKEN", "")
 MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "20"))
+MAX_ATTEMPTS_EVAL_TASK = int(os.getenv("MAX_ATTEMPTS_EVAL_TASK", "20"))
 
 COOKIE_NAME = "dash_auth"
 
@@ -38,8 +39,8 @@ app = FastAPI(title="Autochecker Dashboard")
 
 
 @app.on_event("startup")
-async def _ensure_access_log_table():
-    """Create api_access_log table if it doesn't exist (idempotent)."""
+async def _ensure_dashboard_tables():
+    """Create dashboard-owned compatibility tables if they don't exist."""
     try:
         async with aiosqlite.connect(DB_PATH) as db:
             await db.execute("""
@@ -53,9 +54,26 @@ async def _ensure_access_log_table():
             await db.execute(
                 "CREATE INDEX IF NOT EXISTS idx_api_access_email ON api_access_log(email)"
             )
+            # Schema must match bot/database.py _migrate_to_v8
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS attempt_grants (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tg_id     INTEGER NOT NULL,
+                    lab_id    TEXT NOT NULL,
+                    task_id   TEXT NOT NULL DEFAULT '',
+                    amount    INTEGER NOT NULL,
+                    reason    TEXT DEFAULT '',
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tg_id) REFERENCES users(tg_id)
+                )
+            """)
+            await db.execute(
+                """CREATE INDEX IF NOT EXISTS idx_attempt_grants_lookup
+                   ON attempt_grants(tg_id, lab_id, task_id)"""
+            )
             await db.commit()
     except Exception:
-        logger.warning("Could not ensure api_access_log table", exc_info=True)
+        logger.warning("Could not ensure dashboard tables", exc_info=True)
 
 # ---------------------------------------------------------------------------
 # Relay state: one connected worker, pending job futures
@@ -167,13 +185,31 @@ def load_task_metadata() -> list[dict]:
             continue
         with open(spec_path, "r", encoding="utf-8") as f:
             spec = yaml.safe_load(f)
+        eval_tasks = _get_tasks_needing_lms_key(spec)
         for t in spec.get("tasks", []):
             tasks.append({
                 "lab_id": lab_id,
                 "task_id": t["id"],
                 "title": t["title"],
+                "max_attempts": MAX_ATTEMPTS_EVAL_TASK if t["id"] in eval_tasks else MAX_ATTEMPTS_PER_TASK,
             })
     return tasks
+
+
+def _get_tasks_needing_lms_key(spec: dict) -> set[str]:
+    """Mirror bot logic for tasks that use the eval attempt limit."""
+    explicit = spec.get("requires_lms_key")
+    tasks = spec.get("tasks", [])
+    if explicit is True:
+        return {task["id"] for task in tasks}
+    if explicit is False:
+        return set()
+
+    task_ids: set[str] = set()
+    for check in spec.get("checks", []):
+        if check.get("type") == "agent_eval":
+            task_ids.add(check["task"])
+    return task_ids
 
 
 def _cell_status(passed: Optional[int], failed: Optional[int], total: Optional[int]) -> str:
@@ -241,6 +277,7 @@ async def _fetch_best_scores(db: aiosqlite.Connection) -> dict[int, dict[str, di
 async def index(request: Request, lab: Optional[str] = Query(default=None)):
     """Main page: students x tasks grid with color coding and stats."""
     task_meta = load_task_metadata()
+    task_meta_map = {f"{t['lab_id']}:{t['task_id']}": t for t in task_meta}
     labs = sorted({t["lab_id"] for t in task_meta})
     active_lab = lab if lab in labs else (labs[-1] if labs else None)
 
@@ -275,10 +312,28 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
             async for row in cur:
                 attempts_map.setdefault(row["tg_id"], {})[f"{row['lab_id']}:{row['task_id']}"] = row["cnt"]
 
+        attempt_grants_map: dict[int, dict[str, int]] = {}
+        async with db.execute(
+            """SELECT tg_id, lab_id, task_id, COALESCE(SUM(amount), 0) AS granted
+               FROM attempt_grants GROUP BY tg_id, lab_id, task_id"""
+        ) as cur:
+            async for row in cur:
+                attempt_grants_map.setdefault(row["tg_id"], {})[f"{row['lab_id']}:{row['task_id']}"] = int(row["granted"] or 0)
+
     # Attach last_submission to each student dict
     for s in students:
         ts = last_submission.get(s["tg_id"], "")
         s["last_submission"] = ts[:16].replace("T", " ") if ts else ""
+
+    attempt_limits_map: dict[int, dict[str, int]] = {}
+    for s in students:
+        student_limits: dict[str, int] = {}
+        for t in tasks:
+            key = f"{t['lab_id']}:{t['task_id']}"
+            base_max = task_meta_map.get(key, t).get("max_attempts", MAX_ATTEMPTS_PER_TASK)
+            granted = attempt_grants_map.get(s["tg_id"], {}).get(key, 0)
+            student_limits[key] = base_max + granted
+        attempt_limits_map[s["tg_id"]] = student_limits
 
     # >=75% counts as "passed" for completion metrics
     _PASS_STATUSES = ("pass", "partial")
@@ -342,7 +397,7 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         "not_started": not_started,
         "completed_count": completed_count,
         "attempts_map": attempts_map,
-        "max_attempts": MAX_ATTEMPTS_PER_TASK,
+        "attempt_limits_map": attempt_limits_map,
     })
 
 
@@ -358,7 +413,8 @@ async def student_detail(
 ):
     """Detail page: full check history for a student."""
     task_meta = load_task_metadata()
-    title_map = {f"{t['lab_id']}:{t['task_id']}": t["title"] for t in task_meta}
+    task_meta_map = {f"{t['lab_id']}:{t['task_id']}": t for t in task_meta}
+    title_map = {key: value["title"] for key, value in task_meta_map.items()}
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -404,8 +460,11 @@ async def student_detail(
 
         # Best result per task (most passes, then fewest non-passes)
         latest_by_task: dict[str, dict] = {}
+        latest_result_timestamp_by_task: dict[str, str] = {}
         for result in results:
             key = f"{result['lab_id']}:{result['task_id']}"
+            if key not in latest_result_timestamp_by_task:
+                latest_result_timestamp_by_task[key] = result.get("timestamp") or ""
             if key not in latest_by_task:
                 latest_by_task[key] = result
             else:
@@ -417,7 +476,35 @@ async def student_detail(
                 if (-cur_p, cur_np) < (-prev_p, prev_np):
                     latest_by_task[key] = result
 
+        grants_by_task: dict[str, int] = {}
+        async with db.execute(
+            """SELECT lab_id, task_id, COALESCE(SUM(amount), 0) AS granted
+               FROM attempt_grants WHERE tg_id = ? GROUP BY lab_id, task_id""",
+            (student["tg_id"],)
+        ) as cur:
+            async for row in cur:
+                grants_by_task[f"{row['lab_id']}:{row['task_id']}"] = int(row["granted"] or 0)
+
         task_attempts_map: dict[str, dict] = {}
+        for key, latest in latest_by_task.items():
+            lab_id, task_id = key.split(":", 1)
+            base_max = task_meta_map.get(key, {}).get("max_attempts", MAX_ATTEMPTS_PER_TASK)
+            granted = grants_by_task.get(key, 0)
+            effective_max = base_max + granted
+            task_attempts_map[key] = {
+                "lab_id": lab_id,
+                "task_id": task_id,
+                "title": title_map.get(key, task_id),
+                "attempts": 0,
+                "max_attempts": effective_max,
+                "remaining": effective_max,
+                "granted_attempts": granted,
+                "last_attempt": latest_result_timestamp_by_task.get(key, ""),
+                "score": latest.get("score") or "—",
+                "status": latest.get("status", "none"),
+                "has_override": key in has_override,
+            }
+
         async with db.execute(
             """SELECT lab_id, task_id, COUNT(*) AS attempts, MAX(timestamp) AS last_attempt
                FROM attempts WHERE tg_id = ? GROUP BY lab_id, task_id
@@ -428,13 +515,17 @@ async def student_detail(
                 key = f"{row['lab_id']}:{row['task_id']}"
                 latest = latest_by_task.get(key, {})
                 used = row["attempts"] or 0
+                base_max = task_meta_map.get(key, {}).get("max_attempts", MAX_ATTEMPTS_PER_TASK)
+                granted = grants_by_task.get(key, 0)
+                effective_max = base_max + granted
                 task_attempts_map[key] = {
                     "lab_id": row["lab_id"],
                     "task_id": row["task_id"],
                     "title": title_map.get(key, row["task_id"]),
                     "attempts": used,
-                    "max_attempts": MAX_ATTEMPTS_PER_TASK,
-                    "remaining": max(0, MAX_ATTEMPTS_PER_TASK - used),
+                    "max_attempts": effective_max,
+                    "remaining": max(0, effective_max - used),
+                    "granted_attempts": granted,
                     "last_attempt": row["last_attempt"] or "",
                     "score": latest.get("score") or "—",
                     "status": latest.get("status", "none"),
@@ -514,9 +605,10 @@ async def student_free_attempts(
     task_id: str = Form(...),
     amount: int = Form(0),
 ):
-    """Free up attempts for a student's specific lab task.
+    """Grant extra attempts for a student's specific lab task.
 
-    amount=0 means clear all attempts; amount=N deletes the N oldest records.
+    amount=0 means restore all spent attempts by granting that many back.
+    amount=N grants N extra attempts.
     """
     lab_id = lab_id.strip()
     task_id = task_id.strip()
@@ -534,29 +626,25 @@ async def student_free_attempts(
             return HTMLResponse("<h1>Student not found</h1>", status_code=404)
         tg_id = row["tg_id"]
 
-        if amount > 0:
-            # Delete the N oldest attempt records
-            await db.execute(
-                """DELETE FROM attempts WHERE rowid IN (
-                    SELECT rowid FROM attempts
-                    WHERE tg_id = ? AND lab_id = ? AND task_id = ?
-                    ORDER BY timestamp ASC LIMIT ?
-                )""",
-                (tg_id, lab_id, task_id, amount),
-            )
-            deleted_count = min(amount, db.total_changes)
-        else:
-            # Delete all attempts
-            async with db.execute(
-                "SELECT COUNT(*) AS cnt FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
-                (tg_id, lab_id, task_id),
-            ) as cur:
-                count_row = await cur.fetchone()
-            deleted_count = int(count_row["cnt"]) if count_row else 0
+        async with db.execute(
+            "SELECT COUNT(*) AS cnt FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
+            (tg_id, lab_id, task_id),
+        ) as cur:
+            count_row = await cur.fetchone()
+        used_attempts = int(count_row["cnt"]) if count_row else 0
 
+        if amount > 0:
+            granted_count = amount
+            reason = "dashboard_add"
+        else:
+            granted_count = used_attempts
+            reason = "dashboard_restore_all"
+
+        if granted_count > 0:
             await db.execute(
-                "DELETE FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
-                (tg_id, lab_id, task_id),
+                """INSERT INTO attempt_grants (tg_id, lab_id, task_id, amount, reason)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (tg_id, lab_id, task_id, granted_count, reason),
             )
         await db.commit()
 
@@ -564,7 +652,7 @@ async def student_free_attempts(
         "info": "attempts_reset",
         "lab": lab_id,
         "task": task_id,
-        "count": deleted_count,
+        "count": granted_count,
     })
     return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
 

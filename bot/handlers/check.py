@@ -15,11 +15,11 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-from ..database import User, get_attempts_count, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip, get_lms_api_key, set_lms_api_key, get_vm_username, set_vm_username
+from ..database import User, get_attempts_count, get_effective_attempt_limit, add_attempt, save_result, get_server_ip, get_server_ip_owner, set_server_ip, get_lms_api_key, set_lms_api_key, get_vm_username, set_vm_username
 from ..ip_utils import validate_ip
 from ..keyboards import get_labs_keyboard, get_tasks_keyboard
 from ..runner import run_check
-from ..config import MAX_ATTEMPTS_PER_TASK, ACTIVE_LABS, get_max_attempts, get_tasks_needing_ip, get_tasks_needing_lms_key, get_tasks_needing_vm_username
+from ..config import ACTIVE_LABS, get_tasks_needing_ip, get_tasks_needing_lms_key, get_tasks_needing_vm_username
 
 router = Router()
 
@@ -85,6 +85,13 @@ def _parse_summary_html(path) -> str | None:
         return "\n".join(line for line in lines if line) or None
     except Exception:
         return None
+
+
+async def _get_attempt_window(tg_id: int, lab_id: str, task_id: str) -> tuple[int, int]:
+    """Return (used_attempts, effective_attempt_limit) for a task."""
+    attempts = await get_attempts_count(tg_id, lab_id, task_id)
+    max_attempts = await get_effective_attempt_limit(tg_id, lab_id, task_id)
+    return attempts, max_attempts
 
 
 @router.message(Command("reset"))
@@ -214,8 +221,7 @@ async def callback_check_task(callback: CallbackQuery, db_user: User, state: FSM
     lab_id = parts[1]
     task_id = parts[2]
 
-    max_attempts = get_max_attempts(lab_id, task_id)
-    attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
+    attempts, max_attempts = await _get_attempt_window(db_user.tg_id, lab_id, task_id)
     if attempts >= max_attempts:
         await callback.answer(
             f"No attempts left for {task_id}.",
@@ -437,8 +443,7 @@ async def process_server_ip(message: Message, db_user: User, state: FSMContext) 
     lab_id = data["lab_id"]
     task_id = data["task_id"]
 
-    max_attempts = get_max_attempts(lab_id, task_id)
-    attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
+    attempts, max_attempts = await _get_attempt_window(db_user.tg_id, lab_id, task_id)
     if attempts >= max_attempts:
         await message.answer(f"No attempts left for {task_id}.")
         return
@@ -578,8 +583,7 @@ async def process_vm_username(message: Message, db_user: User, state: FSMContext
 
     await state.clear()
 
-    max_attempts = get_max_attempts(lab_id, task_id)
-    attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
+    attempts, max_attempts = await _get_attempt_window(db_user.tg_id, lab_id, task_id)
     if attempts >= max_attempts:
         await message.answer(f"No attempts left for {task_id}.")
         return
@@ -699,8 +703,7 @@ async def process_lms_key(message: Message, db_user: User, state: FSMContext) ->
     lab_id = data["lab_id"]
     task_id = data["task_id"]
 
-    max_attempts = get_max_attempts(lab_id, task_id)
-    attempts = await get_attempts_count(db_user.tg_id, lab_id, task_id)
+    attempts, max_attempts = await _get_attempt_window(db_user.tg_id, lab_id, task_id)
     if attempts >= max_attempts:
         await message.answer(f"No attempts left for {task_id}.")
         return

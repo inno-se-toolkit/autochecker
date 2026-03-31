@@ -3,7 +3,7 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from .config import get_active_tasks, get_lab_titles, MAX_ATTEMPTS_PER_TASK, get_max_attempts
+from .config import get_active_tasks, get_lab_titles, get_max_attempts
 from .database import get_task_stats, has_passed_task
 
 
@@ -43,7 +43,7 @@ async def get_tasks_keyboard(tg_id: int, lab_id: str) -> InlineKeyboardMarkup:
                 passed = await has_passed_task(tg_id, task.lab_id, task.prerequisite)
                 prereq_stat = stats.get(prereq_key, {})
                 prereq_attempts = prereq_stat.get("attempts", 0)
-                prereq_max = get_max_attempts(task.lab_id, task.prerequisite)
+                prereq_max = prereq_stat.get("max_attempts", get_max_attempts(task.lab_id, task.prerequisite))
                 unlocked_cache[prereq_key] = passed or prereq_attempts >= prereq_max
             if not unlocked_cache[prereq_key]:
                 locked = True
@@ -61,8 +61,8 @@ async def get_tasks_keyboard(tg_id: int, lab_id: str) -> InlineKeyboardMarkup:
             else:
                 icon = "📝"
 
-            task_max = get_max_attempts(task.lab_id, task.task_id)
-            remaining = task_max - attempts
+            task_max = task_stat.get("max_attempts", get_max_attempts(task.lab_id, task.task_id))
+            remaining = task_stat.get("remaining", max(0, task_max - attempts))
             score_part = f" {score}" if score else ""
             passed = score is not None and failed == 0
             if passed:
@@ -83,5 +83,4 @@ async def get_tasks_keyboard(tg_id: int, lab_id: str) -> InlineKeyboardMarkup:
     builder.adjust(1)
     builder.row(InlineKeyboardButton(text="← Back to labs", callback_data="back_to_labs"))
     return builder.as_markup()
-
 

@@ -145,11 +145,12 @@
                                 <span class="cell cell-{{ entry.status }}">{{ entry.score }}</span>
                                 <div class="cell-actions">
                                     {% set used = attempts_map.get(s.tg_id, {}).get(key, 0) %}
-                                    {% if used >= max_attempts %}
-                                    <button class="cell-btn cell-btn-add" onclick="cellAction(this, '/student/{{ s.github_alias }}/attempts/free', '{{ t.lab_id }}', '{{ t.task_id }}', 'add')" title="Give +5 attempts ({{ used }}/{{ max_attempts }} used)">+5</button>
+                                    {% set effective_max = attempt_limits_map.get(s.tg_id, {}).get(key, t.max_attempts) %}
+                                    {% if used >= effective_max %}
+                                    <button type="button" class="cell-btn cell-btn-add" onclick="cellAction(this, '/student/{{ s.github_alias }}/attempts/free', '{{ t.lab_id }}', '{{ t.task_id }}', 'add')" title="Give +5 attempts ({{ used }}/{{ effective_max }} used)">+5</button>
                                     {% endif %}
                                     {% if entry.status != 'pass' %}
-                                    <button class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
+                                    <button type="button" class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
                                     {% endif %}
                                 </div>
                             </td>
@@ -157,7 +158,7 @@
                             <td data-pct="-1">
                                 <span class="cell cell-none">&mdash;</span>
                                 <div class="cell-actions">
-                                    <button class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
+                                    <button type="button" class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
                                 </div>
                             </td>
                         {% endif %}
@@ -244,8 +245,11 @@
         form.append('lab_id', labId);
         form.append('task_id', taskId);
         if (action === 'add') form.append('amount', '5');
-        fetch(url, { method: 'POST', body: form, redirect: 'manual' })
-            .then(function() { location.reload(); })
+        fetch(url, { method: 'POST', body: form })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Request failed');
+                location.reload();
+            })
             .catch(function() { btn.disabled = false; btn.textContent = action === 'done' ? 'Done' : '+5'; });
     }
     </script>
