@@ -440,13 +440,13 @@ checks:
             {"Content-Type": "application/json", "X-API-Key": api_key},
         )
         try:
-            resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
             print(resp["choices"][0]["message"]["content"])
         except Exception as e:
             print(f"FAIL: could not reach LLM — {e}")
         PYEOF
       expect_regex: "(?i)PASS"
-      timeout: 60
+      timeout: 120
 
   # =====================================================
   # TASK 2: Deploy the Agent and Add Web Client
@@ -642,13 +642,13 @@ checks:
             {"Content-Type": "application/json", "X-API-Key": api_key},
         )
         try:
-            resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
             print(resp["choices"][0]["message"]["content"])
         except Exception as e:
             print(f"FAIL: could not reach LLM — {e}")
         PYEOF
       expect_regex: "(?i)PASS"
-      timeout: 60
+      timeout: 120
 
   # =====================================================
   # TASK 3: Observability Tools for the Agent
@@ -824,13 +824,13 @@ checks:
             {"Content-Type": "application/json", "X-API-Key": api_key},
         )
         try:
-            resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+            resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
             print(resp["choices"][0]["message"]["content"])
         except Exception as e:
             print(f"FAIL: could not reach LLM — {e}")
         PYEOF
       expect_regex: "(?i)PASS"
-      timeout: 60
+      timeout: 120
 
   # =====================================================
   # TASK 4: Diagnose a Failure and Make the Agent Proactive
