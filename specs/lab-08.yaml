@@ -148,20 +148,20 @@ checks:
       username: __vm_username__
       command: |
         python3 << 'PYEOF'
-        import json, os, urllib.request, urllib.error
+        import sys, json, os, urllib.request, urllib.error
 
         env_path = os.path.expanduser("~/se-toolkit-lab-8/.env.docker.secret")
         try:
             env = open(env_path).read()
         except FileNotFoundError:
-            print("fail: .env.docker.secret not found"); raise SystemExit
+            print("fail: .env.docker.secret not found"); sys.exit(0)
 
         api_key = None
         for line in env.splitlines():
             if line.startswith("LMS_API_KEY="):
                 api_key = line.split("=", 1)[1].strip().strip("\"'")
         if not api_key:
-            print("fail: LMS_API_KEY not set in .env.docker.secret"); raise SystemExit
+            print("fail: LMS_API_KEY not set in .env.docker.secret"); sys.exit(0)
 
         url = "http://localhost:42002/items/"
         req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
@@ -172,17 +172,17 @@ checks:
                 print("fail: connection refused on port 42002 (is docker running?)")
             else:
                 print(f"fail: could not reach backend — {e}")
-            raise SystemExit
+            sys.exit(0)
         except Exception as e:
-            print(f"fail: {e}"); raise SystemExit
+            print(f"fail: {e}"); sys.exit(0)
 
         if resp.status != 200:
-            print(f"fail: backend returned HTTP {resp.status}"); raise SystemExit
+            print(f"fail: backend returned HTTP {resp.status}"); sys.exit(0)
 
         try:
             items = json.loads(resp.read())
         except json.JSONDecodeError:
-            print("fail: backend response is not valid JSON"); raise SystemExit
+            print("fail: backend response is not valid JSON"); sys.exit(0)
 
         if len(items) == 0:
             print("fail: backend returned 0 items (run POST /pipeline/sync first)")
@@ -209,20 +209,20 @@ checks:
       username: __vm_username__
       command: |
         python3 << 'PYEOF'
-        import json, os, urllib.request, urllib.error
+        import sys, json, os, urllib.request, urllib.error
 
         env_path = os.path.expanduser("~/se-toolkit-lab-8/.env.docker.secret")
         try:
             env = open(env_path).read()
         except FileNotFoundError:
-            print("0 (.env.docker.secret not found)"); raise SystemExit
+            print("0 (.env.docker.secret not found)"); sys.exit(0)
 
         api_key = None
         for line in env.splitlines():
             if line.startswith("QWEN_CODE_API_KEY="):
                 api_key = line.split("=", 1)[1].strip().strip("\"'")
         if not api_key:
-            print("0 (QWEN_CODE_API_KEY not set in .env.docker.secret)"); raise SystemExit
+            print("0 (QWEN_CODE_API_KEY not set in .env.docker.secret)"); sys.exit(0)
 
         url = "http://localhost:42005/v1/models"
         req = urllib.request.Request(url, headers={"X-API-Key": api_key})
@@ -233,13 +233,13 @@ checks:
                 print("0 (connection refused on port 42005 — is qwen-code-api running?)")
             else:
                 print(f"0 (could not reach LLM proxy — {e})")
-            raise SystemExit
+            sys.exit(0)
 
         try:
             data = json.loads(resp.read())
             count = len(data.get("data", []))
         except (json.JSONDecodeError, KeyError):
-            print("0 (invalid JSON response from LLM proxy)"); raise SystemExit
+            print("0 (invalid JSON response from LLM proxy)"); sys.exit(0)
 
         if count == 0:
             print("0 (proxy returned no models)")
@@ -530,7 +530,7 @@ checks:
       username: __vm_username__
       command: |
         cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
-        import asyncio, json, os, re, subprocess, urllib.request, urllib.error
+        import sys, asyncio, json, os, re, subprocess, urllib.request, urllib.error
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
 
@@ -544,18 +544,18 @@ checks:
             state = r.stdout.strip().lower()
             if "running" not in state:
                 print(f"FAIL: nanobot container not running (state: {state or 'not found'})")
-                raise SystemExit
+                sys.exit(0)
         except subprocess.TimeoutExpired:
-            print("FAIL: timed out checking nanobot container"); raise SystemExit
+            print("FAIL: timed out checking nanobot container"); sys.exit(0)
 
         # 2. Check Flutter serves real content
         try:
             html = urllib.request.urlopen("http://localhost:42002/flutter/", timeout=5).read().decode()
             if not re.search(r"flutter_bootstrap|main\.dart\.js|flutter\.js", html):
                 print("FAIL: /flutter serves empty page (volume not mounted or build failed)")
-                raise SystemExit
+                sys.exit(0)
         except urllib.error.URLError as e:
-            print(f"FAIL: could not reach /flutter — {e}"); raise SystemExit
+            print(f"FAIL: could not reach /flutter — {e}"); sys.exit(0)
 
         # 3. Read access key
         env_path = os.path.join(base, ".env.docker.secret")
@@ -564,7 +564,7 @@ checks:
             if line.startswith("NANOBOT_ACCESS_KEY="):
                 access_key = line.split("=", 1)[1].strip().strip("\"'")
         if not access_key:
-            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); raise SystemExit
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); sys.exit(0)
 
         # 4. Test WebSocket conversation
         import websockets
@@ -585,7 +585,7 @@ checks:
                 print("FAIL: WebSocket connection refused (is nanobot listening on /ws/chat?)")
             else:
                 print(f"FAIL: WebSocket error — {err[:200]}")
-            raise SystemExit
+            sys.exit(0)
 
         if len(resp) < 10:
             print("FAIL: agent returned empty or very short response")
@@ -741,7 +741,7 @@ checks:
       username: __vm_username__
       command: |
         cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
-        import asyncio, json, os, re
+        import sys, asyncio, json, os, re
         import websockets
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
@@ -752,7 +752,7 @@ checks:
             if line.startswith("NANOBOT_ACCESS_KEY="):
                 access_key = line.split("=", 1)[1].strip().strip("\"'")
         if not access_key:
-            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); raise SystemExit
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); sys.exit(0)
 
         async def test_observability():
             uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
@@ -763,7 +763,7 @@ checks:
         try:
             resp = asyncio.run(test_observability())
         except Exception as e:
-            print(f"FAIL: WebSocket error — {e}"); raise SystemExit
+            print(f"FAIL: WebSocket error — {e}"); sys.exit(0)
 
         print(resp)
 
@@ -858,7 +858,7 @@ checks:
       username: __vm_username__
       command: |
         python3 << 'PYEOF'
-        import os, subprocess, time, urllib.request, urllib.error
+        import sys, os, subprocess, time, urllib.request, urllib.error
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
         env_file = os.path.join(base, ".env.docker.secret")
@@ -870,7 +870,7 @@ checks:
             if line.startswith("LMS_API_KEY="):
                 api_key = line.split("=", 1)[1].strip().strip("\"'")
         if not api_key:
-            print("FAIL: LMS_API_KEY not set in .env.docker.secret"); raise SystemExit
+            print("FAIL: LMS_API_KEY not set in .env.docker.secret"); sys.exit(0)
 
         # Stop postgres, test, always restart
         try:
@@ -887,7 +887,7 @@ checks:
                 code = e.code
             except urllib.error.URLError as e:
                 print(f"FAIL: backend unreachable with postgres stopped — {e}")
-                raise SystemExit
+                sys.exit(0)
 
             if code == 404:
                 print("FAIL: backend returns 404 on DB failure — the planted bug is still present")
@@ -922,7 +922,7 @@ checks:
       username: __vm_username__
       command: |
         cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
-        import asyncio, json, os, re
+        import sys, asyncio, json, os, re
         import websockets
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
@@ -933,7 +933,7 @@ checks:
             if line.startswith("NANOBOT_ACCESS_KEY="):
                 access_key = line.split("=", 1)[1].strip().strip("\"'")
         if not access_key:
-            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); raise SystemExit
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); sys.exit(0)
 
         async def test_cron():
             uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
@@ -944,7 +944,7 @@ checks:
         try:
             resp = asyncio.run(test_cron())
         except Exception as e:
-            print(f"FAIL: WebSocket error — {e}"); raise SystemExit
+            print(f"FAIL: WebSocket error — {e}"); sys.exit(0)
 
         print(resp)
 
