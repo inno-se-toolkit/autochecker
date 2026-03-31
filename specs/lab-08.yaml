@@ -411,7 +411,7 @@ checks:
         import json, os, urllib.request
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
-        report = open(os.path.join(base, "REPORT.md")).read()[:4000]
+        report = open(os.path.join(base, "REPORT.md")).read()
 
         # Read LLM API key
         api_key = None
@@ -433,7 +433,6 @@ checks:
         body = json.dumps({
             "model": "coder-model",
             "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
-            "max_tokens": 100,
         }).encode()
 
         req = urllib.request.Request(
@@ -615,7 +614,7 @@ checks:
         import json, os, urllib.request
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
-        report = open(os.path.join(base, "REPORT.md")).read()[:4000]
+        report = open(os.path.join(base, "REPORT.md")).read()
 
         api_key = None
         for line in open(os.path.join(base, ".env.docker.secret")):
@@ -636,7 +635,6 @@ checks:
         body = json.dumps({
             "model": "coder-model",
             "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
-            "max_tokens": 100,
         }).encode()
 
         req = urllib.request.Request(
@@ -796,7 +794,7 @@ checks:
         import json, os, urllib.request
 
         base = os.path.expanduser("~/se-toolkit-lab-8")
-        report = open(os.path.join(base, "REPORT.md")).read()[:5000]
+        report = open(os.path.join(base, "REPORT.md")).read()
 
         api_key = None
         for line in open(os.path.join(base, ".env.docker.secret")):
@@ -819,7 +817,6 @@ checks:
         body = json.dumps({
             "model": "coder-model",
             "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
-            "max_tokens": 100,
         }).encode()
 
         req = urllib.request.Request(
