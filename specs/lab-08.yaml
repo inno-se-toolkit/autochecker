@@ -1,0 +1,979 @@
+id: lab-08
+title: "Lab 08 — The Agent is the Interface"
+repo_name: "se-toolkit-lab-8"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.75
+  score_required_only: true
+
+requires_lms_key: false
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Set Up the Agent"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Deploy and Connect a Web Client"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Give the Agent New Eyes"
+    prerequisite: setup
+  - id: task-4
+    title: "Task 4: Diagnose a Failure and Make the Agent Proactive"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP — repo, VM, env files, backend, LLM, otel
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_config
+    task: setup
+    title: "Repository is a fork with issues enabled"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of https://github.com/inno-se-toolkit/se-toolkit-lab-8
+      with issues enabled (Settings -> General -> Features -> Issues).
+    params:
+      checks:
+        - type: repo_is_fork
+          params: {}
+
+  - id: ssh_connectivity
+    task: setup
+    title: "SSH login as your main user works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      The autochecker needs to SSH into your VM as your main user.
+      Add the autochecker SSH key to ~/.ssh/authorized_keys and register
+      your VM username with the autochecker bot. See setup step 1.8.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: "echo ok"
+
+  - id: vm_setup
+    task: setup
+    title: "Repo, env file, and submodule present on VM"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      On your VM: (1) Clone your fork at ~/se-toolkit-lab-8 with --recurse-submodules,
+      (2) Create .env.docker.secret from .env.docker.example.
+      See setup steps 1.2 and 1.4.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import os
+
+        home = os.path.expanduser("~")
+        base = os.path.join(home, "se-toolkit-lab-8")
+        env_file = os.path.join(base, ".env.docker.secret")
+
+        errors = []
+
+        if not os.path.isdir(os.path.join(base, ".git")):
+            errors.append("~/se-toolkit-lab-8/.git directory not found — clone your fork first")
+
+        if not os.path.isfile(env_file):
+            errors.append(".env.docker.secret not found — copy from .env.docker.example")
+
+        if not os.path.exists(os.path.join(base, "qwen-code-api", ".git")):
+            errors.append("qwen-code-api submodule missing — clone with --recurse-submodules")
+
+        if os.path.isfile(env_file):
+            content = open(env_file).read()
+            for key in ("LMS_API_KEY", "QWEN_CODE_API_KEY"):
+                if key + "=" not in content:
+                    errors.append(f"{key} not set in .env.docker.secret")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: backend_running
+    task: setup
+    title: "Backend running with data (port 42002)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [vm_setup]
+    hint: >
+      Deploy backend: cd ~/se-toolkit-lab-8 && docker compose --env-file .env.docker.secret up --build -d
+      Then sync data: open Swagger at http://localhost:42002/docs, run POST /pipeline/sync.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import sys, json, os, urllib.request, urllib.error
+
+        env_path = os.path.expanduser("~/se-toolkit-lab-8/.env.docker.secret")
+        try:
+            env = open(env_path).read()
+        except FileNotFoundError:
+            print("fail: .env.docker.secret not found"); sys.exit(0)
+
+        api_key = None
+        for line in env.splitlines():
+            if line.startswith("LMS_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not api_key:
+            print("fail: LMS_API_KEY not set in .env.docker.secret"); sys.exit(0)
+
+        url = "http://localhost:42002/items/"
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+        except urllib.error.URLError as e:
+            if "Connection refused" in str(e):
+                print("fail: connection refused on port 42002 (is docker running?)")
+            else:
+                print(f"fail: could not reach backend — {e}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"fail: {e}"); sys.exit(0)
+
+        if resp.status != 200:
+            print(f"fail: backend returned HTTP {resp.status}"); sys.exit(0)
+
+        try:
+            items = json.loads(resp.read())
+        except json.JSONDecodeError:
+            print("fail: backend response is not valid JSON"); sys.exit(0)
+
+        if len(items) == 0:
+            print("fail: backend returned 0 items (run POST /pipeline/sync first)")
+        else:
+            print("ok")
+        PYEOF
+      expect_regex: "ok"
+      timeout: 15
+
+  - id: llm_available
+    task: setup
+    title: "LLM API is reachable (Qwen proxy on port 42005)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [vm_setup]
+    hint: >
+      The Qwen Code API must be running on port 42005.
+      Check: docker compose --env-file .env.docker.secret ps qwen-code-api
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import sys, json, os, urllib.request, urllib.error
+
+        env_path = os.path.expanduser("~/se-toolkit-lab-8/.env.docker.secret")
+        try:
+            env = open(env_path).read()
+        except FileNotFoundError:
+            print("0 (.env.docker.secret not found)"); sys.exit(0)
+
+        api_key = None
+        for line in env.splitlines():
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not api_key:
+            print("0 (QWEN_CODE_API_KEY not set in .env.docker.secret)"); sys.exit(0)
+
+        url = "http://localhost:42005/v1/models"
+        req = urllib.request.Request(url, headers={"X-API-Key": api_key})
+        try:
+            resp = urllib.request.urlopen(req, timeout=10)
+        except urllib.error.URLError as e:
+            if "Connection refused" in str(e):
+                print("0 (connection refused on port 42005 — is qwen-code-api running?)")
+            else:
+                print(f"0 (could not reach LLM proxy — {e})")
+            sys.exit(0)
+
+        try:
+            data = json.loads(resp.read())
+            count = len(data.get("data", []))
+        except (json.JSONDecodeError, KeyError):
+            print("0 (invalid JSON response from LLM proxy)"); sys.exit(0)
+
+        if count == 0:
+            print("0 (proxy returned no models)")
+        else:
+            print(count)
+        PYEOF
+      expect_regex: "^[1-9]"
+      timeout: 15
+
+  - id: otel_stack
+    task: setup
+    title: "Observability stack running (VictoriaLogs + VictoriaTraces + OTel)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [vm_setup]
+    hint: >
+      The observability stack (victorialogs, victoriatraces, otel-collector) must be running.
+      These are part of the base docker-compose.yml — just run docker compose up.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import os, subprocess, urllib.request, urllib.error
+
+        errors = []
+
+        services = {
+            "VictoriaLogs":   "http://localhost:42010/health",
+            "VictoriaTraces": "http://localhost:42011/health",
+        }
+        for name, url in services.items():
+            try:
+                resp = urllib.request.urlopen(url, timeout=5)
+                if resp.status != 200:
+                    errors.append(f"{name} returned HTTP {resp.status}")
+            except urllib.error.URLError:
+                errors.append(f"{name} not reachable at {url}")
+
+        try:
+            r = subprocess.run(
+                ["docker", "compose", "--env-file", ".env.docker.secret",
+                 "ps", "otel-collector", "--format", "{{.State}}"],
+                capture_output=True, text=True, timeout=10,
+                cwd=os.path.expanduser("~/se-toolkit-lab-8"),
+            )
+            state = r.stdout.strip().lower()
+            if "running" not in state:
+                errors.append(f"otel-collector not running (state: {state or 'not found'})")
+        except Exception as e:
+            errors.append(f"could not check otel-collector: {e}")
+
+        if errors:
+            print("FAIL: " + "; ".join(errors))
+        else:
+            print("PASS")
+        PYEOF
+      expect_regex: "PASS"
+      timeout: 15
+
+  # =====================================================
+  # TASK 1: Set Up the Agent
+  # =====================================================
+
+  - id: t1_structural
+    task: task-1
+    title: "Nanobot project, config, MCP tools, and skill prompt set up"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [ssh_connectivity]
+    hint: >
+      Complete all parts of Task 1:
+      (A) uv init nanobot && cd nanobot && uv add nanobot-ai, then run nanobot onboard.
+      (B) uv add lms-mcp --editable ../mcp, register MCP server in config.json.
+      (C) Create nanobot/workspace/skills/lms/SKILL.md with tool usage strategy.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import os, json
+
+        base = os.path.expanduser("~/se-toolkit-lab-8/nanobot")
+        errors = []
+
+        # Check pyproject.toml and nanobot-ai dependency
+        pyproject = os.path.join(base, "pyproject.toml")
+        if not os.path.isfile(pyproject):
+            errors.append("nanobot/pyproject.toml not found — run uv init nanobot")
+        elif "nanobot-ai" not in open(pyproject).read():
+            errors.append("nanobot-ai not in pyproject.toml — run uv add nanobot-ai")
+
+        # Check config.json structure
+        config_path = os.path.join(base, "config.json")
+        if not os.path.isfile(config_path):
+            errors.append("nanobot/config.json not found — run nanobot onboard")
+        else:
+            content = open(config_path).read()
+            if '"provider' not in content:
+                errors.append("no providers configured in config.json")
+            if "mcp_lms" not in content and '"lms"' not in content:
+                errors.append("lms MCP server not registered in config.json")
+
+        # Check skill file
+        skill = os.path.join(base, "workspace", "skills", "lms", "SKILL.md")
+        if not os.path.isfile(skill):
+            errors.append("skills/lms/SKILL.md not found")
+        else:
+            word_count = len(open(skill).read().split())
+            if word_count < 30:
+                errors.append(f"SKILL.md too short ({word_count} words, need >= 30)")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t1_agent_answers
+    task: task-1
+    title: "Agent answers 'What labs are available?' with real backend data"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [t1_structural, backend_running, llm_available]
+    hint: >
+      Run: cd ~/se-toolkit-lab-8/nanobot && NANOBOT_LMS_BACKEND_URL=http://localhost:42002 NANOBOT_LMS_API_KEY=YOUR_KEY uv run nanobot agent -c ./config.json -m "What labs are available?"
+      The agent should return real lab names from the backend, not hallucinated ones.
+      If you get an LLM error, check that the Qwen proxy is running and the token is fresh.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH;
+        cd ~/se-toolkit-lab-8/nanobot;
+        LMS_KEY=$(grep '^LMS_API_KEY=' ~/se-toolkit-lab-8/.env.docker.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        NANOBOT_LMS_BACKEND_URL=http://localhost:42002 NANOBOT_LMS_API_KEY=$LMS_KEY uv run nanobot agent -c ./config.json -m "What labs are available?" 2>/dev/null | tail -20
+      expect_regex: "(?i)(Lab.{0,5}0[1-6]|products|architecture|backend|testing|pipeline|agent)"
+      timeout: 90
+
+  - id: t1_report
+    task: task-1
+    title: "REPORT.md Task 1 sections verified by LLM"
+    class: content
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists, llm_available]
+    hint: >
+      Add checkpoint evidence to REPORT.md under sections:
+      ## Task 1A — Bare agent, ## Task 1B — Agent with LMS tools, ## Task 1C — Skill prompt.
+      Each section must contain the agent's actual response (copy-pasted from terminal).
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        report = open(os.path.join(base, "REPORT.md")).read()
+
+        # Read LLM API key
+        api_key = None
+        for line in open(os.path.join(base, ".env.docker.secret")):
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+
+        prompt = (
+            "Evaluate this lab report for Task 1. "
+            "FAIL if any of these are missing: "
+            "(1) Task 1A section with a PASTED agent response showing actual text the agent said "
+            "(not a summary of what happened). "
+            "(2) Task 1B section with a pasted response containing real lab names like Lab 01, Lab 02 etc. "
+            "(3) Task 1C section showing the agent asking which lab or listing options. "
+            'Generic descriptions like "the agent responded" without actual pasted output = FAIL. '
+            "Reply with exactly PASS or FAIL on the first line, then a short reason."
+        )
+
+        body = json.dumps({
+            "model": "coder-model",
+            "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
+        }).encode()
+
+        req = urllib.request.Request(
+            "http://localhost:42005/v1/chat/completions", body,
+            {"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        try:
+            resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
+            print(resp["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"FAIL: could not reach LLM — {e}")
+        PYEOF
+      expect_regex: "(?i)PASS"
+      timeout: 120
+
+  # =====================================================
+  # TASK 2: Deploy the Agent and Add Web Client
+  # =====================================================
+
+  - id: t2_structural
+    task: task-2
+    title: "Nanobot Dockerfile, compose services, and Caddy routes configured"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [ssh_connectivity, repo_exists]
+    hint: >
+      Complete Task 2: create nanobot/entrypoint.py and nanobot/Dockerfile,
+      uncomment nanobot + client-web-flutter in docker-compose.yml,
+      uncomment /ws/chat and /flutter in caddy/Caddyfile.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import os, re
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        errors = []
+
+        for path, label in [
+            ("nanobot/entrypoint.py", "nanobot/entrypoint.py"),
+            ("nanobot/Dockerfile", "nanobot/Dockerfile"),
+        ]:
+            if not os.path.isfile(os.path.join(base, path)):
+                errors.append(f"{label} not found")
+
+        # Check docker-compose services are uncommented
+        compose = os.path.join(base, "docker-compose.yml")
+        if os.path.isfile(compose):
+            content = open(compose).read()
+            if not re.search(r"^\s{2}nanobot:", content, re.MULTILINE):
+                errors.append("nanobot service in docker-compose.yml still commented out")
+            if "client-web-flutter:" not in content:
+                errors.append("client-web-flutter service in docker-compose.yml still commented out")
+
+        # Check Caddyfile routes are uncommented
+        caddyfile = os.path.join(base, "caddy", "Caddyfile")
+        if os.path.isfile(caddyfile):
+            content = open(caddyfile).read()
+            if "/ws/chat" not in content or re.search(r"#\s*.*handle /ws/chat", content):
+                errors.append("/ws/chat route in Caddyfile missing or commented out")
+            if "/flutter" not in content or re.search(r"#\s*.*handle.*/flutter", content):
+                errors.append("/flutter route in Caddyfile missing or commented out")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t2_deployed
+    task: task-2
+    title: "Full stack working: Flutter serves content, WebSocket accepts, agent responds"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [vm_setup, t2_structural, llm_available]
+    hint: >
+      The full chain must work end-to-end:
+      1. Flutter at /flutter must serve real content (main.dart.js present).
+      2. WebSocket at /ws/chat must accept connections with the correct NANOBOT_ACCESS_KEY.
+      3. The agent must respond through the WebSocket without LLM errors.
+      Common issues: entrypoint env var names must match docker-compose.yml,
+      Caddyfile routes must be uncommented, flutter volume must be mounted in caddy.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        import sys, asyncio, json, os, re, subprocess, urllib.request, urllib.error
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+
+        # 1. Check nanobot container is running
+        try:
+            r = subprocess.run(
+                ["docker", "compose", "--env-file", ".env.docker.secret",
+                 "ps", "nanobot", "--format", "{{.State}}"],
+                capture_output=True, text=True, timeout=10, cwd=base,
+            )
+            state = r.stdout.strip().lower()
+            if "running" not in state:
+                print(f"FAIL: nanobot container not running (state: {state or 'not found'})")
+                sys.exit(0)
+        except subprocess.TimeoutExpired:
+            print("FAIL: timed out checking nanobot container"); sys.exit(0)
+
+        # 2. Check Flutter serves real content
+        try:
+            html = urllib.request.urlopen("http://localhost:42002/flutter/", timeout=5).read().decode()
+            if not re.search(r"flutter_bootstrap|main\.dart\.js|flutter\.js", html):
+                print("FAIL: /flutter serves empty page (volume not mounted or build failed)")
+                sys.exit(0)
+        except urllib.error.URLError as e:
+            print(f"FAIL: could not reach /flutter — {e}"); sys.exit(0)
+
+        # 3. Read access key
+        env_path = os.path.join(base, ".env.docker.secret")
+        access_key = None
+        for line in open(env_path):
+            if line.startswith("NANOBOT_ACCESS_KEY="):
+                access_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not access_key:
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); sys.exit(0)
+
+        # 4. Test WebSocket conversation
+        import websockets
+
+        async def test_ws():
+            uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
+            async with websockets.connect(uri, close_timeout=5) as ws:
+                await ws.send(json.dumps({"content": "hello"}))
+                return await asyncio.wait_for(ws.recv(), timeout=60)
+
+        try:
+            resp = asyncio.run(test_ws())
+        except Exception as e:
+            err = str(e)
+            if "invalid access key" in err.lower():
+                print("FAIL: WebSocket rejected access key (check NANOBOT_ACCESS_KEY)")
+            elif "Connection refused" in err or "Connect call failed" in err:
+                print("FAIL: WebSocket connection refused (is nanobot listening on /ws/chat?)")
+            else:
+                print(f"FAIL: WebSocket error — {err[:200]}")
+            sys.exit(0)
+
+        if len(resp) < 10:
+            print("FAIL: agent returned empty or very short response")
+        else:
+            print("PASS")
+        PYEOF
+      expect_regex: "PASS"
+      timeout: 90
+
+  - id: t2_report
+    task: task-2
+    title: "REPORT.md Task 2 sections verified by LLM"
+    class: content
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists, llm_available]
+    hint: >
+      Add checkpoint evidence to REPORT.md under ## Task 2A and ## Task 2B.
+      Include startup log excerpts and a Flutter screenshot or conversation.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        report = open(os.path.join(base, "REPORT.md")).read()
+
+        api_key = None
+        for line in open(os.path.join(base, ".env.docker.secret")):
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+
+        prompt = (
+            "Evaluate this lab report for Task 2. "
+            "FAIL if any of these are missing: "
+            "(1) Task 2A section with PASTED nanobot startup log showing MCP tools registered "
+            "or gateway started. "
+            "(2) Task 2B section with evidence of a working Flutter conversation — "
+            "either a pasted WebSocket response or a description of a real agent answer seen in the chat. "
+            'Summaries like "it worked" without pasted output = FAIL. '
+            "Reply with exactly PASS or FAIL on the first line, then a short reason."
+        )
+
+        body = json.dumps({
+            "model": "coder-model",
+            "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
+        }).encode()
+
+        req = urllib.request.Request(
+            "http://localhost:42005/v1/chat/completions", body,
+            {"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        try:
+            resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
+            print(resp["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"FAIL: could not reach LLM — {e}")
+        PYEOF
+      expect_regex: "(?i)PASS"
+      timeout: 120
+
+  # =====================================================
+  # TASK 3: Observability Tools for the Agent
+  # =====================================================
+
+  - id: t3_structural
+    task: task-3
+    title: "Observability skill and MCP tools for logs/traces exist"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [ssh_connectivity, otel_stack]
+    hint: >
+      Task 3C requires adding observability MCP tools (for logs and traces).
+      Add them to the existing lms MCP server or write a new one. The tools must
+      query VictoriaLogs and/or VictoriaTraces. Also create
+      nanobot/workspace/skills/observability/SKILL.md.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import os, re
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        errors = []
+
+        # Check observability skill file
+        skill = os.path.join(base, "nanobot", "workspace", "skills", "observability", "SKILL.md")
+        if not os.path.isfile(skill):
+            errors.append("skills/observability/SKILL.md not found")
+        else:
+            word_count = len(open(skill).read().split())
+            if word_count < 30:
+                errors.append(f"observability SKILL.md too short ({word_count} words, need >= 30)")
+
+        # Check for observability tool code in mcp/ or nanobot/
+        keywords = re.compile(
+            r"victoria|logsql|42010|42011|9428|10428|logs_search|traces_list|logs_error",
+            re.IGNORECASE,
+        )
+        found = False
+        for search_dir in ("mcp", "nanobot"):
+            dirpath = os.path.join(base, search_dir)
+            if not os.path.isdir(dirpath):
+                continue
+            for root, _, files in os.walk(dirpath):
+                for f in files:
+                    if f.endswith((".py", ".json", ".toml", ".md")):
+                        try:
+                            if keywords.search(open(os.path.join(root, f)).read()):
+                                found = True
+                                break
+                        except Exception:
+                            pass
+                if found:
+                    break
+            if found:
+                break
+
+        if not found:
+            errors.append("no code referencing VictoriaLogs/Traces found in mcp/ or nanobot/")
+
+        if errors:
+            print("fail: " + "; ".join(errors))
+        else:
+            print("ok")
+        PYEOF
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: t3_agent_observability
+    task: task-3
+    title: "Deployed agent answers observability question via WebSocket"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [t3_structural, t2_deployed, llm_available]
+    hint: >
+      The deployed agent (via WebSocket) should answer 'Any errors in the last hour?'
+      using the observability MCP tools and return real log/trace data.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        import sys, asyncio, json, os, re
+        import websockets
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        env_path = os.path.join(base, ".env.docker.secret")
+
+        access_key = None
+        for line in open(env_path):
+            if line.startswith("NANOBOT_ACCESS_KEY="):
+                access_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not access_key:
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); sys.exit(0)
+
+        async def test_observability():
+            uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
+            async with websockets.connect(uri, close_timeout=5) as ws:
+                await ws.send(json.dumps({"content": "Any errors in the last hour? Check the logs."}))
+                return await asyncio.wait_for(ws.recv(), timeout=60)
+
+        try:
+            resp = asyncio.run(test_observability())
+        except Exception as e:
+            print(f"FAIL: WebSocket error — {e}"); sys.exit(0)
+
+        print(resp)
+
+        pattern = re.compile(r"error|log|no error|trace|request|status|found|search|healthy", re.IGNORECASE)
+        if pattern.search(resp):
+            print("PASS")
+        else:
+            print("FAIL: agent response does not contain observability data")
+        PYEOF
+      expect_regex: "PASS"
+      timeout: 90
+
+  - id: t3_report
+    task: task-3
+    title: "REPORT.md Task 3 sections verified by LLM"
+    class: content
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists, llm_available]
+    hint: >
+      Add checkpoint evidence to REPORT.md under ## Task 3A, ## Task 3B, ## Task 3C.
+      Include log excerpts, trace screenshots, and observability tool output.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import json, os, urllib.request
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        report = open(os.path.join(base, "REPORT.md")).read()
+
+        api_key = None
+        for line in open(os.path.join(base, ".env.docker.secret")):
+            if line.startswith("QWEN_CODE_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+
+        prompt = (
+            "Evaluate this lab report for Task 3. "
+            "FAIL if any of these are missing: "
+            "(1) Task 3A section with PASTED structured log entries showing JSON fields "
+            "like level, service, event, trace_id. "
+            "(2) Task 3B section with pasted trace data or a description of specific spans "
+            "seen in VictoriaTraces. "
+            "(3) Task 3C section showing the agent answering an observability question with real data "
+            "(error counts, trace info). "
+            "Vague descriptions without actual data = FAIL. "
+            "Reply with exactly PASS or FAIL on the first line, then a short reason."
+        )
+
+        body = json.dumps({
+            "model": "coder-model",
+            "messages": [{"role": "user", "content": prompt + "\n\n" + report}],
+        }).encode()
+
+        req = urllib.request.Request(
+            "http://localhost:42005/v1/chat/completions", body,
+            {"Content-Type": "application/json", "X-API-Key": api_key},
+        )
+        try:
+            resp = json.loads(urllib.request.urlopen(req, timeout=120).read())
+            print(resp["choices"][0]["message"]["content"])
+        except Exception as e:
+            print(f"FAIL: could not reach LLM — {e}")
+        PYEOF
+      expect_regex: "(?i)PASS"
+      timeout: 120
+
+  # =====================================================
+  # TASK 4: Diagnose a Failure and Make the Agent Proactive
+  # =====================================================
+
+  - id: t4_bug_fixed
+    task: task-4
+    title: "Planted bug fixed: DB failure returns 500, not 404"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [vm_setup, backend_running]
+    hint: >
+      The backend has a planted bug that turns database failures into misleading
+      404 responses. Find it using the agent (stop postgres, trigger /items, investigate
+      with logs/traces), fix the code, and redeploy. After the fix, a DB failure
+      should return a proper 500 error, not a 404.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        python3 << 'PYEOF'
+        import sys, os, subprocess, time, urllib.request, urllib.error
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        env_file = os.path.join(base, ".env.docker.secret")
+        compose = ["docker", "compose", "--env-file", env_file]
+
+        # Read API key
+        api_key = None
+        for line in open(env_file):
+            if line.startswith("LMS_API_KEY="):
+                api_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not api_key:
+            print("FAIL: LMS_API_KEY not set in .env.docker.secret"); sys.exit(0)
+
+        # Stop postgres, test, always restart
+        try:
+            subprocess.run(compose + ["stop", "postgres"],
+                           capture_output=True, timeout=15, cwd=base)
+            time.sleep(2)
+
+            url = "http://localhost:42002/items/"
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+            try:
+                resp = urllib.request.urlopen(req, timeout=10)
+                code = resp.status
+            except urllib.error.HTTPError as e:
+                code = e.code
+            except urllib.error.URLError as e:
+                print(f"FAIL: backend unreachable with postgres stopped — {e}")
+                sys.exit(0)
+
+            if code == 404:
+                print("FAIL: backend returns 404 on DB failure — the planted bug is still present")
+            elif code == 500:
+                print("PASS")
+            else:
+                print(f"FAIL: expected HTTP 500, got {code}")
+        finally:
+            subprocess.run(compose + ["start", "postgres"],
+                           capture_output=True, timeout=15, cwd=base)
+        PYEOF
+      expect_regex: "PASS"
+      timeout: 30
+
+  - id: t4_cron_health
+    task: task-4
+    title: "Agent has a scheduled health check (cron job)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [t2_deployed, llm_available]
+    hint: >
+      In the Flutter chat, ask the agent to create a periodic health check.
+      Example: "Create a health check that runs every 15 minutes. Each run should
+      check for backend errors and post a summary here."
+      The agent should confirm it created a scheduled job. Then ask it to list
+      scheduled jobs to verify.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: |
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-8 && uv run python3 << 'PYEOF'
+        import sys, asyncio, json, os, re
+        import websockets
+
+        base = os.path.expanduser("~/se-toolkit-lab-8")
+        env_path = os.path.join(base, ".env.docker.secret")
+
+        access_key = None
+        for line in open(env_path):
+            if line.startswith("NANOBOT_ACCESS_KEY="):
+                access_key = line.split("=", 1)[1].strip().strip("\"'")
+        if not access_key:
+            print("FAIL: NANOBOT_ACCESS_KEY not set in .env.docker.secret"); sys.exit(0)
+
+        async def test_cron():
+            uri = f"ws://localhost:42002/ws/chat?access_key={access_key}"
+            async with websockets.connect(uri, close_timeout=5) as ws:
+                await ws.send(json.dumps({"content": "List all scheduled jobs or cron tasks you have."}))
+                return await asyncio.wait_for(ws.recv(), timeout=60)
+
+        try:
+            resp = asyncio.run(test_cron())
+        except Exception as e:
+            print(f"FAIL: WebSocket error — {e}"); sys.exit(0)
+
+        print(resp)
+
+        pattern = re.compile(
+            r"schedule|cron|health|check|job|minute|interval|no.*schedule|no.*job",
+            re.IGNORECASE,
+        )
+        if pattern.search(resp):
+            print("PASS")
+        else:
+            print("FAIL: agent does not recognize scheduled jobs — create a health check via Flutter chat first")
+        PYEOF
+      expect_regex: "PASS"
+      timeout: 90
+
+  # =====================================================
+  # GIT WORKFLOW (across all tasks)
+  # =====================================================
+
+  - id: gitflow
+    task: task-4
+    title: "Git workflow: >=4 merged PRs with approvals"
+    class: process
+    runner: code
+    type: pr_review_approvals
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Each task should follow git workflow: create an issue, branch, PR with
+      "Closes #...", get partner approval, merge. You need at least 4 merged
+      PRs with at least 4 total approvals.
+    params:
+      base: "main"
+      min_total_approvals: 4

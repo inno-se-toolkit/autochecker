@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autochecker Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231a1a2e'/><text x='16' y='23' text-anchor='middle' font-family='system-ui,sans-serif' font-size='20' font-weight='700' fill='white'>A</text></svg>">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1a1a1a; }
+
+        .header { background: #1a1a2e; color: #fff; padding: 1.25rem 2rem; display: flex; align-items: center; justify-content: space-between; }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+        .header-actions { display: flex; gap: 0.75rem; align-items: center; }
+        .btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.85rem; font-weight: 500; text-decoration: none; border: none; cursor: pointer; transition: background 0.15s; }
+        .btn-export { background: #16a34a; color: #fff; }
+        .btn-export:hover { background: #15803d; }
+
+        .stats-bar { display: flex; gap: 1.5rem; padding: 1rem 2rem; background: #fff; border-bottom: 1px solid #e5e7eb; }
+        .stat { display: flex; flex-direction: column; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; color: #1a1a2e; }
+        .stat-label { font-size: 0.8rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+        .stat-green .stat-value { color: #166534; }
+        .stat-green .stat-label { color: #166534; }
+        .stat-yellow .stat-value { color: #854d0e; }
+        .stat-yellow .stat-label { color: #854d0e; }
+
+        .tabs { display: flex; gap: 0.25rem; padding: 0.75rem 2rem 0; background: #fff; }
+        .tab { padding: 0.5rem 1.25rem; border-radius: 6px 6px 0 0; font-size: 0.85rem; font-weight: 500; text-decoration: none; color: #6b7280; background: transparent; border: 1px solid transparent; border-bottom: none; transition: all 0.15s; }
+        .tab:hover { color: #1a1a2e; background: #f9fafb; }
+        .tab.active { color: #1a1a2e; background: #f0f2f5; border-color: #e5e7eb; font-weight: 600; }
+
+        .container { padding: 1.25rem 2rem 2rem; }
+
+        .table-wrapper { overflow-x: auto; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+        table { border-collapse: collapse; width: 100%; background: #fff; font-size: 0.875rem; }
+        th, td { padding: 0.6rem 0.75rem; text-align: left; border-bottom: 1px solid #f3f4f6; white-space: nowrap; }
+        th { background: #f9fafb; color: #374151; font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; position: sticky; top: 0; cursor: pointer; user-select: none; }
+        th:hover { background: #f3f4f6; }
+        th .sort-arrow { font-size: 0.65rem; margin-left: 0.25rem; color: #9ca3af; }
+        th .sort-arrow.active { color: #1a1a2e; }
+        tbody tr:hover { background: #f9fafb; }
+        .col-github { min-width: 140px; }
+        .col-email { min-width: 180px; }
+        .col-tg { min-width: 120px; }
+        .col-group { min-width: 110px; }
+        .col-last-sub { min-width: 130px; }
+        .ts { color: #6b7280; font-size: 0.8rem; }
+
+        /* Task column header */
+        .task-header { display: flex; flex-direction: column; gap: 0.15rem; }
+        .task-title { font-size: 0.7rem; text-transform: none; letter-spacing: normal; font-weight: 400; color: #6b7280; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .pass-rate { font-size: 0.7rem; color: #9ca3af; font-weight: 400; text-transform: none; letter-spacing: normal; }
+
+        a { color: #2563eb; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+
+        /* Score cells */
+        .cell { padding: 0.35rem 0.5rem; border-radius: 4px; text-align: center; font-weight: 600; font-size: 0.8rem; }
+        .cell-pass { background: #dcfce7; color: #166534; }
+        .cell-partial { background: #fef9c3; color: #854d0e; }
+        .cell-fail { background: #fee2e2; color: #991b1b; }
+        .cell-none { background: #f3f4f6; color: #9ca3af; font-weight: 400; }
+
+        /* Inline action buttons in score cells */
+        .cell-actions { display: none; gap: 0.2rem; margin-top: 0.25rem; justify-content: center; }
+        td:hover .cell-actions { display: flex; }
+        .cell-btn { padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; border: none; cursor: pointer; opacity: 0.85; }
+        .cell-btn:hover { opacity: 1; }
+        .cell-btn-add { background: #dcfce7; color: #166534; }
+        .cell-btn-done { background: #dbeafe; color: #1d4ed8; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Autochecker Dashboard</h1>
+        <div class="header-actions">
+            <a class="btn btn-export" href="/export/csv{% if active_lab %}?lab={{ active_lab }}{% endif %}">Export CSV</a>
+        </div>
+    </div>
+
+    <div class="stats-bar">
+        <div class="stat">
+            <span class="stat-value">{{ students | length }}</span>
+            <span class="stat-label">Students</span>
+        </div>
+        <div class="stat stat-green">
+            <span class="stat-value">{{ completed_count }}</span>
+            <span class="stat-label">Completed all</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ avg_completion }}%</span>
+            <span class="stat-label">Avg completion (required)</span>
+        </div>
+        <div class="stat stat-yellow">
+            <span class="stat-value">{{ not_started }}</span>
+            <span class="stat-label">Not started (no setup, no tasks)</span>
+        </div>
+    </div>
+
+    {% if labs | length > 1 %}
+    <div class="tabs">
+        {% for l in labs %}
+        <a class="tab {% if l == active_lab %}active{% endif %}" href="/?lab={{ l }}">{{ l }}</a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="container">
+        <div class="table-wrapper">
+            <table id="dashboard-table">
+                <thead>
+                    <tr>
+                        <th class="col-github" data-col="0">GitHub <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-tg" data-col="1">Telegram <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-email" data-col="2">Email <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-group" data-col="3">Group <span class="sort-arrow">&#9650;</span></th>
+                        <th class="col-last-sub" data-col="4">Last Submission <span class="sort-arrow">&#9650;</span></th>
+                        {% for t in tasks %}
+                        <th data-col="{{ loop.index0 + 5 }}">
+                            <div class="task-header">
+                                <span>{{ t.task_id }}</span>
+                                <span class="task-title" title="{{ t.title }}">{{ t.title }}</span>
+                                {% set key = t.lab_id ~ ":" ~ t.task_id %}
+                                <span class="pass-rate">{{ task_stats[key].pass_rate }}% pass</span>
+                            </div>
+                            <span class="sort-arrow">&#9650;</span>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                    <tr>
+                        <td><a href="/student/{{ s.github_alias }}">{{ s.github_alias }}</a></td>
+                        <td>{{ s.tg_username or "—" }}</td>
+                        <td>{{ s.email }}</td>
+                        <td>{{ s.student_group or "—" }}</td>
+                        <td class="ts">{{ s.last_submission or "—" }}</td>
+                        {% for t in tasks %}
+                        {% set key = t.lab_id ~ ":" ~ t.task_id %}
+                        {% set entry = scores.get(s.tg_id, {}).get(key) %}
+                        {% if entry %}
+                            <td data-pct="{{ entry.pct }}">
+                                <span class="cell cell-{{ entry.status }}">{{ entry.score }}</span>
+                                <div class="cell-actions">
+                                    {% set used = attempts_map.get(s.tg_id, {}).get(key, 0) %}
+                                    {% set effective_max = attempt_limits_map.get(s.tg_id, {}).get(key, t.max_attempts) %}
+                                    {% if used >= effective_max %}
+                                    <button type="button" class="cell-btn cell-btn-add" onclick="cellAction(this, '/student/{{ s.github_alias }}/attempts/free', '{{ t.lab_id }}', '{{ t.task_id }}', 'add')" title="Give +5 attempts ({{ used }}/{{ effective_max }} used)">+5</button>
+                                    {% endif %}
+                                    {% if entry.status != 'pass' %}
+                                    <button type="button" class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        {% else %}
+                            <td data-pct="-1">
+                                <span class="cell cell-none">&mdash;</span>
+                                <div class="cell-actions">
+                                    <button type="button" class="cell-btn cell-btn-done" onclick="cellAction(this, '/student/{{ s.github_alias }}/mark-done', '{{ t.lab_id }}', '{{ t.task_id }}', 'done')" title="Mark as done (100%)">Done</button>
+                                </div>
+                            </td>
+                        {% endif %}
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+    (function() {
+        const table = document.getElementById('dashboard-table');
+        const headers = table.querySelectorAll('th');
+        // Default: sort by first task column (col 5), descending (highest first)
+        let currentCol = 5;
+        let ascending = false;
+
+        function sortValue(td, col) {
+            if (col <= 4) return td.textContent.trim().toLowerCase() || 'zzz';
+            // For score columns: use numeric percentage from data-pct attribute
+            var pct = parseInt(td.getAttribute('data-pct'), 10);
+            return isNaN(pct) ? -1 : pct;
+        }
+
+        function doSort(col) {
+            // Update arrows
+            headers.forEach(function(h) {
+                var arrow = h.querySelector('.sort-arrow');
+                if (arrow) {
+                    arrow.classList.remove('active');
+                    arrow.innerHTML = '&#9650;';
+                }
+            });
+            var th = table.querySelector('th[data-col="' + col + '"]');
+            if (th) {
+                var arrow = th.querySelector('.sort-arrow');
+                if (arrow) {
+                    arrow.classList.add('active');
+                    arrow.innerHTML = ascending ? '&#9650;' : '&#9660;';
+                }
+            }
+
+            var tbody = table.querySelector('tbody');
+            var rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort(function(a, b) {
+                var va = sortValue(a.children[col], col);
+                var vb = sortValue(b.children[col], col);
+                // Numeric columns (scores): higher first by default
+                if (typeof va === 'number') {
+                    return ascending ? va - vb : vb - va;
+                }
+                if (va < vb) return ascending ? -1 : 1;
+                if (va > vb) return ascending ? 1 : -1;
+                return 0;
+            });
+            rows.forEach(function(row) { tbody.appendChild(row); });
+        }
+
+        headers.forEach(function(th) {
+            th.addEventListener('click', function() {
+                var col = parseInt(th.dataset.col);
+                if (col === currentCol) {
+                    ascending = !ascending;
+                } else {
+                    currentCol = col;
+                    ascending = col <= 4;  // text cols: A-Z default; score cols: high-first default
+                }
+                doSort(currentCol);
+            });
+        });
+
+        // Initial sort on page load
+        if (headers.length > 5) doSort(currentCol);
+    })();
+
+    function cellAction(btn, url, labId, taskId, action) {
+        var msg = action === 'done' ? 'Mark as 100% done?' : 'Give +5 attempts?';
+        if (!confirm(msg)) return;
+        btn.disabled = true;
+        btn.textContent = '...';
+        var form = new FormData();
+        form.append('lab_id', labId);
+        form.append('task_id', taskId);
+        if (action === 'add') form.append('amount', '5');
+        fetch(url, { method: 'POST', body: form })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Request failed');
+                location.reload();
+            })
+            .catch(function() { btn.disabled = false; btn.textContent = action === 'done' ? 'Done' : '+5'; });
+    }
+    </script>
+</body>
+</html>

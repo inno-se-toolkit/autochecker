@@ -1,0 +1,278 @@
+id: lab-06
+title: "Lab 06 — Build Your Own Agent"
+repo_name: "se-toolkit-lab-6"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.75
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Call an LLM from Code"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: The Documentation Agent"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: The System Agent"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP — repo-level + VM checks
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_is_fork
+    task: setup
+    title: "Repository is a fork"
+    class: structural
+    runner: code
+    type: repo_is_fork
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of the course instructors' repo.
+      Fork it from https://github.com/inno-se-toolkit/se-toolkit-lab-6.
+    params: {}
+
+  - id: repo_has_issues
+    task: setup
+    title: "Issues are enabled"
+    class: structural
+    runner: code
+    type: repo_has_issues
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Enable issues in your repo: Settings -> General -> Features -> Issues.
+    params: {}
+
+  - id: ssh_connectivity
+    task: setup
+    title: "SSH login as autochecker works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      Create an 'autochecker' user on your VM and add the autochecker's
+      public SSH key to /home/autochecker/.ssh/authorized_keys.
+      See the setup instructions from Lab 3.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "echo ok"
+
+  - id: backend_running
+    task: setup
+    title: "Backend is running on VM (port 42002)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      Deploy your backend on the VM: clone your fork, create .env.docker.secret,
+      run 'docker compose --env-file .env.docker.secret up --build -d'.
+      The backend must be accessible on port 42002.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "curl -s -o /dev/null -w '%{http_code}' http://localhost:42002/docs"
+      expect_output: "200"
+
+  # =====================================================
+  # TASK 1: Call an LLM from Code
+  # =====================================================
+
+  - id: task1_required_files
+    task: task-1
+    title: "Required files exist (plan, agent.py, AGENT.md, tests)"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Create the following files:
+      - plans/task-1.md — your implementation plan
+      - agent.py — CLI entry point (takes a question, returns JSON)
+      - AGENT.md — documents your agent's architecture
+      - test_*.py or tests/test_*.py — at least 1 regression test
+    params:
+      patterns: ["plans/task-1.md", "agent.py", "AGENT.md", "test_*.py", "tests/test_*.py", "*_test.py"]
+      min_matches: 4
+
+  - id: task1_reads_env_vars
+    task: task-1
+    title: "Agent reads LLM config from environment variables"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Your agent must read LLM_API_KEY, LLM_API_BASE_URL (or LLM_API_BASE),
+      and LLM_API_MODEL (or LLM_MODEL) from environment variables (not
+      hardcoded). Both old and new variable names are accepted. The
+      autochecker will inject its own LLM credentials when evaluating
+      your agent.
+    params:
+      path: "agent.py"
+      pattern: "LLM_API_KEY|LLM_API_BASE_URL|LLM_API_BASE|LLM_API_MODEL|LLM_MODEL"
+      min_matches: 2
+
+  - id: task1_process
+    task: task-1
+    title: "Issue closed by approved and merged PR"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 5
+    hint: >
+      Create a GitHub issue titled "[Task] Call an LLM from Code",
+      create a PR that closes it, get at least 1 approval, and merge.
+    params:
+      title_regex: "\\[Task\\]\\s+Call an LLM"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 2: The Documentation Agent
+  # =====================================================
+
+  - id: task2_plan_exists
+    task: task-2
+    title: "Plan file exists (plans/task-2.md)"
+    class: structural
+    runner: code
+    type: file_nonempty
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Create plans/task-2.md with your documentation agent implementation plan
+      before writing code.
+    params:
+      path: "plans/task-2.md"
+
+  - id: task2_agent_tools
+    task: task-2
+    title: "Agent has read_file, list_files tools with function calling"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Implement read_file and list_files tools in agent.py, and define
+      tool schemas for function calling. The LLM uses these schemas to
+      decide which tool to call.
+    params:
+      path: "agent.py"
+      pattern: "read_file|list_files|tool_calls|function_call|\"type\":\\s*\"function\"|'type':\\s*'function'"
+      min_matches: 4
+
+  - id: task2_process
+    task: task-2
+    title: "Issue closed by approved and merged PR"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 5
+    hint: >
+      Create a GitHub issue titled "[Task] The Documentation Agent",
+      create a PR that closes it, get at least 1 approval, and merge.
+    params:
+      title_regex: "\\[Task\\]\\s+(The )?Documentation Agent"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 3: The System Agent — agent eval
+  # =====================================================
+
+  - id: task3_structural
+    task: task-3
+    title: "Plan, query_api tool, and AGENT.md (200+ words)"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      1. Create plans/task-3.md with your implementation plan.
+      2. Implement query_api tool in agent.py (reads AGENT_API_BASE_URL env var).
+      3. Update AGENT.md with final architecture and lessons learned (200+ words).
+    params:
+      path: "agent.py"
+      pattern: "query_api|AGENT_API_BASE_URL"
+      min_matches: 3
+
+  - id: task3_local_eval
+    task: task-3
+    title: "Agent passes local questions (≥80%)"
+    class: execution
+    runner: code
+    type: agent_eval
+    is_required: true
+    weight: 5
+    depends_on: [task3_structural]
+    hint: >
+      The autochecker first runs 10 open questions (2 per class) that you can
+      also test locally with run_eval.py. At least 80% must pass (8/10).
+      Fix these before the hidden eval runs.
+    params:
+      eval_lab: "lab-06"
+      include_bot_only: false
+      sample_per_class: 2
+      min_pass_rate: 0.8
+      timeout_per_question: 120
+
+  - id: task3_eval
+    task: task-3
+    title: "Agent passes hidden eval (≥80%)"
+    class: execution
+    runner: code
+    type: agent_eval
+    is_required: true
+    weight: 10
+    depends_on: [task3_local_eval]
+    hint: >
+      After passing local questions, the autochecker runs 5 hidden questions
+      (1 per class, 5 classes). At least 80% must pass (4/5).
+    params:
+      eval_lab: "lab-06"
+      bot_only_exclusively: true
+      sample_per_class: 1
+      min_pass_rate: 0.8
+      timeout_per_question: 120

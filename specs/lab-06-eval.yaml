@@ -1,0 +1,233 @@
+# Lab 06 — Agent Evaluation Question Bank (v3)
+#
+# 20 questions: 10 local (index 0-9) + 10 bot-only (index 10-19)
+# 5 classes × 4 questions (2 local + 2 bot-only)
+#
+# Classes:
+#   A — Wiki lookup (read_file/list_files on wiki/ directory)
+#   B — Static system facts (read_file/list_files on code)
+#   C — Data-dependent queries (query_api to cloned backend)
+#   D — Bug diagnosis chain (query_api → error → read_file → explain)
+#   E — LLM-judged reasoning (read code, synthesize, explain)
+#
+# Eval runs via clone_and_run on Hetzner dev server:
+#   1. Clone student repo, start their Docker Compose with random ports
+#   2. Populate DB via POST /pipeline/sync
+#   3. Run agent.py with injected Groq LLM creds and AGENT_API_BASE_URL
+#   4. Tear down after eval
+#
+# Matching strategies:
+#   contains / contains_all / any_of / regex / numeric_gt / numeric_range
+#
+# Tiers:
+#   1 — Class A + B (file reading, no API needed)
+#   2 — Class C + D + E (needs running backend via clone_and_run)
+
+# =============================================================================
+# LOCAL QUESTIONS (0-9) — served via run_eval.py, student can test locally
+# =============================================================================
+
+# --- Class A: Wiki lookup (local) ---
+
+- index: 0
+  question: "According to the project wiki, what steps are needed to protect a branch on GitHub? Find the answer in the wiki directory."
+  expected: {contains_all: ["branch", "protect"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Use list_files to find GitHub-related wiki pages, then read the section about branch protection."
+  tier: 1
+  # LO (lab 1): Use branches and PRs to collaborate
+
+- index: 1
+  question: "What does the project wiki say about connecting to your VM via SSH? Summarize the key steps."
+  expected: {any_of: ["ssh", "SSH", "key", "connect"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Look in the wiki/ directory for a file about VMs, then read the SSH connection section."
+  tier: 1
+  # LO (lab 2): Deploy to a VM
+
+# --- Class B: Static system facts (local) ---
+
+- index: 2
+  question: "What Python web framework does this project's backend use? Read the source code to find out."
+  expected: {any_of: ["FastAPI", "fastapi"]}
+  check_tools: [read_file]
+  feedback: "Look at the imports in the main backend file."
+  tier: 1
+  # LO (lab 2): Explore the code of an existing web server
+
+- index: 3
+  question: "List all API router modules in the backend. What domain does each one handle?"
+  expected: {contains_all: ["items", "interactions", "analytics", "pipeline", "learners"]}
+  check_tools: [list_files]
+  feedback: "Use list_files on the backend routers directory, then read each file's purpose."
+  tier: 1
+  # LO (lab 2): Explore the code of an existing web server
+
+# --- Class C: Data-dependent queries (local) ---
+
+- index: 4
+  question: "How many items are currently stored in the database? Query the running API to find out."
+  expected: {numeric_gt: 0}
+  check_tools: [query_api]
+  feedback: "Query the /items/ endpoint with authentication and count the results."
+  tier: 2
+  # LO (lab 3): Query the API, inspect responses
+
+- index: 5
+  question: "What HTTP status code does the API return when you request /items/ without sending an authentication header?"
+  expected: {any_of: ["401", "403"]}
+  check_tools: [query_api]
+  feedback: "Make a request without the API key header and check the response status code."
+  tier: 2
+  # LO (lab 3): Authenticate API requests
+
+# --- Class D: Bug diagnosis (local) ---
+
+- index: 6
+  question: "Query the GET /interactions/ endpoint after syncing data. What error do you get, and what is the bug in the source code?"
+  expected: {any_of: ["timestamp", "created_at", "ValidationError", "field required", "missing"]}
+  expected_source: {any_of: ["interaction.py", "interactions"]}
+  check_tools: [query_api, read_file]
+  feedback: "Query GET /interactions/ after data is synced. Read the error, then compare the InteractionModel response schema with the InteractionLog database model — look for a field name mismatch."
+  tier: 2
+  # Class D: Bug diagnosis — response model field name mismatch (timestamp vs created_at)
+
+- index: 7
+  question: "The /analytics/top-learners endpoint crashes for some labs. Query it, find the error, and read the source code to explain what went wrong."
+  expected: {any_of: ["TypeError", "None", "NoneType", "sorted", "comparison"]}
+  expected_source: {any_of: ["analytics.py", "analytics"]}
+  check_tools: [query_api, read_file]
+  feedback: "Try GET /analytics/top-learners with different labs. Read the analytics router source to find the sorting bug."
+  tier: 2
+  # Class D: Bug diagnosis — TypeError sorting None scores
+
+# --- Class E: LLM-judged reasoning (local) ---
+
+- index: 8
+  question: "Read the docker-compose.yml and the backend Dockerfile. Explain the full journey of an HTTP request from the browser to the database and back."
+  expected: {contains_all: ["caddy", "fastapi", "postgres"]}
+  rubric: "Answer must trace the path through: (1) Caddy reverse proxy, (2) FastAPI app inside Docker container, (3) API key verification dependency, (4) router/endpoint, (5) SQLModel/SQLAlchemy ORM, (6) PostgreSQL database. At least 4 of these 6 hops must be mentioned."
+  check_tools: [read_file]
+  feedback: "Read docker-compose.yml, Caddyfile, the Dockerfile, and main.py to trace the request path."
+  tier: 2
+  # Class E: Request lifecycle through the stack
+
+- index: 9
+  question: "Read the ETL pipeline code. Explain how it ensures idempotency — what happens if the same data is loaded twice?"
+  expected: {any_of: ["external_id", "existing", "duplicate", "upsert", "skip"]}
+  rubric: "Answer must: (1) identify the idempotency mechanism (checking external_id before inserting), (2) explain that duplicate records are skipped, (3) mention the upsert-like pattern. Mentioning 'external_id' or 'existing check' is essential."
+  check_tools: [read_file]
+  feedback: "Read etl.py carefully, especially the load function. Look for how it handles duplicates."
+  tier: 2
+  # Class E: ETL idempotency explanation
+
+# =============================================================================
+# BOT-ONLY QUESTIONS (10-19) — only in autochecker eval
+# =============================================================================
+
+# --- Class A: Wiki lookup (bot-only) ---
+
+- index: 10
+  question: "What does the project wiki say about cleaning up Docker? List the main commands or steps."
+  expected: {any_of: ["prune", "docker system prune", "docker compose down", "remove", "clean"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Find Docker-related wiki pages and read the cleanup section."
+  tier: 1
+  bot_only: true
+  # LO (lab 2): Docker cleanup
+
+- index: 11
+  question: "According to the wiki, how do you authorize in Swagger UI for this project?"
+  expected: {any_of: ["Bearer", "API key", "Authorize", "LMS_API_KEY"]}
+  expected_source: {contains: "wiki"}
+  check_tools: [read_file]
+  feedback: "Look for a Swagger-related wiki page and read the authorization section."
+  tier: 1
+  bot_only: true
+  # LO (lab 3): Explore a REST API via Swagger
+
+# --- Class B: Static system facts (bot-only) ---
+
+- index: 12
+  question: "Read the Dockerfile. What technique is used to keep the final Docker image small?"
+  expected: {any_of: ["multi-stage", "multi stage", "slim", "two stage", "builder"]}
+  check_tools: [read_file]
+  feedback: "Look for multiple FROM statements in the Dockerfile."
+  tier: 1
+  bot_only: true
+  # LO (lab 2): Docker images and deployment
+
+- index: 13
+  question: "Read the database initialization code. What are the main database tables and what does each store?"
+  expected: {contains_all: ["item", "learner", "interact"]}
+  check_tools: [read_file]
+  feedback: "Find and read the SQL initialization or model files that define the database schema."
+  tier: 1
+  bot_only: true
+  # LO (lab 3): Examine a database schema
+
+# --- Class C: Data-dependent queries (bot-only) ---
+
+- index: 14
+  question: "How many distinct learners have submitted data? Query the API to find out."
+  expected: {numeric_gt: 0}
+  check_tools: [query_api]
+  feedback: "Query the /learners/ endpoint and count the results."
+  tier: 2
+  bot_only: true
+  # LO (lab 5): Query and analyze data
+
+- index: 15
+  question: "What HTTP status code does the API return for a request to an endpoint that doesn't exist, like GET /nonexistent?"
+  expected: {contains: "404"}
+  check_tools: [query_api]
+  feedback: "Try querying an endpoint that doesn't exist and check the status code."
+  tier: 2
+  bot_only: true
+  # LO (lab 3): Inspect API responses
+
+# --- Class D: Bug diagnosis (bot-only) ---
+
+- index: 16
+  question: "Read the analytics router source code (analytics.py). Which endpoint can crash, and what specific operation causes the crash? Name the endpoint and the error type."
+  expected: {any_of: ["top-learners", "top_learners", "TypeError", "NoneType", "sorted", "None"]}
+  expected_source: {any_of: ["analytics.py", "analytics"]}
+  check_tools: [read_file]
+  feedback: "Your agent needs to read analytics.py and spot risky operations (e.g., sorting with None values). Improve your agent's system prompt to instruct it to look for None-unsafe calls when asked about bugs."
+  tier: 2
+  bot_only: true
+  # Class D: Proactive bug identification — TypeError sorting None scores in top-learners
+
+- index: 17
+  question: "Query GET /items/ and GET /interactions/ after syncing data. One succeeds and the other crashes. Read the source code and explain what causes the difference."
+  expected: {any_of: ["timestamp", "created_at", "InteractionModel", "ValidationError", "field"]}
+  check_tools: [query_api, read_file]
+  feedback: "Compare the InteractionModel response schema with the InteractionLog database model. The response model uses 'timestamp' but the DB model uses 'created_at' — this field name mismatch causes a serialization crash."
+  tier: 2
+  bot_only: true
+  # Class D: Comparative bug diagnosis — response model serialization mismatch
+
+# --- Class E: LLM-judged reasoning (bot-only) ---
+
+- index: 18
+  question: "Compare how the ETL pipeline handles failures vs how the API endpoints handle failures. Which approach is more robust and why?"
+  expected: {contains_all: ["etl", "error"]}
+  rubric: "Answer must: (1) describe ETL error handling (e.g., raise_for_status, pagination retry), (2) describe API endpoint error handling (e.g., returns empty list, no try/except), (3) compare them, (4) give a reasoned judgment about which is more robust."
+  check_tools: [read_file]
+  feedback: "Read both the ETL code (etl.py) and the API router code (routers/), then compare their error handling strategies."
+  tier: 2
+  bot_only: true
+  # Class E: ETL vs API error handling comparison
+
+- index: 19
+  question: "Read the authentication code and docker-compose.yml. Explain how the LMS_API_KEY flows from the .env file to the point where it validates a request. Trace every step."
+  expected: {contains_all: ["docker-compose", "LMS_API_KEY"]}
+  rubric: "Answer must trace: (1) .env.docker.secret file, (2) docker-compose.yml environment variable mapping, (3) app settings/config loading, (4) FastAPI dependency injection or middleware, (5) comparison with the request header. At least 4 of these 5 steps must be mentioned."
+  check_tools: [read_file]
+  feedback: "Start from docker-compose.yml environment section, follow the variable into the app config, then into the auth dependency."
+  tier: 2
+  bot_only: true
+  # Class E: Auth flow tracing

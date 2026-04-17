@@ -1,0 +1,581 @@
+id: lab-07
+title: "Lab 07 — Build a Client with an AI Coding Agent"
+repo_name: "se-toolkit-lab-7"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.75
+  score_required_only: true
+
+requires_lms_key: false
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Plan and Scaffold"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Backend Integration"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Intent-Based Natural Language Routing"
+    prerequisite: setup
+  - id: task-4
+    title: "Task 4: Containerize and Document"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP — repo, VM, env files, backend, LLM
+  # =====================================================
+
+# TODO issue title
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_config
+    task: setup
+    title: "Repository is a fork with issues enabled"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of https://github.com/inno-se-toolkit/se-toolkit-lab-7
+      with issues enabled (Settings -> General -> Features -> Issues).
+    params:
+      checks:
+        - type: repo_is_fork
+          params: {}
+
+  - id: ssh_connectivity
+    task: setup
+    title: "SSH login as your main user works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      The autochecker needs to SSH into your VM as your main user.
+      Add the autochecker SSH key to ~/.ssh/authorized_keys and register
+      your VM username with the autochecker bot. See setup step 1.8.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: "echo ok"
+
+  - id: vm_setup
+    task: setup
+    title: "Repo, env files, and config present on VM"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      On your VM: (1) Clone your fork at ~/se-toolkit-lab-7,
+      (2) Create .env.docker.secret from .env.docker.example,
+      (3) Create .env.bot.secret from .env.bot.example with BOT_TOKEN and LMS_API_KEY.
+      See setup steps 1.7 and 1.10.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        OK=1;
+        test -d ~/se-toolkit-lab-7/.git || { echo "missing: ~/se-toolkit-lab-7/.git directory"; OK=0; };
+        test -f ~/se-toolkit-lab-7/.env.docker.secret || { echo "missing: .env.docker.secret"; OK=0; };
+        test -f ~/se-toolkit-lab-7/.env.bot.secret || { echo "missing: .env.bot.secret"; OK=0; };
+        if [ -f ~/se-toolkit-lab-7/.env.bot.secret ]; then
+        grep -q BOT_TOKEN ~/se-toolkit-lab-7/.env.bot.secret || { echo "missing: BOT_TOKEN in .env.bot.secret"; OK=0; };
+        grep -q LMS_API_KEY ~/se-toolkit-lab-7/.env.bot.secret || { echo "missing: LMS_API_KEY in .env.bot.secret"; OK=0; };
+        fi;
+        [ "$OK" = "1" ] && echo ok
+      expect_regex: "ok"
+      timeout: 10
+
+  - id: backend_running
+    task: setup
+    title: "Backend running with data (port 42002)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [vm_setup]
+    hint: >
+      Deploy backend: cd ~/se-toolkit-lab-7 && docker compose --env-file .env.docker.secret up --build -d
+      Then sync data: curl -X POST http://localhost:42002/pipeline/sync -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{}'
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        LMS_KEY=$(grep '^LMS_API_KEY=' ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        if [ -z "$LMS_KEY" ]; then echo "fail: LMS_API_KEY not found in .env.bot.secret"; exit 0; fi;
+        HTTP=$(curl -s -o /tmp/_ac_items -w '%{http_code}' http://localhost:42002/items/ -H "Authorization: Bearer $LMS_KEY");
+        if [ "$HTTP" = "000" ]; then echo "fail: connection refused on port 42002 (is docker running?)"; exit 0; fi;
+        if [ "$HTTP" != "200" ]; then echo "fail: backend returned HTTP $HTTP"; exit 0; fi;
+        COUNT=$(python3 -c 'import sys,json; print(len(json.load(sys.stdin)))' < /tmp/_ac_items 2>&1);
+        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "fail: could not parse response: $COUNT"; exit 0; fi;
+        if [ "$COUNT" = "0" ]; then echo "fail: backend returned 0 items (run pipeline/sync first)"; exit 0; fi;
+        echo ok
+      expect_regex: "ok"
+      timeout: 15
+
+  - id: llm_available
+    task: setup
+    title: "LLM API is reachable (Qwen proxy on port 42005)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [ssh_connectivity]
+    hint: >
+      Set up the Qwen Code API on your VM (see setup step 1.9).
+      If the token expired, restart the proxy: cd ~/qwen-code-oai-proxy && docker compose restart
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        LLM_KEY=$(grep '^LLM_API_KEY=' ~/se-toolkit-lab-7/.env.bot.secret | cut -d= -f2- | tr -d '"'"'"' ');
+        if [ -z "$LLM_KEY" ]; then echo "0 (LLM_API_KEY not found in .env.bot.secret)"; exit 0; fi;
+        HTTP=$(curl -s -o /tmp/_ac_llm -w '%{http_code}' http://localhost:42005/v1/models -H "Authorization: Bearer $LLM_KEY");
+        if [ "$HTTP" = "000" ]; then echo "0 (connection refused on port 42005 — is qwen proxy running?)"; exit 0; fi;
+        if [ "$HTTP" = "401" ]; then echo "0 (HTTP 401 — token expired, restart proxy: cd ~/qwen-code-oai-proxy && docker compose restart)"; exit 0; fi;
+        if [ "$HTTP" != "200" ]; then echo "0 (proxy returned HTTP $HTTP)"; exit 0; fi;
+        COUNT=$(python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get("data",[])))' < /tmp/_ac_llm 2>&1);
+        if ! echo "$COUNT" | grep -qE '^[0-9]+$'; then echo "0 (failed to parse response: $COUNT)"; exit 0; fi;
+        if [ "$COUNT" = "0" ]; then echo "0 (proxy returned 0 models — token may be expired)"; exit 0; fi;
+        echo $COUNT
+      expect_regex: "^[1-9]"
+      timeout: 15
+
+  # =====================================================
+  # TASK 1: Plan and Scaffold
+  # =====================================================
+
+  - id: t1_plan_exists
+    task: task-1
+    title: "bot/PLAN.md exists with ≥100 words"
+    class: structural
+    runner: code
+    type: file_word_count
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Create bot/PLAN.md with your development plan. Must be at least 100 words.
+      Ask your coding agent to help you produce it.
+    params:
+      path: "bot/PLAN.md"
+      min_words: 100
+
+  - id: t1_deps
+    task: task-1
+    title: "bot/pyproject.toml exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your bot must have a pyproject.toml in the bot/ directory for dependency management.
+      Do not create requirements.txt — use pyproject.toml and uv exclusively.
+    params:
+      path: "bot/pyproject.toml"
+
+  - id: t1_handlers
+    task: task-1
+    title: "Handler directory exists with at least one module"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Create bot/handlers/ directory with at least one Python module.
+      Handlers should be plain functions separated from the Telegram transport layer.
+    params:
+      patterns: ["bot/handlers/*.py", "bot/handlers/**/*.py"]
+
+  - id: t1_install
+    task: task-1
+    title: "Bot dependencies install without errors"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [repo_on_vm]
+    hint: >
+      Run on your VM: cd ~/se-toolkit-lab-7/bot && uv sync
+      Fix any dependency errors in pyproject.toml.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 && git pull -q 2>/dev/null; cd bot && uv sync 2>&1 | tail -5; echo EXIT:$?"
+      expect_regex: "EXIT:0"
+      timeout: 60
+
+  # Task 1 eval set (deterministic, no LLM)
+  - id: t1_eval_start
+    task: task-1
+    title: '--test "/start" returns output'
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_install]
+    hint: >
+      Run: cd ~/se-toolkit-lab-7/bot && uv run bot.py --test "/start"
+      Must print a welcome message and exit with code 0.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/start' 2>/dev/null"
+      expect_regex: ".{5,}"
+      timeout: 30
+
+  - id: t1_eval_help
+    task: task-1
+    title: '--test "/help" returns output (unseen)'
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [t1_install]
+    hint: >
+      The /help command should return available commands. It can return placeholder
+      text for now — it must not crash.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/help' 2>/dev/null"
+      expect_regex: ".{5,}"
+      timeout: 30
+
+  - id: t1_eval_unknown
+    task: task-1
+    title: '--test "/foo" does not crash (unseen)'
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 3
+    depends_on: [t1_install]
+    hint: >
+      Unknown commands must not crash the bot. They should return a helpful message.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '/foo' 2>/dev/null; echo EXIT:$?"
+      expect_regex: "EXIT:0"
+      timeout: 30
+
+  # =====================================================
+  # TASK 2: Backend Integration
+  # =====================================================
+
+  - id: t2_commands
+    task: task-2
+    title: "Slash commands return correct data"
+    class: execution
+    runner: code
+    type: ssh_eval_set
+    is_required: true
+    weight: 10
+    depends_on: [t1_install, backend_running]
+    hint: >
+      All slash commands must work via --test mode. /start returns a welcome,
+      /help lists commands, /health shows backend status, /labs lists labs,
+      /scores shows per-task data. Edge cases (wrong lab, missing arg) must not crash.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
+      min_pass_rate: 0.9
+      timeout_per_query: 30
+      queries:
+        # Core commands — check for real content, not just "non-empty"
+        - input: "/start"
+          expect_regex: "(?i)(welcome|bot|assistant|lms)"
+        - input: "/help"
+          expect_regex: "/(start|help|health|labs|scores)"
+          expect_min_lines: 4
+        - input: "/health"
+          expect_regex: "(?i)(health|ok|running|items).*\\d"
+        - input: "/labs"
+          expect_regex: "(?i)Lab.{0,5}0[1-6]"
+          expect_min_lines: 3
+        - input: "/scores lab-04"
+          expect_regex: "\\d+\\.?\\d*%|\\d+.*attempt"
+          expect_min_lines: 2
+        # Unseen — different labs, must show real data
+        - input: "/scores lab-01"
+          expect_regex: "\\d+\\.?\\d*%|\\d+.*attempt"
+          expect_min_lines: 2
+        - input: "/scores lab-02"
+          expect_regex: "\\d+\\.?\\d*%|\\d+.*attempt"
+          expect_min_lines: 2
+        # Robustness — no crashes on bad input
+        - input: "/scores"
+          expect_no_traceback: true
+        - input: "/scores lab-99"
+          expect_no_traceback: true
+        - input: "/unknown"
+          expect_no_traceback: true
+
+  - id: t2_error
+    task: task-2
+    title: "Error handling: no traceback when backend is down"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_install]
+    hint: >
+      When the backend is down, the bot must show a user-friendly error message
+      that includes the actual error (e.g., "connection refused", "HTTP 502").
+      It must NOT show a raw Python traceback.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH &&
+        cd ~/se-toolkit-lab-7 &&
+        docker compose --env-file .env.docker.secret stop app 2>/dev/null;
+        OUTPUT=$(cd bot && uv run bot.py --test '/health' 2>/dev/null);
+        docker compose --env-file .env.docker.secret start app 2>/dev/null;
+        echo "$OUTPUT" | grep -c 'Traceback' | xargs -I{} test {} -eq 0 && echo "NO_TRACEBACK" || echo "HAS_TRACEBACK"
+      expect_regex: "NO_TRACEBACK"
+      timeout: 60
+
+  - id: t2_data_quality
+    task: task-2
+    title: "Commands return real backend data (not placeholders)"
+    class: execution
+    runner: code
+    type: ssh_eval_set
+    is_required: true
+    weight: 5
+    depends_on: [t1_install, backend_running]
+    hint: >
+      /labs must list real lab names, /scores must show real percentages.
+      Make sure the ETL sync has been run so the database has data.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
+      min_pass_rate: 1.0
+      timeout_per_query: 30
+      queries:
+        - input: "/labs"
+          expect_regex: "(?i)(products|architecture|backend|testing|pipeline|agent)"
+        - input: "/scores lab-04"
+          expect_regex: "(?i)(task|setup|testing|front)"
+        - input: "/health"
+          expect_regex: "\\d{2,}"
+
+  # =====================================================
+  # TASK 3: Intent-Based Natural Language Routing
+  # =====================================================
+
+  - id: t3_structural
+    task: task-3
+    title: "Source code: buttons, ≥9 tools, no regex routing"
+    class: structural
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [repo_on_vm]
+    hint: >
+      Your bot needs: (1) inline keyboard buttons, (2) at least 9 tool/function
+      schemas, (3) no regex/keyword matching in the intent routing path — the LLM
+      must decide which tool to call.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
+        TOOLS=$(grep -r '"type".*:.*"function"' bot/ 2>/dev/null | wc -l) &&
+        BUTTONS=$(grep -ri 'keyboard\|CallbackQuery' bot/ 2>/dev/null | wc -l) &&
+        REGEX_ROUTING=$(grep -rn 're\.search\|re\.match\|INTENT_PATTERN' bot/handlers/ 2>/dev/null | grep -v test | grep -v '#' | wc -l) &&
+        echo "tools:$TOOLS buttons:$BUTTONS regex_routing:$REGEX_ROUTING";
+        FAIL="";
+        test $TOOLS -ge 9 || FAIL="${FAIL} tools<9(found $TOOLS)";
+        test $BUTTONS -ge 1 || FAIL="${FAIL} no_keyboard/callback_buttons";
+        test $REGEX_ROUTING -eq 0 || FAIL="${FAIL} regex_routing_found($REGEX_ROUTING matches)";
+        [ -z "$FAIL" ] && echo PASS || echo "FAIL:$FAIL"
+      expect_regex: "PASS"
+      timeout: 15
+
+  - id: t3_eval
+    task: task-3
+    title: "Natural language queries return correct data from backend"
+    class: execution
+    runner: code
+    type: ssh_eval_set
+    is_required: true
+    weight: 10
+    depends_on: [t1_install, backend_running, llm_available]
+    hint: >
+      Plain text queries should use the LLM to call backend tools and return
+      real data. Responses must contain actual backend data (lab names, numbers,
+      task names) — not generic text. If you see "LLM error: HTTP 401",
+      restart the Qwen proxy: cd ~/qwen-code-oai-proxy && docker compose restart
+    params:
+      runtime: prod
+      username: __vm_username__
+      command_template: "export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7/bot && uv run bot.py --test '{input}' 2>/dev/null"
+      min_pass_rate: 0.85
+      timeout_per_query: 60
+      queries:
+        # Single tool — real data verification
+        - input: "what labs are available"
+          expect_regex: "(?i)(products|architecture|backend|testing|pipeline|agent)"
+        - input: "show me scores for lab 4"
+          expect_regex: "\\d.*\\d"
+        # Unseen — different tools, argument extraction
+        - input: "how many students are enrolled"
+          expect_regex: "\\d{2,}"
+        - input: "which group is doing best in lab 3"
+          expect_regex: "(?i)(group|\\d)"
+        # Multi-step — requires chaining tools
+        - input: "which lab has the lowest pass rate"
+          expect_regex: "(?i)Lab.{0,10}\\d.*\\d+\\.?\\d*%|\\d+\\.?\\d*%.*Lab"
+        # Action — write tool
+        - input: "sync the data"
+          expect_regex: "(?i)(sync|loaded|items|logs|success|complete|trigger)"
+        # Fallback — graceful handling
+        - input: "asdfgh"
+          expect_regex: "(?i)(help|can|try|available|command|lab|score)"
+
+  - id: t3_api_calls
+    task: task-3
+    title: "Bot actually calls backend API (not hardcoded)"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    depends_on: [t1_install, backend_running, llm_available]
+    hint: >
+      The bot must call the real backend API when answering queries.
+      This check runs queries and verifies the backend received the
+      expected HTTP requests (GET /items/, GET /analytics/pass-rates, etc.).
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
+        APP_CONTAINER=$(docker ps --format '{{.Names}}' | grep -iE 'app|backend' | head -1) &&
+        if [ -z "$APP_CONTAINER" ]; then echo "FAIL: no running container matching 'app' or 'backend' found"; exit 0; fi &&
+        BEFORE=$(docker logs $APP_CONTAINER 2>&1 | wc -l) &&
+        cd bot &&
+        uv run bot.py --test 'what labs are available' >/dev/null 2>&1 &&
+        uv run bot.py --test 'show me scores for lab 4' >/dev/null 2>&1 &&
+        uv run bot.py --test 'how many students are enrolled' >/dev/null 2>&1 &&
+        cd ~/se-toolkit-lab-7 &&
+        LOGS=$(docker logs $APP_CONTAINER 2>&1 | tail -n +$((BEFORE+1))) &&
+        ITEMS=$(echo "$LOGS" | grep -c 'GET /items' || true) &&
+        ANALYTICS=$(echo "$LOGS" | grep -c 'GET /analytics' || true) &&
+        LEARNERS=$(echo "$LOGS" | grep -c 'GET /learners' || true) &&
+        echo "items:$ITEMS analytics:$ANALYTICS learners:$LEARNERS" &&
+        test $ITEMS -gt 0 && test $((ANALYTICS + LEARNERS)) -gt 0 && echo PASS || echo FAIL
+      expect_regex: "PASS"
+      timeout: 120
+
+  # =====================================================
+  # TASK 4: Containerize and Document
+  # =====================================================
+
+  - id: t4_structural
+    task: task-4
+    title: "Dockerfile exists and README has deploy section"
+    class: structural
+    runner: code
+    type: glob_exists
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Create bot/Dockerfile and add a "Deploy" or "Containerize" section
+      to your README with env vars, docker compose commands, and verification steps.
+    params:
+      patterns: ["bot/Dockerfile", "README.md"]
+
+  - id: t4_deployment
+    task: task-4
+    title: "Bot containerized and running alongside backend"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 10
+    depends_on: [repo_on_vm]
+    hint: >
+      Deploy with Docker: docker compose --env-file .env.docker.secret up --build -d
+      Bot container must be running, backend must still be healthy,
+      and deployed code must be from your GitHub repo.
+    params:
+      runtime: prod
+      username: __vm_username__
+      command: >
+        export PATH=$HOME/.local/bin:$PATH && cd ~/se-toolkit-lab-7 &&
+        REMOTE=$(git remote get-url origin 2>/dev/null) &&
+        BOT_COMPOSE=$(grep -c 'bot:' docker-compose.yml 2>/dev/null || echo 0) &&
+        BOT_RUNNING=$(docker ps --format '{{.Names}}' | grep -ci bot || echo 0) &&
+        BACKEND=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:42002/docs) &&
+        echo "remote:$REMOTE compose:$BOT_COMPOSE running:$BOT_RUNNING backend:$BACKEND";
+        FAIL="";
+        echo "$REMOTE" | grep -qi 'github.com.*se-toolkit-lab-7' || FAIL="${FAIL} remote_not_github";
+        test $BOT_COMPOSE -ge 1 || FAIL="${FAIL} no_bot_service_in_compose";
+        test $BOT_RUNNING -ge 1 || FAIL="${FAIL} bot_container_not_running";
+        test "$BACKEND" = "200" || FAIL="${FAIL} backend_unhealthy(HTTP_$BACKEND)";
+        [ -z "$FAIL" ] && echo PASS || echo "FAIL:$FAIL"
+      expect_regex: "PASS"
+      timeout: 30
+
+  - id: t4_gitflow
+    task: task-4
+    title: "Git workflow: ≥4 merged PRs with approvals (all tasks)"
+    class: process
+    runner: code
+    type: pr_review_approvals
+    is_required: true
+    weight: 5
+    depends_on: [repo_exists]
+    hint: >
+      Each task must follow git workflow: create an issue, branch, PR with
+      "Closes #...", get partner approval, merge. You need at least 4 merged
+      PRs (one per task) with at least 4 total approvals across all PRs.
+    params:
+      base: "main"
+      min_total_approvals: 4

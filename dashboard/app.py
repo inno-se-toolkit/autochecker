@@ -1,0 +1,1258 @@
+"""Web dashboard for viewing students and check results."""
+
+import asyncio
+import base64
+import csv
+import hashlib
+import hmac
+import io
+import json
+import logging
+import os
+import uuid
+from datetime import date
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlencode
+
+import aiosqlite
+import yaml
+from fastapi import FastAPI, Form, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
+from fastapi.templating import Jinja2Templates
+
+logger = logging.getLogger(__name__)
+
+_BASE_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = os.getenv("DB_PATH", str(_BASE_DIR / "bot.db"))
+SPECS_DIR = _BASE_DIR / "specs"
+ACTIVE_LABS = [l.strip() for l in os.getenv("ACTIVE_LABS", "").split(",") if l.strip()]
+DASHBOARD_PASSWORD = os.getenv("DASHBOARD_PASSWORD", "")
+
+RELAY_TOKEN = os.getenv("RELAY_TOKEN", "")
+MAX_ATTEMPTS_PER_TASK = int(os.getenv("MAX_ATTEMPTS_PER_TASK", "20"))
+MAX_ATTEMPTS_EVAL_TASK = int(os.getenv("MAX_ATTEMPTS_EVAL_TASK", "20"))
+
+COOKIE_NAME = "dash_auth"
+
+app = FastAPI(title="Autochecker Dashboard")
+
+
+@app.on_event("startup")
+async def _ensure_dashboard_tables():
+    """Create dashboard-owned compatibility tables if they don't exist."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS api_access_log (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email     TEXT NOT NULL,
+                    endpoint  TEXT NOT NULL,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await db.execute(
+                "CREATE INDEX IF NOT EXISTS idx_api_access_email ON api_access_log(email)"
+            )
+            # Schema must match bot/database.py _migrate_to_v8
+            await db.execute("""
+                CREATE TABLE IF NOT EXISTS attempt_grants (
+                    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tg_id     INTEGER NOT NULL,
+                    lab_id    TEXT NOT NULL,
+                    task_id   TEXT NOT NULL DEFAULT '',
+                    amount    INTEGER NOT NULL,
+                    reason    TEXT DEFAULT '',
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (tg_id) REFERENCES users(tg_id)
+                )
+            """)
+            await db.execute(
+                """CREATE INDEX IF NOT EXISTS idx_attempt_grants_lookup
+                   ON attempt_grants(tg_id, lab_id, task_id)"""
+            )
+            await db.commit()
+    except Exception:
+        logger.warning("Could not ensure dashboard tables", exc_info=True)
+
+# ---------------------------------------------------------------------------
+# Relay state: one connected worker, pending job futures
+# ---------------------------------------------------------------------------
+_relay_worker: Optional[WebSocket] = None
+_relay_jobs: dict[str, asyncio.Future] = {}  # job_id -> Future[dict]
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parent / "templates"))
+
+
+def _load_allowed_email_groups() -> dict[str, str]:
+    """Load email -> group mapping from bot/allowed_emails.csv."""
+    csv_path = _BASE_DIR / "bot" / "allowed_emails.csv"
+    if not csv_path.exists():
+        return {}
+
+    email_groups: dict[str, str] = {}
+    try:
+        with csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                email = (row.get("email") or "").strip().lower()
+                group = (row.get("group") or "").strip()
+                if email and group:
+                    email_groups[email] = group
+    except Exception:
+        logger.exception("Failed to load allowed_emails.csv from %s", csv_path)
+    return email_groups
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers
+# ---------------------------------------------------------------------------
+
+def _sign_cookie(password: str) -> str:
+    """Create HMAC-SHA256 signature for the auth cookie."""
+    return hmac.new(password.encode(), b"authenticated", hashlib.sha256).hexdigest()
+
+
+def _verify_cookie(cookie_value: str) -> bool:
+    """Check that the auth cookie matches the expected signature."""
+    if not DASHBOARD_PASSWORD:
+        return True
+    expected = _sign_cookie(DASHBOARD_PASSWORD)
+    return hmac.compare_digest(cookie_value, expected)
+
+
+@app.middleware("http")
+async def auth_middleware(request: Request, call_next):
+    """Redirect unauthenticated requests to /login."""
+    if not DASHBOARD_PASSWORD:
+        return await call_next(request)
+
+    if request.url.path in ("/login", "/login/") or request.url.path.startswith("/relay/") or request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    cookie = request.cookies.get(COOKIE_NAME, "")
+    if not _verify_cookie(cookie):
+        return RedirectResponse("/login", status_code=302)
+
+    return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# Login routes
+# ---------------------------------------------------------------------------
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: Optional[str] = Query(default=None)):
+    """Render the login form."""
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": error,
+    })
+
+
+@app.post("/login")
+async def login_submit(password: str = Form(...)):
+    """Verify password, set auth cookie, redirect to dashboard."""
+    if not hmac.compare_digest(password, DASHBOARD_PASSWORD):
+        return RedirectResponse("/login?error=wrong", status_code=302)
+
+    response = RedirectResponse("/", status_code=302)
+    response.set_cookie(
+        COOKIE_NAME,
+        _sign_cookie(DASHBOARD_PASSWORD),
+        httponly=True,
+        samesite="lax",
+        max_age=60 * 60 * 24 * 30,  # 30 days
+    )
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def load_task_metadata() -> list[dict]:
+    """Load task id+title from spec files for active labs."""
+    tasks: list[dict] = []
+    discovered_labs = sorted(
+        path.stem for path in SPECS_DIR.glob("lab-*.yaml")
+        if path.stem.count("-") == 1  # exclude lab-06-eval.yaml etc.
+    )
+    lab_ids = ACTIVE_LABS + [lab for lab in discovered_labs if lab not in ACTIVE_LABS]
+
+    for lab_id in lab_ids:
+        spec_path = SPECS_DIR / f"{lab_id}.yaml"
+        if not spec_path.exists():
+            continue
+        with open(spec_path, "r", encoding="utf-8") as f:
+            spec = yaml.safe_load(f)
+        eval_tasks = _get_tasks_needing_lms_key(spec)
+        for t in spec.get("tasks", []):
+            tasks.append({
+                "lab_id": lab_id,
+                "task_id": t["id"],
+                "title": t["title"],
+                "max_attempts": MAX_ATTEMPTS_EVAL_TASK if t["id"] in eval_tasks else MAX_ATTEMPTS_PER_TASK,
+            })
+    return tasks
+
+
+def _get_tasks_needing_lms_key(spec: dict) -> set[str]:
+    """Mirror bot logic for tasks that use the eval attempt limit."""
+    explicit = spec.get("requires_lms_key")
+    tasks = spec.get("tasks", [])
+    if explicit is True:
+        return {task["id"] for task in tasks}
+    if explicit is False:
+        return set()
+
+    task_ids: set[str] = set()
+    for check in spec.get("checks", []):
+        if check.get("type") == "agent_eval":
+            task_ids.add(check["task"])
+    return task_ids
+
+
+def _cell_status(passed: Optional[int], failed: Optional[int], total: Optional[int]) -> str:
+    """Return 'pass' (100%), 'partial' (>=75%), 'fail' (<75%), or 'none'."""
+    if total is None or total == 0:
+        return "none"
+    p = passed or 0
+    if p == total and (failed or 0) == 0:
+        return "pass"
+    pct = p / total * 100
+    if pct >= 75:
+        return "partial"
+    return "fail"
+
+
+def _cell_pct(passed: Optional[int], total: Optional[int]) -> int:
+    """Return integer percentage (0-100) for sorting. -1 if no data."""
+    if total is None or total == 0:
+        return -1
+    return round((passed or 0) / total * 100)
+
+
+async def _fetch_best_scores(db: aiosqlite.Connection) -> dict[int, dict[str, dict]]:
+    """Best result per student per task (highest passed count, lowest failed).
+
+    Returns {tg_id: {"lab:task": {"score": str, "passed": int, "failed": int, "total": int, "status": str, "pct": int}}}
+    """
+    scores: dict[int, dict[str, dict]] = {}
+    async with db.execute("""
+        SELECT tg_id, lab_id, task_id, score, passed, failed, total
+        FROM results
+        ORDER BY tg_id, lab_id, task_id
+    """) as cur:
+        async for row in cur:
+            key = f"{row['lab_id']}:{row['task_id']}"
+            entry = {
+                "score": row["score"] or "—",
+                "passed": row["passed"],
+                "failed": row["failed"],
+                "total": row["total"],
+            }
+            entry["status"] = _cell_status(entry["passed"], entry["failed"], entry["total"])
+            entry["pct"] = _cell_pct(entry["passed"], entry["total"])
+            prev = scores.setdefault(row["tg_id"], {}).get(key)
+            if prev is None:
+                scores[row["tg_id"]][key] = entry
+            else:
+                # Better = more passes; tie-break by fewer non-passes.
+                # Use (total - passed) instead of raw failed, because ERROR
+                # checks have failed=0 but aren't passes either.
+                prev_p = prev["passed"] if prev["passed"] is not None else 0
+                cur_p = entry["passed"] if entry["passed"] is not None else 0
+                prev_np = (prev["total"] or 0) - prev_p
+                cur_np = (entry["total"] or 0) - cur_p
+                if (-cur_p, cur_np) < (-prev_p, prev_np):
+                    scores[row["tg_id"]][key] = entry
+    return scores
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request, lab: Optional[str] = Query(default=None)):
+    """Main page: students x tasks grid with color coding and stats."""
+    task_meta = load_task_metadata()
+    task_meta_map = {f"{t['lab_id']}:{t['task_id']}": t for t in task_meta}
+    labs = sorted({t["lab_id"] for t in task_meta})
+    active_lab = lab if lab in labs else (labs[-1] if labs else None)
+
+    # Filter tasks by selected lab
+    tasks = [t for t in task_meta if t["lab_id"] == active_lab] if active_lab else task_meta
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        students = []
+        async with db.execute(
+            "SELECT tg_id, email, github_alias, tg_username, student_group FROM users ORDER BY github_alias"
+        ) as cur:
+            async for row in cur:
+                students.append(dict(row))
+
+        scores = await _fetch_best_scores(db)
+
+        # Latest submission timestamp per student
+        last_submission: dict[int, str] = {}
+        async with db.execute(
+            "SELECT tg_id, MAX(timestamp) AS last_ts FROM results GROUP BY tg_id"
+        ) as cur:
+            async for row in cur:
+                last_submission[row["tg_id"]] = row["last_ts"] or ""
+
+        # Attempts per student per task: {tg_id: {"lab:task": count}}
+        attempts_map: dict[int, dict[str, int]] = {}
+        async with db.execute(
+            "SELECT tg_id, lab_id, task_id, COUNT(*) AS cnt FROM attempts GROUP BY tg_id, lab_id, task_id"
+        ) as cur:
+            async for row in cur:
+                attempts_map.setdefault(row["tg_id"], {})[f"{row['lab_id']}:{row['task_id']}"] = row["cnt"]
+
+        attempt_grants_map: dict[int, dict[str, int]] = {}
+        async with db.execute(
+            """SELECT tg_id, lab_id, task_id, COALESCE(SUM(amount), 0) AS granted
+               FROM attempt_grants GROUP BY tg_id, lab_id, task_id"""
+        ) as cur:
+            async for row in cur:
+                attempt_grants_map.setdefault(row["tg_id"], {})[f"{row['lab_id']}:{row['task_id']}"] = int(row["granted"] or 0)
+
+    # Attach last_submission to each student dict
+    for s in students:
+        ts = last_submission.get(s["tg_id"], "")
+        s["last_submission"] = ts[:16].replace("T", " ") if ts else ""
+
+    attempt_limits_map: dict[int, dict[str, int]] = {}
+    for s in students:
+        student_limits: dict[str, int] = {}
+        for t in tasks:
+            key = f"{t['lab_id']}:{t['task_id']}"
+            base_max = task_meta_map.get(key, t).get("max_attempts", MAX_ATTEMPTS_PER_TASK)
+            granted = attempt_grants_map.get(s["tg_id"], {}).get(key, 0)
+            student_limits[key] = base_max + granted
+        attempt_limits_map[s["tg_id"]] = student_limits
+
+    # >=75% counts as "passed" for completion metrics
+    _PASS_STATUSES = ("pass", "partial")
+
+    # Compute per-task pass rates
+    task_stats = {}
+    for t in tasks:
+        key = f"{t['lab_id']}:{t['task_id']}"
+        passed_count = sum(
+            1 for s in students
+            if scores.get(s["tg_id"], {}).get(key, {}).get("status") in _PASS_STATUSES
+        )
+        task_stats[key] = {
+            "passed": passed_count,
+            "pass_rate": round(passed_count / len(students) * 100) if students else 0,
+        }
+
+    # Average completion across required tasks (excluding optional/setup), only for students who attempted
+    all_keys = [f"{t['lab_id']}:{t['task_id']}" for t in tasks if not t["task_id"].startswith("optional")]
+    required_keys = [k for k in all_keys if not k.endswith(":setup")]
+    if students and required_keys:
+        completion_sum = 0
+        attempted_students = 0
+        for s in students:
+            student_scores = scores.get(s["tg_id"], {})
+            has_any = any(student_scores.get(k) for k in all_keys)
+            if not has_any:
+                continue
+            attempted_students += 1
+            passed_tasks = sum(
+                1 for k in required_keys
+                if student_scores.get(k, {}).get("status") in _PASS_STATUSES
+            )
+            completion_sum += passed_tasks / len(required_keys)
+        avg_completion = round(completion_sum / attempted_students * 100) if attempted_students else 0
+        not_started = len(students) - attempted_students
+        completed_count = sum(
+            1 for s in students
+            if all(
+                scores.get(s["tg_id"], {}).get(k, {}).get("status") in _PASS_STATUSES
+                for k in required_keys
+            )
+        )
+    else:
+        avg_completion = 0
+        attempted_students = 0
+        not_started = len(students)
+        completed_count = 0
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "students": students,
+        "tasks": tasks,
+        "scores": scores,
+        "task_stats": task_stats,
+        "labs": labs,
+        "active_lab": active_lab,
+        "avg_completion": avg_completion,
+        "not_started": not_started,
+        "completed_count": completed_count,
+        "attempts_map": attempts_map,
+        "attempt_limits_map": attempt_limits_map,
+    })
+
+
+@app.get("/student/{github_alias}", response_class=HTMLResponse)
+async def student_detail(
+    request: Request,
+    github_alias: str,
+    error: Optional[str] = Query(default=None),
+    info: Optional[str] = Query(default=None),
+    lab: Optional[str] = Query(default=None),
+    task: Optional[str] = Query(default=None),
+    count: Optional[int] = Query(default=None),
+):
+    """Detail page: full check history for a student."""
+    task_meta = load_task_metadata()
+    task_meta_map = {f"{t['lab_id']}:{t['task_id']}": t for t in task_meta}
+    title_map = {key: value["title"] for key, value in task_meta_map.items()}
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id, email, github_alias, tg_username, server_ip, student_group, vm_username FROM users WHERE github_alias = ?",
+            (github_alias,)
+        ) as cur:
+            student_row = await cur.fetchone()
+
+        if not student_row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+
+        student = dict(student_row)
+
+        results = []
+        async with db.execute(
+            """SELECT lab_id, task_id, score, passed, failed, total, details, timestamp
+               FROM results WHERE tg_id = ? ORDER BY timestamp DESC""",
+            (student["tg_id"],)
+        ) as cur:
+            async for row in cur:
+                r = dict(row)
+                key = f"{r['lab_id']}:{r['task_id']}"
+                r["title"] = title_map.get(key, r["task_id"])
+                r["status"] = _cell_status(r["passed"], r["failed"], r["total"])
+                # Parse per-check details JSON
+                r["checks"] = []
+                if r.get("details"):
+                    try:
+                        r["checks"] = json.loads(r["details"])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                results.append(r)
+
+        # Track tasks with manual overrides
+        has_override: set[str] = set()
+        for result in results:
+            key = f"{result['lab_id']}:{result['task_id']}"
+            details_str = result.get("details") or ""
+            if isinstance(details_str, str) and "manual_override" in details_str:
+                has_override.add(key)
+
+        # Best result per task (most passes, then fewest non-passes)
+        latest_by_task: dict[str, dict] = {}
+        latest_result_timestamp_by_task: dict[str, str] = {}
+        for result in results:
+            key = f"{result['lab_id']}:{result['task_id']}"
+            if key not in latest_result_timestamp_by_task:
+                latest_result_timestamp_by_task[key] = result.get("timestamp") or ""
+            if key not in latest_by_task:
+                latest_by_task[key] = result
+            else:
+                prev = latest_by_task[key]
+                cur_p = result.get("passed") or 0
+                prev_p = prev.get("passed") or 0
+                cur_np = (result.get("total") or 0) - cur_p
+                prev_np = (prev.get("total") or 0) - prev_p
+                if (-cur_p, cur_np) < (-prev_p, prev_np):
+                    latest_by_task[key] = result
+
+        grants_by_task: dict[str, int] = {}
+        async with db.execute(
+            """SELECT lab_id, task_id, COALESCE(SUM(amount), 0) AS granted
+               FROM attempt_grants WHERE tg_id = ? GROUP BY lab_id, task_id""",
+            (student["tg_id"],)
+        ) as cur:
+            async for row in cur:
+                grants_by_task[f"{row['lab_id']}:{row['task_id']}"] = int(row["granted"] or 0)
+
+        task_attempts_map: dict[str, dict] = {}
+        for key, latest in latest_by_task.items():
+            lab_id, task_id = key.split(":", 1)
+            base_max = task_meta_map.get(key, {}).get("max_attempts", MAX_ATTEMPTS_PER_TASK)
+            granted = grants_by_task.get(key, 0)
+            effective_max = base_max + granted
+            task_attempts_map[key] = {
+                "lab_id": lab_id,
+                "task_id": task_id,
+                "title": title_map.get(key, task_id),
+                "attempts": 0,
+                "max_attempts": effective_max,
+                "remaining": effective_max,
+                "granted_attempts": granted,
+                "last_attempt": latest_result_timestamp_by_task.get(key, ""),
+                "score": latest.get("score") or "—",
+                "status": latest.get("status", "none"),
+                "has_override": key in has_override,
+            }
+
+        async with db.execute(
+            """SELECT lab_id, task_id, COUNT(*) AS attempts, MAX(timestamp) AS last_attempt
+               FROM attempts WHERE tg_id = ? GROUP BY lab_id, task_id
+               ORDER BY lab_id, task_id""",
+            (student["tg_id"],)
+        ) as cur:
+            async for row in cur:
+                key = f"{row['lab_id']}:{row['task_id']}"
+                latest = latest_by_task.get(key, {})
+                used = row["attempts"] or 0
+                base_max = task_meta_map.get(key, {}).get("max_attempts", MAX_ATTEMPTS_PER_TASK)
+                granted = grants_by_task.get(key, 0)
+                effective_max = base_max + granted
+                task_attempts_map[key] = {
+                    "lab_id": row["lab_id"],
+                    "task_id": row["task_id"],
+                    "title": title_map.get(key, row["task_id"]),
+                    "attempts": used,
+                    "max_attempts": effective_max,
+                    "remaining": max(0, effective_max - used),
+                    "granted_attempts": granted,
+                    "last_attempt": row["last_attempt"] or "",
+                    "score": latest.get("score") or "—",
+                    "status": latest.get("status", "none"),
+                    "has_override": key in has_override,
+                }
+
+        task_attempts = sorted(
+            task_attempts_map.values(),
+            key=lambda row: (row["lab_id"], row["task_id"]),
+        )
+
+    return templates.TemplateResponse("student.html", {
+        "request": request,
+        "student": student,
+        "results": results,
+        "task_attempts": task_attempts,
+        "error": error,
+        "info": info,
+        "info_lab": lab,
+        "info_task": task,
+        "info_count": count,
+    })
+
+
+@app.post("/student/{github_alias}/edit")
+async def student_edit(
+    github_alias: str,
+    email: str = Form(...),
+    new_github_alias: str = Form(..., alias="github_alias"),
+    tg_username: str = Form(""),
+    server_ip: str = Form(""),
+    vm_username: str = Form(""),
+):
+    """Update student info. Redirects back to student page."""
+    email = email.strip()
+    new_github_alias = new_github_alias.strip()
+    tg_username = tg_username.strip()
+    server_ip = server_ip.strip()
+    vm_username = vm_username.strip()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Find the student by current alias
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        # Check uniqueness — email and github_alias must not belong to another student
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE (email = ? OR github_alias = ?) AND tg_id != ?",
+            (email, new_github_alias, tg_id),
+        ) as cur:
+            conflict = await cur.fetchone()
+        if conflict:
+            return RedirectResponse(
+                f"/student/{github_alias}?error=conflict", status_code=302
+            )
+
+        await db.execute(
+            "UPDATE users SET email = ?, github_alias = ?, tg_username = ?, server_ip = ?, vm_username = ? WHERE tg_id = ?",
+            (email, new_github_alias, tg_username, server_ip, vm_username, tg_id),
+        )
+        await db.commit()
+
+    return RedirectResponse(f"/student/{new_github_alias}", status_code=302)
+
+
+@app.post("/student/{github_alias}/attempts/free")
+async def student_free_attempts(
+    github_alias: str,
+    lab_id: str = Form(...),
+    task_id: str = Form(...),
+    amount: int = Form(0),
+):
+    """Grant extra attempts for a student's specific lab task.
+
+    amount=0 means restore all spent attempts by granting that many back.
+    amount=N grants N extra attempts.
+    """
+    lab_id = lab_id.strip()
+    task_id = task_id.strip()
+    if not lab_id or not task_id:
+        return RedirectResponse(f"/student/{github_alias}", status_code=302)
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        async with db.execute(
+            "SELECT COUNT(*) AS cnt FROM attempts WHERE tg_id = ? AND lab_id = ? AND task_id = ?",
+            (tg_id, lab_id, task_id),
+        ) as cur:
+            count_row = await cur.fetchone()
+        used_attempts = int(count_row["cnt"]) if count_row else 0
+
+        if amount > 0:
+            granted_count = amount
+            reason = "dashboard_add"
+        else:
+            granted_count = used_attempts
+            reason = "dashboard_restore_all"
+
+        if granted_count > 0:
+            await db.execute(
+                """INSERT INTO attempt_grants (tg_id, lab_id, task_id, amount, reason)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (tg_id, lab_id, task_id, granted_count, reason),
+            )
+        await db.commit()
+
+    query = urlencode({
+        "info": "attempts_reset",
+        "lab": lab_id,
+        "task": task_id,
+        "count": granted_count,
+    })
+    return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
+
+
+@app.post("/student/{github_alias}/mark-done")
+async def student_mark_done(
+    github_alias: str,
+    lab_id: str = Form(...),
+    task_id: str = Form(...),
+):
+    """Insert a 100% result for a student's task (manual override)."""
+    lab_id = lab_id.strip()
+    task_id = task_id.strip()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        # Determine total checks from spec
+        task_meta = load_task_metadata()
+        total = 1
+        for t in task_meta:
+            if t["lab_id"] == lab_id and t["task_id"] == task_id:
+                # Count checks from spec
+                spec_path = SPECS_DIR / f"{lab_id}.yaml"
+                if spec_path.exists():
+                    with open(spec_path) as f:
+                        spec = yaml.safe_load(f)
+                    total = sum(1 for c in spec.get("checks", []) if c.get("task") == task_id)
+                    total = max(total, 1)
+                break
+
+        score = f"100.0% ({total}/{total})"
+        details = json.dumps([{
+            "id": "manual_override",
+            "status": "PASS",
+            "details": "Manually marked as done by instructor",
+            "description": "Manual override",
+        }])
+
+        await db.execute(
+            """INSERT INTO results (tg_id, lab_id, task_id, score, passed, failed, total, details)
+               VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
+            (tg_id, lab_id, task_id, score, total, total, details),
+        )
+        await db.commit()
+
+    query = urlencode({"info": "marked_done", "lab": lab_id, "task": task_id})
+    return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
+
+
+@app.post("/student/{github_alias}/revert-done")
+async def student_revert_done(
+    github_alias: str,
+    lab_id: str = Form(...),
+    task_id: str = Form(...),
+):
+    """Remove manual override results for a student's task."""
+    lab_id = lab_id.strip()
+    task_id = task_id.strip()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        async with db.execute(
+            "SELECT tg_id FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return HTMLResponse("<h1>Student not found</h1>", status_code=404)
+        tg_id = row["tg_id"]
+
+        await db.execute(
+            """DELETE FROM results
+               WHERE tg_id = ? AND lab_id = ? AND task_id = ?
+               AND details LIKE '%manual_override%'""",
+            (tg_id, lab_id, task_id),
+        )
+        await db.commit()
+
+    query = urlencode({"info": "reverted_done", "lab": lab_id, "task": task_id})
+    return RedirectResponse(f"/student/{github_alias}?{query}", status_code=302)
+
+
+@app.get("/export/csv")
+async def export_csv(lab: Optional[str] = Query(default=None)):
+    """Download CSV with best scores per student per task."""
+    task_meta = load_task_metadata()
+    labs = sorted({t["lab_id"] for t in task_meta})
+    active_lab = lab if lab in labs else (labs[-1] if labs else None)
+    tasks = [t for t in task_meta if t["lab_id"] == active_lab] if active_lab else task_meta
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        students = []
+        async with db.execute(
+            "SELECT tg_id, email, github_alias, student_group FROM users ORDER BY github_alias"
+        ) as cur:
+            async for row in cur:
+                students.append(dict(row))
+
+        scores = await _fetch_best_scores(db)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    header = ["github_alias", "email", "group"]
+    for t in tasks:
+        header.append(t["task_id"])
+    writer.writerow(header)
+
+    # Rows
+    for s in students:
+        row = [s["github_alias"], s["email"], s.get("student_group", "")]
+        for t in tasks:
+            key = f"{t['lab_id']}:{t['task_id']}"
+            entry = scores.get(s["tg_id"], {}).get(key)
+            if entry:
+                row.append(entry["score"])
+            else:
+                row.append("")
+        writer.writerow(row)
+
+    output.seek(0)
+    filename = f"autochecker-{active_lab or 'all'}-{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public API: anonymized data for Lab 5 ETL
+# ---------------------------------------------------------------------------
+
+# Lab titles for /api/items
+_LAB_TITLES = {
+    "lab-01": "Lab 01 – Products, Architecture & Roles",
+    "lab-02": "Lab 02 — Run, Fix, and Deploy a Backend Service",
+    "lab-03": "Lab 03 — Backend API: Explore, Debug, Implement, Deploy",
+    "lab-04": "Lab 04 — Testing, Front-end, and AI Agents",
+    "lab-05": "Lab 05 — Data Pipeline and Analytics Dashboard",
+    "lab-06": "Lab 06 — Build Your Own Agent",
+    "lab-07": "Lab 07 — Build a Client with an AI Coding Agent",
+}
+
+
+def _anonymize_student(tg_id: int, github_alias: str) -> str:
+    """Generate a stable 8-char anonymous ID for a student."""
+    data = f"{tg_id}:{github_alias}"
+    return hashlib.sha256(data.encode()).hexdigest()[:8]
+
+
+async def _verify_basic_auth(request: Request) -> Optional[str]:
+    """Verify HTTP Basic Auth. Returns email on success, None on failure.
+
+    Expected credentials: email as username, {github_username}{tg_alias} as password.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Basic "):
+        return None
+    try:
+        decoded = base64.b64decode(auth[6:]).decode("utf-8")
+        email, password = decoded.split(":", 1)
+    except Exception:
+        return None
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT github_alias, tg_username FROM users WHERE email = ?", (email,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+        expected = f"{row['github_alias']}{row['tg_username']}"
+        if not hmac.compare_digest(password, expected):
+            return None
+    return email
+
+
+async def _log_api_access(email: str, endpoint: str) -> None:
+    """Record an authenticated API call (fire-and-forget, never fails the request)."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                "INSERT INTO api_access_log (email, endpoint) VALUES (?, ?)",
+                (email, endpoint),
+            )
+            await db.commit()
+    except Exception:
+        logger.warning("Failed to log API access for %s", email, exc_info=True)
+
+
+@app.get("/api/items")
+async def api_items(request: Request):
+    """Return the lab/task catalog derived from autochecker specs."""
+    email = await _verify_basic_auth(request)
+    if not email:
+        return JSONResponse(
+            {"error": "unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
+        )
+
+    await _log_api_access(email, "/api/items")
+
+    task_meta = load_task_metadata()
+    items = []
+    seen_labs = set()
+    for t in task_meta:
+        lab_id = t["lab_id"]
+        if lab_id not in seen_labs:
+            seen_labs.add(lab_id)
+            items.append({
+                "lab": lab_id,
+                "task": None,
+                "title": _LAB_TITLES.get(lab_id, lab_id),
+                "type": "lab",
+            })
+        items.append({
+            "lab": lab_id,
+            "task": t["task_id"],
+            "title": t["title"],
+            "type": "task",
+        })
+    return JSONResponse(items)
+
+
+@app.get("/api/logs")
+async def api_logs(
+    request: Request,
+    since: Optional[str] = Query(default=None),
+    limit: int = Query(default=500, ge=1, le=5000),
+):
+    """Return anonymized check results for ETL consumption."""
+    email = await _verify_basic_auth(request)
+    if not email:
+        return JSONResponse(
+            {"error": "unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
+        )
+
+    await _log_api_access(email, "/api/logs")
+
+    email_groups = _load_allowed_email_groups()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Build student anonymization map
+        anon_map: dict[int, tuple[str, str]] = {}  # tg_id -> (anon_id, group)
+        async with db.execute(
+            "SELECT tg_id, github_alias, email, student_group FROM users"
+        ) as cur:
+            async for row in cur:
+                group = (row["student_group"] or "").strip()
+                if not group:
+                    group = email_groups.get((row["email"] or "").strip().lower(), "")
+                if not group:
+                    group = "unknown"
+                anon_map[row["tg_id"]] = (
+                    _anonymize_student(row["tg_id"], row["github_alias"]),
+                    group,
+                )
+
+        # Fetch results with optional since filter
+        if since:
+            query = """
+                SELECT id, tg_id, lab_id, task_id, score, passed, failed, total, details, timestamp
+                FROM results WHERE timestamp > ? ORDER BY timestamp ASC LIMIT ?
+            """
+            params = (since, limit + 1)
+        else:
+            query = """
+                SELECT id, tg_id, lab_id, task_id, score, passed, failed, total, details, timestamp
+                FROM results ORDER BY timestamp ASC LIMIT ?
+            """
+            params = (limit + 1,)
+
+        logs = []
+        async with db.execute(query, params) as cur:
+            async for row in cur:
+                tg_id = row["tg_id"]
+                anon = anon_map.get(tg_id)
+                if not anon:
+                    continue
+
+                # Parse score from "75%" string to 75.0
+                score_val = None
+                if row["score"]:
+                    try:
+                        score_val = float(row["score"].rstrip("%"))
+                    except (ValueError, AttributeError):
+                        pass
+
+                # Parse check details (drop error messages, keep id/title/passed)
+                checks = []
+                if row["details"]:
+                    try:
+                        raw_checks = json.loads(row["details"])
+                        for c in raw_checks:
+                            checks.append({
+                                "check_id": c.get("id", ""),
+                                "title": c.get("title", ""),
+                                "passed": bool(c.get("passed", False)),
+                            })
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                logs.append({
+                    "id": row["id"],
+                    "student_id": anon[0],
+                    "group": anon[1],
+                    "lab": row["lab_id"],
+                    "task": row["task_id"],
+                    "score": score_val,
+                    "passed": row["passed"],
+                    "failed": row["failed"],
+                    "total": row["total"],
+                    "checks": checks,
+                    "submitted_at": row["timestamp"],
+                })
+
+    has_more = len(logs) > limit
+    if has_more:
+        logs = logs[:limit]
+
+    return JSONResponse({
+        "logs": logs,
+        "count": len(logs),
+        "has_more": has_more,
+    })
+
+
+@app.get("/api/access-log/{github_alias}")
+async def api_access_log(request: Request, github_alias: str):
+    """Return API access summary for a student (used by autochecker engine).
+
+    Requires relay token auth (same as relay endpoints).
+    """
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    # Look up email by github_alias
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(
+            "SELECT email FROM users WHERE github_alias = ?", (github_alias,)
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return JSONResponse({"error": "user not found"}, status_code=404)
+
+        email = row["email"]
+
+        # Get access summary
+        async with db.execute(
+            """
+            SELECT endpoint, COUNT(*) as call_count,
+                   MIN(timestamp) as first_call, MAX(timestamp) as last_call
+            FROM api_access_log
+            WHERE email = ?
+            GROUP BY endpoint
+            """,
+            (email,),
+        ) as cur:
+            entries = [dict(r) async for r in cur]
+
+    return JSONResponse({
+        "github_alias": github_alias,
+        "endpoints": entries,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Relay: WebSocket for worker + HTTP for engine
+# ---------------------------------------------------------------------------
+
+@app.websocket("/relay/ws")
+async def relay_worker_ws(ws: WebSocket):
+    """WebSocket endpoint for the university VM relay worker."""
+    global _relay_worker
+
+    await ws.accept()
+
+    # First message must be auth
+    try:
+        raw = await asyncio.wait_for(ws.receive_text(), timeout=10)
+        msg = json.loads(raw)
+    except Exception:
+        await ws.close(code=4001, reason="Auth timeout")
+        return
+
+    if not RELAY_TOKEN or msg.get("type") != "auth" or not hmac.compare_digest(msg.get("token", ""), RELAY_TOKEN):
+        await ws.send_json({"type": "auth_fail"})
+        await ws.close(code=4003, reason="Invalid token")
+        return
+
+    await ws.send_json({"type": "auth_ok"})
+    _relay_worker = ws
+    logger.info("Relay worker connected")
+
+    try:
+        while True:
+            raw = await ws.receive_text()
+            result = json.loads(raw)
+            job_id = result.get("job_id")
+            fut = _relay_jobs.pop(job_id, None)
+            if fut and not fut.done():
+                fut.set_result(result)
+    except WebSocketDisconnect:
+        logger.info("Relay worker disconnected")
+    except Exception as e:
+        logger.warning("Relay worker error: %s", e)
+    finally:
+        if _relay_worker is ws:
+            _relay_worker = None
+
+
+async def _await_worker(timeout: float = 12) -> bool:
+    """Wait for the relay worker to (re)connect. Returns True if available."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while asyncio.get_event_loop().time() < deadline:
+        if _relay_worker is not None:
+            return True
+        await asyncio.sleep(1)
+    return False
+
+
+async def _send_relay_job(job: dict, timeout: int) -> JSONResponse:
+    """Send a job to the relay worker with automatic retry on stale connections.
+
+    Handles the case where the university network kills the WebSocket:
+    detects stale connections, clears the worker reference, waits for
+    reconnection, and retries.
+    """
+    global _relay_worker
+
+    for attempt in range(3):
+        if _relay_worker is None:
+            if not await _await_worker(timeout=15):
+                return JSONResponse({"error": "no worker connected", "job_id": job.get("job_id", ""),
+                                     "status_code": 0, "exit_code": -1}, status_code=503)
+
+        job_id = uuid.uuid4().hex[:12]
+        job["job_id"] = job_id
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+        _relay_jobs[job_id] = fut
+
+        try:
+            await _relay_worker.send_json(job)
+            result = await asyncio.wait_for(fut, timeout=timeout + 15)
+            return JSONResponse(result)
+        except asyncio.TimeoutError:
+            _relay_jobs.pop(job_id, None)
+            # Don't clear _relay_worker on timeout — the WebSocket is likely
+            # still alive, the job just took too long (worker busy with other
+            # SSH jobs).  Clearing it here caused ALL subsequent requests to
+            # fail with "no worker connected" even though the worker was fine.
+            logger.warning("Relay job %s timed out (attempt %d)", job_id, attempt + 1)
+            return JSONResponse({"error": "worker timeout", "job_id": job_id,
+                                 "status_code": 0, "exit_code": -1}, status_code=504)
+        except Exception as e:
+            _relay_jobs.pop(job_id, None)
+            logger.warning("Relay send failed (attempt %d): %s", attempt + 1, e)
+            _relay_worker = None  # Connection is actually broken
+            if attempt < 2:
+                continue
+            return JSONResponse({"error": "worker connection lost", "job_id": job_id,
+                                 "status_code": 0, "exit_code": -1}, status_code=502)
+
+    return JSONResponse({"error": "relay failed", "status_code": 0, "exit_code": -1}, status_code=502)
+
+
+@app.post("/relay/check")
+async def relay_check(request: Request):
+    """Submit an HTTP check job to the relay worker. Called by the engine."""
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    body = await request.json()
+    job = {
+        "url": body.get("url", ""),
+        "timeout": min(body.get("timeout", 10), 30),
+    }
+    # Pass through optional method/headers/body for richer HTTP checks
+    if body.get("method"):
+        job["method"] = body["method"]
+    if body.get("headers"):
+        job["headers"] = body["headers"]
+    if body.get("body") is not None:
+        job["body"] = body["body"]
+    return await _send_relay_job(job, timeout=job["timeout"])
+
+
+@app.post("/relay/ssh")
+async def relay_ssh(request: Request):
+    """Submit an SSH check job to the relay worker. Called by the engine."""
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+
+    body = await request.json()
+    timeout = min(body.get("timeout", 10), 120)
+    return await _send_relay_job({
+        "type": "ssh",
+        "host": body.get("host", ""),
+        "port": body.get("port", 22),
+        "username": body.get("username", "autochecker"),
+        "command": body.get("command", "echo ok"),
+        "timeout": timeout,
+    }, timeout=timeout)
+
+
+@app.get("/relay/status")
+async def relay_status(request: Request):
+    """Check if a relay worker is connected."""
+    auth = request.headers.get("Authorization", "")
+    if not RELAY_TOKEN or not hmac.compare_digest(auth, f"Bearer {RELAY_TOKEN}"):
+        return JSONResponse({"error": "unauthorized"}, status_code=403)
+    connected = False
+    if _relay_worker is not None:
+        try:
+            # Check if the WebSocket is still open
+            connected = _relay_worker.client_state.name == "CONNECTED"
+        except Exception:
+            connected = _relay_worker is not None
+    return JSONResponse({"worker_connected": connected})
+
+
+# ---------------------------------------------------------------------------
+# Agent eval API
+# ---------------------------------------------------------------------------
+
+_eval_cache: dict[str, list[dict]] = {}
+
+
+def _load_eval_questions(lab: str) -> list[dict]:
+    """Load non-bot-only questions from the eval YAML for a given lab."""
+    if lab in _eval_cache:
+        return _eval_cache[lab]
+    eval_file = SPECS_DIR / f"{lab}-eval.yaml"
+    if not eval_file.exists():
+        return []
+    with open(eval_file) as f:
+        all_questions = yaml.safe_load(f) or []
+    questions = [q for q in all_questions if not q.get("bot_only", False)]
+    questions.sort(key=lambda q: q["index"])
+    _eval_cache[lab] = questions
+    return questions
+
+
+@app.get("/api/eval/question")
+async def api_eval_question(
+    request: Request,
+    lab: str = Query(..., description="Lab identifier, e.g. lab-06"),
+    index: int = Query(..., ge=0, description="Question index"),
+):
+    """Serve a single eval question by index. Used by run_eval.py for local testing."""
+    email = await _verify_basic_auth(request)
+    if not email:
+        return JSONResponse(
+            {"error": "unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Basic realm=\"autochecker\""},
+        )
+
+    await _log_api_access(email, f"/api/eval/question?lab={lab}&index={index}")
+
+    questions = _load_eval_questions(lab)
+    if not questions:
+        return JSONResponse({"error": f"no eval set found for {lab}"}, status_code=404)
+    if index >= len(questions):
+        return JSONResponse({"error": "index out of range"}, status_code=404)
+
+    q = questions[index]
+    response = {
+        "index": q["index"],
+        "total": len(questions),
+        "question": q["question"],
+        "expected": q.get("expected", {}),
+    }
+    if q.get("expected_source"):
+        response["expected_source"] = q["expected_source"]
+    if q.get("check_tools"):
+        response["check_tools"] = q["check_tools"]
+    if q.get("feedback"):
+        response["feedback"] = q["feedback"]
+    if q.get("rubric"):
+        response["has_rubric"] = True  # flag only, don't expose rubric text
+    return JSONResponse(response)

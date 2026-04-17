@@ -1,0 +1,550 @@
+id: lab-02
+title: "Lab 02 — Run, Fix, and Deploy a Backend Service"
+repo_name: "se-toolkit-lab-2"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}:42002"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.8
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Run the web server"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Identify, report, and fix a bug"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Run the web server using Docker Compose"
+    prerequisite: setup
+  - id: task-4
+    title: "Task 4: Deploy the web server to the VM"
+    prerequisite: setup
+  - id: optional-1
+    title: "Optional 1: Implement the /outcomes endpoint"
+    prerequisite: setup
+  - id: optional-2
+    title: "Optional 2: Make your VM a proxy"
+    prerequisite: setup
+  - id: optional-3
+    title: "Optional 3: Implement the post-order traversal"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_is_fork
+    task: setup
+    title: "Repository is a fork"
+    class: structural
+    runner: code
+    type: repo_is_fork
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of the course instructors' repo.
+      Fork it from https://github.com/inno-se-toolkit/se-toolkit-lab-2.
+    params: {}
+
+  - id: repo_has_issues
+    task: setup
+    title: "Issues are enabled"
+    class: structural
+    runner: code
+    type: repo_has_issues
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Enable issues in your repo: Settings -> General -> Features -> Issues.
+    params: {}
+
+  # =====================================================
+  # TASK 1: Run the web server
+  # =====================================================
+
+  - id: task1_issue_exists
+    task: task-1
+    title: "Task issue exists and is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create a GitHub issue with the title: [Task] Run the web server.
+      Close it with a comment containing the JSON response of /status.
+    params:
+      title_regex: "\\[Task\\]\\s+Run the web server$"
+      state: "closed"
+
+  - id: task1_issue_has_status_comment
+    task: task-1
+    title: "Issue has /status JSON response in a comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: true
+    weight: 2
+    depends_on: [task1_issue_exists]
+    hint: >
+      Close the issue with a comment that contains the JSON response
+      from the /status endpoint (e.g., "status": "ok").
+    params:
+      title_regex: "\\[Task\\]\\s+Run the web server$"
+      comment_pattern: "\"status\".*\"ok\""
+      state: "closed"
+
+  # =====================================================
+  # TASK 2: Identify, report, and fix a bug
+  # =====================================================
+
+  - id: task2_issue_exists
+    task: task-2
+    title: "Lab Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Identify, report, and fix a bug.
+    params:
+      title_regex: "\\[Task\\]\\s+Identify.*bug"
+      state: "all"
+
+  - id: bug_issue_exists
+    task: task-2
+    title: "Bug Report issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create a GitHub issue with the title starting with [Bug].
+      Example: [Bug] Endpoint returns 404 instead of 200.
+    params:
+      title_regex: "^\\[Bug\\]"
+      state: "all"
+
+  - id: bug_issue_has_structure
+    task: task-2
+    title: "Bug Report has expected/actual behavior sections"
+    class: process
+    runner: code
+    type: issue_body_regex_all
+    is_required: true
+    weight: 3
+    depends_on: [bug_issue_exists]
+    hint: >
+      Your Bug Report issue must include: Steps to reproduce,
+      Expected behavior, and Actual behavior sections.
+    params:
+      title_regex: "^\\[Bug\\]"
+      rules:
+        steps:
+          pattern: "(?i)steps to reproduce"
+        expected:
+          pattern: "(?i)expected"
+        actual:
+          pattern: "(?i)actual"
+
+  - id: bugfix_pr_merged
+    task: task-2
+    title: "Bug fix PR is merged and closes the Bug Report issue"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Create a PR that fixes the bug with 'Closes #<bug-issue-number>'
+      in the description and merge it. The PR title should contain 'fix'.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)fix"
+      closes_issue: true
+
+  - id: bugfix_pr_approved
+    task: task-2
+    title: "Bug fix PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 3
+    depends_on: [bug_issue_exists]
+    hint: >
+      Ask your partner to review and approve your bug fix PR.
+    params:
+      title_regex: "^\\[Bug\\]"
+      min_approvals: 1
+
+  - id: bugfix_commit_message
+    task: task-2
+    title: "Commit message matches the required format"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your fix commit message should start with:
+      fix: bug in the dfs logic
+    params:
+      pattern: "^fix:\\s+bug in the dfs logic"
+
+  - id: bugfix_code_correct
+    task: task-2
+    title: "Bug fix is present in the code"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    depends_on: [bugfix_pr_merged]
+    hint: >
+      The fix should change `lab.id == item_id` to `task.id == item_id`
+      in src/app/services/item_service.py.
+    params:
+      path: "src/app/services/item_service.py"
+      pattern: "task\\.id\\s*==\\s*item_id"
+
+  - id: bugfix_pr_touches_service
+    task: task-2
+    title: "Bug fix PR modifies the item service"
+    class: structural
+    runner: code
+    type: pr_touches_paths
+    is_required: true
+    weight: 3
+    depends_on: [bugfix_pr_merged]
+    hint: >
+      Your bug fix PR should modify src/app/services/item_service.py.
+    params:
+      title_regex: "(?i)fix"
+      paths: ["src/app/services/"]
+      min_files: 1
+
+  - id: bugfix_tests_pass
+    task: task-2
+    title: "Tests pass after the bug fix"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: true
+    weight: 5
+    depends_on: [bugfix_pr_merged]
+    hint: >
+      All tests must pass after your bug fix.
+      Run `uv run poe test` locally to verify.
+    params:
+      commands:
+        - "uv sync"
+        - "uv run poe test"
+      timeout: 120
+
+  # =====================================================
+  # TASK 3: Run the web server using Docker Compose
+  # =====================================================
+
+  - id: task3_issue_exists
+    task: task-3
+    title: "Task issue exists and is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 3
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Run the web server using Docker Compose.
+      Close it with a comment containing the JSON response of /status.
+    params:
+      title_regex: "\\[Task\\]\\s+Run the web server using Docker Compose"
+      state: "closed"
+
+  - id: task3_issue_has_status_comment
+    task: task-3
+    title: "Issue has /status JSON response in a comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Close the issue with a comment that contains the JSON response
+      from the /status endpoint (e.g., "status": "ok").
+    params:
+      title_regex: "\\[Task\\]\\s+Run the web server using Docker Compose"
+      comment_pattern: "\"status\".*\"ok\""
+      state: "closed"
+
+  # =====================================================
+  # TASK 4: Deploy the web server to the VM
+  # =====================================================
+
+  - id: task4_issue_exists
+    task: task-4
+    title: "Task issue exists and is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Deploy the web server to the VM.
+      Close it with a comment containing the JSON response of /status.
+    params:
+      title_regex: "\\[Task\\]\\s+Deploy the web server to the VM"
+      state: "closed"
+
+  - id: task4_issue_has_status_comment
+    task: task-4
+    title: "Issue has /status JSON response in a comment"
+    class: process
+    runner: code
+    type: issue_comment_regex
+    is_required: true
+    weight: 1
+    depends_on: [task4_issue_exists]
+    hint: >
+      Close the issue with a comment that contains the JSON response
+      from the /status endpoint (e.g., "status": "ok").
+    params:
+      title_regex: "\\[Task\\]\\s+Deploy the web server to the VM"
+      comment_pattern: "\"status\".*\"ok\""
+      state: "closed"
+
+  - id: prod_status_ok
+    task: task-4
+    title: "Deployed /status endpoint returns 200"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 6
+    hint: >
+      Your deployed service at http://<vm-ip>:42002/status must return HTTP 200.
+      Make sure Docker Compose is running on the VM.
+    params:
+      runtime: prod
+      path: "/status"
+      expect_status: 200
+
+  - id: prod_status_body
+    task: task-4
+    title: "Deployed /status returns correct JSON"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 4
+    depends_on: [prod_status_ok]
+    hint: >
+      The /status endpoint must return JSON with "status" and "service" fields.
+    params:
+      runtime: prod
+      path: "/status"
+      expect_status: 200
+      expect_body_regex: "\"status\".*\"ok\""
+
+  - id: prod_items_ok
+    task: task-4
+    title: "Deployed /items/courses endpoint returns 200"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 5
+    depends_on: [prod_status_ok]
+    hint: >
+      Your deployed service at http://<vm-ip>:42002/items/courses must return HTTP 200.
+      This verifies the application is fully functional.
+    params:
+      runtime: prod
+      path: "/items/courses"
+      expect_status: 200
+
+  # =====================================================
+  # OPTIONAL 1: Implement the /outcomes endpoint
+  # =====================================================
+
+  - id: outcomes_issue_exists
+    task: optional-1
+    title: "Outcomes task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue for the /outcomes endpoint task.
+    params:
+      title_regex: "\\[Task\\].*[Oo]utcomes"
+      state: "all"
+
+  - id: outcomes_pr_merged
+    task: optional-1
+    title: "Outcomes feature PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [outcomes_issue_exists]
+    hint: >
+      Create and merge a PR that implements the /outcomes endpoint.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)outcomes"
+
+  - id: outcomes_tests_pass
+    task: optional-1
+    title: "Tests pass with /outcomes endpoint"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: false
+    weight: 3
+    depends_on: [outcomes_pr_merged]
+    hint: >
+      All tests must pass after implementing the /outcomes endpoint.
+      Run `uv run poe test` locally to verify.
+    params:
+      commands:
+        - "uv sync"
+        - "uv run poe test"
+      timeout: 120
+
+  # =====================================================
+  # OPTIONAL 2: Make your VM a proxy
+  # =====================================================
+
+  - id: proxy_issue_exists
+    task: optional-2
+    title: "Proxy task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue for the proxy task.
+    params:
+      title_regex: "\\[Task\\].*[Pp]roxy"
+      state: "all"
+
+  - id: proxy_pr_merged
+    task: optional-2
+    title: "Proxy feature PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [proxy_issue_exists]
+    hint: >
+      Create and merge a PR for the proxy configuration.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)proxy"
+
+  # =====================================================
+  # OPTIONAL 3: Implement the post-order traversal
+  # =====================================================
+
+  - id: postorder_issue_exists
+    task: optional-3
+    title: "Post-order traversal task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Implement the post-order traversal.
+    params:
+      title_regex: "\\[Task\\].*post.?order"
+      state: "all"
+
+  - id: postorder_pr_merged
+    task: optional-3
+    title: "Post-order traversal PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [postorder_issue_exists]
+    hint: >
+      Create and merge a PR that implements the post-order traversal.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)post.?order"
+
+  - id: postorder_code_implemented
+    task: optional-3
+    title: "PostOrder case is implemented (not just pass)"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: false
+    weight: 2
+    depends_on: [postorder_pr_merged]
+    hint: >
+      The PostOrder() case in get_item_by_id_dfs_iterative must have
+      actual traversal logic, not just "pass" or "TODO".
+    params:
+      path: "src/app/services/item_service.py"
+      pattern: "PostOrder\\(\\)[\\s\\S]*?counter\\s*\\+=\\s*1"
+
+  - id: postorder_tests_pass
+    task: optional-3
+    title: "Tests pass with post-order traversal"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: false
+    weight: 3
+    depends_on: [postorder_pr_merged]
+    hint: >
+      All tests must pass after implementing the post-order traversal.
+      Run `uv run poe test` locally to verify.
+    params:
+      commands:
+        - "uv sync"
+        - "uv run poe test"
+      timeout: 120

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Autochecker Dashboard</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231a1a2e'/><text x='16' y='23' text-anchor='middle' font-family='system-ui,sans-serif' font-size='20' font-weight='700' fill='white'>A</text></svg>">
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1a1a1a; display: flex; flex-direction: column; min-height: 100vh; }
+
+        .header { background: #1a1a2e; color: #fff; padding: 1.25rem 2rem; }
+        .header h1 { font-size: 1.25rem; font-weight: 600; }
+
+        .login-container { flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+        .login-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 2rem; width: 100%; max-width: 360px; }
+        .login-card h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 1.25rem; color: #1a1a2e; }
+
+        .field { margin-bottom: 1rem; }
+        .field label { display: block; font-size: 0.8rem; font-weight: 600; color: #374151; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 0.35rem; }
+        .field input { width: 100%; padding: 0.6rem 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; outline: none; transition: border-color 0.15s; }
+        .field input:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+
+        .error { color: #dc2626; font-size: 0.85rem; margin-bottom: 1rem; }
+
+        .btn-login { width: 100%; padding: 0.6rem 1rem; border-radius: 6px; font-size: 0.9rem; font-weight: 600; border: none; cursor: pointer; background: #1a1a2e; color: #fff; transition: background 0.15s; }
+        .btn-login:hover { background: #2d2d4e; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Autochecker Dashboard</h1>
+    </div>
+    <div class="login-container">
+        <div class="login-card">
+            <h2>Sign in</h2>
+            {% if error %}
+            <p class="error">Wrong password. Try again.</p>
+            {% endif %}
+            <form method="post" action="/login">
+                <div class="field">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required autofocus>
+                </div>
+                <button type="submit" class="btn-login">Sign in</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

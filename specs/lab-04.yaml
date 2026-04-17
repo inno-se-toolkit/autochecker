@@ -1,0 +1,684 @@
+id: lab-04
+title: "Lab 04 — Testing, Front-end, and AI Agents"
+repo_name: "se-toolkit-lab-4"
+
+discovery:
+  mode: "alias_repo_name"
+  default_branch: "main"
+
+runtime:
+  prod:
+    base_url: "http://{server_ip}:42002"
+
+scoring:
+  mode: "weighted"
+  pass_threshold: 0.8
+  score_required_only: true
+
+tasks:
+  - id: setup
+    title: "Lab setup"
+  - id: task-1
+    title: "Task 1: Observe System Component Interaction"
+    prerequisite: setup
+  - id: task-2
+    title: "Task 2: Back-end Testing"
+    prerequisite: setup
+  - id: task-3
+    title: "Task 3: Add Front-end"
+    prerequisite: setup
+  - id: optional-1
+    title: "Optional 1: CI/CD with GitHub Actions"
+    prerequisite: setup
+
+checks:
+
+  # =====================================================
+  # SETUP
+  # =====================================================
+
+  - id: repo_exists
+    task: setup
+    title: "Repository exists and is accessible"
+    class: structural
+    runner: code
+    type: repo_exists
+    is_required: true
+    weight: 5
+    hint: >
+      Your repository is not accessible. Make sure you forked the lab repo
+      and that your fork is public (Settings -> Danger Zone -> Change visibility).
+    params: {}
+
+  - id: repo_is_fork
+    task: setup
+    title: "Repository is a fork"
+    class: structural
+    runner: code
+    type: repo_is_fork
+    is_required: true
+    weight: 3
+    depends_on: [repo_exists]
+    hint: >
+      Your repository must be a fork of the course instructors' repo.
+      Fork it from https://github.com/inno-se-toolkit/se-toolkit-lab-4.
+    params: {}
+
+  - id: repo_has_issues
+    task: setup
+    title: "Issues are enabled"
+    class: structural
+    runner: code
+    type: repo_has_issues
+    is_required: true
+    weight: 2
+    depends_on: [repo_exists]
+    hint: >
+      Enable issues in your repo: Settings -> General -> Features -> Issues.
+    params: {}
+
+  # =====================================================
+  # TASK 1: Observe System Component Interaction
+  # =====================================================
+
+  - id: task1_issue_exists
+    task: task-1
+    title: "Task issue exists and is closed"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Observe System Component Interaction.
+      Close the issue when you are done.
+    params:
+      title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+      state: "closed"
+
+  - id: task1_issue_has_screenshots
+    task: task-1
+    title: "Issue comment has required evidence (current or legacy)"
+    class: process
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 3
+    depends_on: [task1_issue_exists]
+    hint: >
+      Add evidence in issue comments.
+      Current task accepts fetch/JSON/CSV evidence and ERD screenshot.
+      Legacy screenshot-only evidence is also accepted.
+    params:
+      checks:
+        # Current: request copied as fetch code block
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "```(?:js|javascript|ts|typescript)?\\s*fetch\\("
+            state: "closed"
+        # Current: response pasted as JSON code block
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "```json\\s*\\{"
+            state: "closed"
+        # Current: data output evidence attached/pasted as CSV/TSV
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "(\\.csv\\)|\\.csv\\]|\\.csv\\s|\\.tsv\\)|\\.tsv\\]|\\.tsv\\s|```csv|```tsv)"
+            state: "closed"
+        # Legacy + current: screenshot evidence (markdown image or HTML image)
+        - type: issue_comment_regex
+          params:
+            title_regex: "\\[Task\\]\\s+Observe System Component Interaction"
+            comment_pattern: "!\\[|<img"
+            state: "closed"
+
+  - id: task1_ssh_connectivity
+    task: task-1
+    title: "SSH login as autochecker works"
+    class: execution
+    runner: code
+    type: ssh_check
+    is_required: true
+    weight: 5
+    hint: >
+      Create an 'autochecker' user on your VM and add the autochecker's
+      public SSH key to /home/autochecker/.ssh/authorized_keys.
+    params:
+      runtime: prod
+      username: autochecker
+      command: "echo ok"
+      expect_exit: 0
+      expect_regex: "ok"
+
+  - id: task1_deployment_docs
+    task: task-1
+    title: "Deployed /docs returns 200"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 4
+    depends_on: [task1_ssh_connectivity]
+    hint: >
+      The Swagger UI at http://<vm-ip>:42002/docs should be accessible.
+      Make sure your Docker Compose services are running on the VM.
+    params:
+      runtime: prod
+      path: "/docs"
+      expect_status: 200
+
+  # =====================================================
+  # TASK 2: Back-end Testing
+  # =====================================================
+
+  - id: task2_issue_exists
+    task: task-2
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Back-end Testing.
+    params:
+      title_regex: "\\[Task\\]\\s+Back-end Testing"
+      state: "all"
+
+  - id: task2_bug1_fixed
+    task: task-2
+    title: "Part A bug fixed in interactions filter"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 4
+    hint: >
+      Fix the bug in the interactions filter function in
+      backend/app/routers/interactions.py.
+    params:
+      checks:
+        # Current: boundary fix (< to <=)
+        - type: regex_in_file
+          params:
+            path: "backend/app/routers/interactions.py"
+            pattern: "i\\.item_id\\s*<=\\s*max_item_id"
+        # Legacy: wrong-field fix (learner_id to item_id)
+        - type: regex_in_file
+          params:
+            path: "backend/app/routers/interactions.py"
+            pattern: "i\\.item_id\\s*==\\s*item_id"
+
+  - id: task2_bug2_fixed
+    task: task-2
+    title: "Bug 2 fixed: created_at in InteractionModel"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 4
+    hint: >
+      In backend/app/models/interaction.py, change 'timestamp' to 'created_at'
+      in the InteractionModel class to match the database column name.
+    params:
+      path: "backend/app/models/interaction.py"
+      pattern: "created_at:\\s*datetime"
+      min_matches: 2
+
+  - id: task2_commit_bug1
+    task: task-2
+    title: "Commit message for Part A fix"
+    class: process
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message for the Part A fix should follow the
+      conventional commit format starting with 'fix:'.
+    params:
+      checks:
+        # Current: boundary fix commit
+        - type: commit_message_regex
+          params:
+            pattern: "^fix:\\s+use <=? instead of <"
+        # Legacy: wrong-field fix commit
+        - type: commit_message_regex
+          params:
+            pattern: "^fix:\\s+filter interactions by item_id"
+
+  - id: task2_commit_bug2
+    task: task-2
+    title: "Commit message for Bug 2 fix"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message for Bug 2 should be:
+      fix: rename timestamp to created_at in InteractionModel
+    params:
+      pattern: "^fix:\\s+rename timestamp to created_at"
+
+  - id: task2_unit_test_added
+    task: task-2
+    title: "Boundary-value unit test added"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 3
+    hint: >
+      Add the boundary-value unit test to
+      backend/tests/unit/test_interactions.py.
+    params:
+      checks:
+        # Current: boundary test (item_id at boundary)
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions.py"
+            pattern: "def test_filter_includes_interaction_at_boundary"
+        # Legacy: wrong-field test
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions.py"
+            pattern: "def test_filter_(includes|excludes)_interaction_with_different_learner_id"
+
+  - id: task2_e2e_test_status
+    task: task-2
+    title: "E2E test for GET /interactions status 200 added"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: true
+    weight: 3
+    hint: >
+      Add the test test_get_interactions_returns_200 to
+      backend/tests/e2e/test_interactions.py.
+    params:
+      path: "backend/tests/e2e/test_interactions.py"
+      pattern: "def test_get_interactions_returns_200"
+
+  - id: task2_e2e_test_list
+    task: task-2
+    title: "E2E test for response structure added"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 3
+    hint: >
+      Add an end-to-end test that validates the response structure
+      to backend/tests/e2e/test_interactions.py.
+    params:
+      checks:
+        # Current: checks response items have expected fields
+        - type: regex_in_file
+          params:
+            path: "backend/tests/e2e/test_interactions.py"
+            pattern: "def test_get_interactions_response_items_have_expected_fields"
+        # Legacy: checks response is a list
+        - type: regex_in_file
+          params:
+            path: "backend/tests/e2e/test_interactions.py"
+            pattern: "def test_get_interactions_response_is_a_list"
+
+  - id: task2_commit_ai_tests
+    task: task-2
+    title: "Commit message for AI-generated tests"
+    class: process
+    runner: code
+    type: commit_message_regex
+    is_required: true
+    weight: 2
+    hint: >
+      Your commit message for AI-generated tests should be:
+      test: add curated AI-generated unit tests
+    params:
+      pattern: "^test:\\s+add curated AI-generated unit tests"
+
+  - id: task2_ai_tests_present
+    task: task-2
+    title: "AI-generated unit tests present"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 3
+    hint: >
+      Generate AI tests and curate them. Keep at least 2, discard at least 1.
+      Current instructions: write to backend/tests/unit/test_interactions_ai.py.
+    params:
+      checks:
+        # Current: separate AI test file with at least 2 test functions
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions_ai.py"
+            pattern: "^def test_"
+            min_matches: 2
+        # Legacy: all tests in one file (3 original + 1 boundary + 2 AI = 6)
+        - type: regex_in_file
+          params:
+            path: "backend/tests/unit/test_interactions.py"
+            pattern: "^def test_"
+            min_matches: 6
+
+  - id: task2_unit_tests_pass
+    task: task-2
+    title: "All unit tests pass"
+    class: execution
+    runner: code
+    type: clone_and_run
+    is_required: true
+    weight: 5
+    hint: >
+      All unit tests must pass. Run `uv run poe test` locally to verify.
+    params:
+      commands:
+        - "uv sync"
+        - "API_TOKEN=test uv run poe test"
+      timeout: 180
+
+  - id: task2_interactions_deployed
+    task: task-2
+    title: "Deployed /interactions endpoint is registered"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 3
+    depends_on: [task1_deployment_docs]
+    hint: >
+      The /interactions endpoint must be enabled and deployed.
+      Set ENABLE_INTERACTIONS=true in your .env.docker.secret on the VM.
+    params:
+      runtime: prod
+      path: "/interactions/"
+      expect_status: 401
+
+  - id: task2_issue_has_linked_pr
+    task: task-2
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task2_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Back-end Testing"
+      merged: true
+
+  - id: task2_pr_approved
+    task: task-2
+    title: "Task 2 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task2_issue_exists]
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Back-end Testing"
+      min_approvals: 1
+
+  # =====================================================
+  # TASK 3: Add Front-end
+  # =====================================================
+
+  - id: task3_issue_exists
+    task: task-3
+    title: "Task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: true
+    weight: 2
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] Add Front-end.
+    params:
+      title_regex: "\\[Task\\]\\s+Add Front-end"
+      state: "all"
+
+  - id: task3_description_in_interface
+    task: task-3
+    title: "Type filter control added (or legacy description field)"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 3
+    hint: >
+      Current task: add a type filter control to
+      frontend/src/App.tsx.
+      Legacy task: add a 'description' field to Item interface in
+      frontend/src/App.tsx.
+    params:
+      checks:
+        # Current: filter UI control exists
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<select"
+        # Current: selected filter state exists
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "useState\\(\\s*['\"]all['\"]\\s*\\)|useState\\(\\s*['\"]All['\"]\\s*\\)"
+        # Legacy: description field in interface
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "description.*string"
+
+  - id: task3_description_header
+    task: task-3
+    title: "All option exists in type filter (or legacy description header)"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 3
+    hint: >
+      Current task: include an 'All' option in the type filter dropdown.
+      Legacy task: add a <th>Description</th> header in
+      frontend/src/App.tsx.
+    params:
+      checks:
+        # Current: explicit All option
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<option[^>]*>\\s*All\\s*</option>"
+        # Current: fallback check for All literal near option tags
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<option[^>]*value=['\"]all['\"][^>]*>|['\"]All['\"]\\s*</option>"
+        # Legacy: description table header
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "<th>Description</th>"
+
+  - id: task3_description_cell
+    task: task-3
+    title: "Rows filtered by type (or legacy description cell)"
+    class: structural
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 3
+    hint: >
+      Current task: filter rows by selected item type in
+      frontend/src/App.tsx.
+      Legacy task: render item.description in table rows.
+    params:
+      checks:
+        # Current: rows are filtered by type before rendering
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "\\.filter\\([\\s\\S]{0,250}item\\.type"
+        # Current: explicit type comparison in filtering condition
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "item\\.type\\s*===|selected.*type|type.*selected"
+        # Legacy: description value rendered
+        - type: regex_in_file
+          params:
+            path: "frontend/src/App.tsx"
+            pattern: "item\\.description"
+
+  - id: task3_commit_description
+    task: task-3
+    title: "Commit message for front-end feature (current or legacy)"
+    class: process
+    runner: code
+    type: any_of
+    is_required: true
+    weight: 2
+    hint: >
+      Current task commit message:
+      feat: add type filter to the front-end table
+      Legacy commit message for description column is also accepted.
+    params:
+      checks:
+        # Current: type filter commit
+        - type: commit_message_regex
+          params:
+            pattern: "^feat:\\s+add type filter to the front-end table"
+        # Current: slightly different wording (frontend/front-end)
+        - type: commit_message_regex
+          params:
+            pattern: "^feat:\\s+add type filter.*front[\\- ]end"
+        # Legacy: description column commit
+        - type: commit_message_regex
+          params:
+            pattern: "^feat:\\s+add description column"
+
+  - id: task3_frontend_deployed
+    task: task-3
+    title: "Frontend is served on the VM"
+    class: execution
+    runner: code
+    type: http_check
+    is_required: true
+    weight: 4
+    depends_on: [task1_deployment_docs]
+    hint: >
+      Rebuild the Caddy container on your VM with
+      'docker compose --env-file .env.docker.secret up --build caddy -d'.
+      Caddy serves the frontend at the root URL (http://<vm-ip>:<api-port>/).
+    params:
+      runtime: prod
+      path: "/"
+      expect_status: 200
+      expect_body_regex: "<html|<!doctype"
+
+  - id: task3_issue_has_linked_pr
+    task: task-3
+    title: "Task issue is closed by a PR"
+    class: process
+    runner: code
+    type: issue_has_linked_pr
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Create a PR that closes this issue using 'Closes #<issue-number>'
+      in the PR description.
+    params:
+      title_regex: "\\[Task\\]\\s+Add Front-end"
+      merged: true
+
+  - id: task3_pr_approved
+    task: task-3
+    title: "Task 3 PR has at least 1 approval"
+    class: process
+    runner: code
+    type: issue_pr_approved
+    is_required: true
+    weight: 2
+    depends_on: [task3_issue_exists]
+    hint: >
+      Ask your partner to review and approve your PR.
+    params:
+      title_regex: "\\[Task\\]\\s+Add Front-end"
+      min_approvals: 1
+
+  # =====================================================
+  # OPTIONAL 1: CI/CD with GitHub Actions
+  # =====================================================
+
+  - id: ci_issue_exists
+    task: optional-1
+    title: "CI task issue exists"
+    class: process
+    runner: code
+    type: issue_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create a GitHub issue with the title:
+      [Task] CI/CD.
+    params:
+      title_regex: "\\[Task\\].*CI/?CD"
+      state: "all"
+
+  - id: ci_workflow_exists
+    task: optional-1
+    title: "CI workflow file exists"
+    class: structural
+    runner: code
+    type: file_exists
+    is_required: false
+    weight: 1
+    hint: >
+      Create the file .github/workflows/ci.yml with your CI workflow.
+    params:
+      path: ".github/workflows/ci.yml"
+
+  - id: ci_workflow_has_test
+    task: optional-1
+    title: "CI workflow runs tests"
+    class: structural
+    runner: code
+    type: regex_in_file
+    is_required: false
+    weight: 1
+    depends_on: [ci_workflow_exists]
+    hint: >
+      Your CI workflow should run tests with 'uv run poe test'.
+    params:
+      path: ".github/workflows/ci.yml"
+      pattern: "poe test"
+
+  - id: ci_pr_merged
+    task: optional-1
+    title: "CI feature PR is merged"
+    class: process
+    runner: code
+    type: pr_merged_exists
+    is_required: false
+    weight: 2
+    depends_on: [ci_issue_exists]
+    hint: >
+      Create and merge a PR with your CI workflow.
+      Make sure the PR targets YOUR fork's main branch, not the original repo.
+    params:
+      title_regex: "(?i)(ci|github.?action)"
