@@ -143,8 +143,7 @@ async def auth_middleware(request: Request, call_next):
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request, error: Optional[str] = Query(default=None)):
     """Render the login form."""
-    return templates.TemplateResponse("login.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "login.html", {
         "error": error,
     })
 
@@ -383,8 +382,7 @@ async def index(request: Request, lab: Optional[str] = Query(default=None)):
         not_started = len(students)
         completed_count = 0
 
-    return templates.TemplateResponse("index.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "index.html", {
         "students": students,
         "tasks": tasks,
         "scores": scores,
@@ -535,8 +533,7 @@ async def student_detail(
             key=lambda row: (row["lab_id"], row["task_id"]),
         )
 
-    return templates.TemplateResponse("student.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "student.html", {
         "student": student,
         "results": results,
         "task_attempts": task_attempts,
