@@ -8,6 +8,9 @@ services:
     env_file: .env
     environment:
       - DB_PATH=/app/data/bot.db
+      # Inside the container the private key is mounted at /app/ssh_key.
+      # deploy/.env SSH_KEY_PATH remains the host path used by the volume mount.
+      - SSH_KEY_PATH=/app/ssh_key
     volumes:
       - bot-data:/app/data
       - autochecker-results:/app/results
